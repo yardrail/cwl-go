@@ -1,0 +1,40 @@
+version: '3'
+
+tasks:
+  generate:
+    desc: Run go generate across the module (currently a no-op until the CWL schema is vendored)
+    cmd: go generate ./...
+
+  lint:
+    desc: Run all lints
+    cmds:
+      - golangci-lint config verify
+      - golangci-lint fmt ./...
+      - golangci-lint run --fix --max-same-issues 50 ./...
+      - go-arch-lint check
+      - govulncheck ./...
+      - nilaway -exclude-file-docstrings "Code generated" -exclude-test-files ./...
+
+  test:
+    desc: Run the test suite
+    cmd: go test ./...
+
+  docs:agents:
+    desc: Regenerate AGENTS.md from scripts/gen-agents-md/AGENTS.md.tmpl and the current package docs
+    sources:
+      - scripts/gen-agents-md/**/*
+      - cmd/**/*.go
+      - pkg/**/*.go
+    generates:
+      - AGENTS.md
+    cmd: go run ./scripts/gen-agents-md
+
+  docs:agents:check:
+    desc: Fail if AGENTS.md is out of date with the template or the package docs (used in CI)
+    cmds:
+      - task: docs:agents
+      - |
+        git diff --exit-code -- AGENTS.md || {
+          echo "AGENTS.md is out of date -- run 'task docs:agents' and commit the result" >&2
+          exit 1
+        }

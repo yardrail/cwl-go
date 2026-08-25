@@ -1,0 +1,15 @@
+# AGENTS.md
+
+## Taskfile targets
+
+This project uses [Task](https://taskfile.dev) (`Taskfile.yml`) to run common workflows. Run `task <name>` for any of the following:
+
+{{range .Tasks}}- `{{.Name}}` — {{.Desc}}
+{{end -}}
+
+## Package map
+
+Package doc comments for everything under `cmd/` and `pkg/`, scraped via `go list`.
+
+{{range .Packages}}- `{{.ImportPath}}` — {{.Doc}}
+{{end -}}

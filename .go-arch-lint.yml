@@ -1,0 +1,36 @@
+version: 3
+workdir: .
+
+allow:
+  depOnAnyVendor: true
+  deepScan: false
+
+components:
+  # generic Schema Salad engine — zero knowledge of CWL, no internal deps
+  salad:    { in: pkg/salad/** }
+
+  # CWL v1.2 typed object model, built on salad
+  cwlcore:  { in: pkg/cwlcore/** }
+
+  # runtime/scheduler, built on cwlcore
+  cwlexec:  { in: pkg/cwlexec/** }
+
+  # entry points
+  cmd:      { in: cmd/** }
+
+  # doc generation tooling, not part of the library surface
+  tooling:  { in: scripts/** }
+
+deps:
+  # Self-deps allow external test packages (package foo_test) to import the
+  # package they exercise.
+
+  salad:    { mayDependOn: [salad] }
+  cwlcore:  { mayDependOn: [cwlcore, salad] }
+  cwlexec:  { mayDependOn: [cwlexec, cwlcore, salad] }
+
+  # the cmd binaries wire the library packages together; none of the library
+  # packages may import cmd
+  cmd:      { mayDependOn: [cmd, salad, cwlcore, cwlexec] }
+
+  tooling:  { mayDependOn: [tooling] }

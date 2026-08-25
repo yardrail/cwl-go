@@ -1,0 +1,7 @@
+/cwl-run
+/cwl-validate
+/cwl-inspect
+*.exe
+
+# Task's checksum cache for sources/generates up-to-date checks
+/.task/

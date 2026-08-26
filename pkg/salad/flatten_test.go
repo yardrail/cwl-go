@@ -410,6 +410,67 @@ $graph:
 	}
 }
 
+func TestFlattenEnumFieldOverrideNarrowing(t *testing.T) {
+	t.Parallel()
+
+	const fixture = `
+$base: "` + testSchemaBase + `"
+$namespaces:
+  t: "` + testSchemaBase + `"
+$graph:
+- name: BaseClass
+  type: enum
+  symbols: [t:Base]
+- name: DerivedClass
+  type: enum
+  symbols: [t:Derived]
+- name: UnrelatedClass
+  type: enum
+  symbols: [t:Something]
+- name: Base
+  type: record
+  fields:
+    - name: class
+      type: BaseClass
+- name: Derived
+  type: record
+  extends: Base
+  fields:
+    - name: class
+      type: %s
+`
+
+	cases := []struct {
+		name        string
+		derivedType string
+		wantErr     string
+	}{
+		{
+			name:        "an override naming itself is accepted",
+			derivedType: "DerivedClass",
+		},
+		{
+			name:        "an override naming an unrelated symbol is rejected",
+			derivedType: "UnrelatedClass",
+			wantErr:     msgNotNarrow,
+		},
+		{
+			name:        "an override restating the identical named enum is still accepted",
+			derivedType: "BaseClass",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := flattenSource(t, strings.Replace(fixture, "%s", tc.derivedType, 1))
+
+			assertErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
 func TestFlattenEnumExtendsMergesSymbols(t *testing.T) {
 	t.Parallel()
 

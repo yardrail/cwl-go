@@ -251,13 +251,35 @@ func (f *flattener) checkOverride(s *Schema, b *typeBuilder, ov fieldOverride) *
 		return err
 	}
 
-	if s.IsSubtype(sub, super) {
+	if overrideNarrows(s, sub, super, ov.record) {
 		return nil
 	}
 
 	return Errorf(nodeLoc(nodeOrNil(ov.own, keyType)),
 		"%s re-specifies the field %q inherited from %s, but %s does not narrow %s",
 		shortName(ov.record), fieldShortName(ov.own), shortName(ov.base), typeLabel(sub), typeLabel(super))
+}
+
+// overrideNarrows reports whether checkOverride should accept a re-specified
+// field.
+//
+// For a genuinely different enum-vs-enum pair — the "class" discriminator
+// pattern — the generic structural walk is the wrong tool: Schema.IsSubtype
+// matches symbols by short name regardless of which record declared them,
+// which would narrow one record's class enum into a completely unrelated one.
+// That case is judged solely by whether the overriding record supplied its own
+// name as a symbol. A pair that is the identical named enum restated
+// unchanged (not a real override) still goes through Schema.IsSubtype, as does
+// every non-enum pair (scalar, array, union, record...), exactly as before.
+func overrideNarrows(s *Schema, sub, super Type, recordName string) bool {
+	subEnum, subIsEnum := sub.(*EnumType)
+	superEnum, superIsEnum := super.(*EnumType)
+
+	if subIsEnum && superIsEnum && !sameTypeName(subEnum.Name, superEnum.Name) {
+		return subEnum.narrowsFieldOverride(recordName)
+	}
+
+	return s.IsSubtype(sub, super)
 }
 
 // markInherited records which base record a field was copied down from, unless it

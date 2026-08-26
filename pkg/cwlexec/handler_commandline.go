@@ -503,7 +503,7 @@ func (i *invocation) stdinPath() (string, error) {
 		return "", err
 	}
 
-	return i.mapper.hostPath(outAbsolutize(seen, i.runtime.Outdir)), nil
+	return i.mapper.hostSource(outAbsolutize(seen, i.runtime.Outdir)), nil
 }
 
 // declaredStdin resolves what the tool named as its standard input, as the tool sees it.

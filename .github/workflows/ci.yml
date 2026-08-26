@@ -67,6 +67,17 @@ jobs:
       - name: Stage 0 + Stage 1 (ratcheted; required subset gated at 100%)
         run: task test:conformance:run -- -gate-required
 
+      # Temporary. cwltest runs the runner with --quiet, so a document that exits
+      # non-zero reports only "Returned non-zero" and the reason never reaches
+      # the log. This runs the one such failure directly, for its stderr.
+      - name: Diagnose search.cwl
+        if: always()
+        run: |
+          corpus="$HOME/.cache/cwl-go/conformance/cwl-v1.2-v1.2.1"
+          cd "$corpus" || { echo "no corpus at $corpus"; ls -la "$HOME/.cache/cwl-go/conformance" || true; exit 0; }
+          "$GITHUB_WORKSPACE/bin/cwl-run" --outdir="$(mktemp -d)" \
+            'tests/search.cwl#main' tests/search-job.json || true
+
       - name: Upload conformance results
         if: always()
         uses: actions/upload-artifact@v4

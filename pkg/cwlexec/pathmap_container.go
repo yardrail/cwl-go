@@ -107,6 +107,31 @@ func (m *PathMap) hostPath(target string) string {
 	return filepath.Join(m.hostStaging, outsideName, target)
 }
 
+// hostSource returns where the bytes a tool sees at target are on this host *while the tool runs*,
+// which is not always where [PathMap.hostPath] says the placement for them lives.
+//
+// The two differ for exactly one placement: a [StageLink] under a container, whose host path is
+// staged as an empty mount point. Its bytes arrive over that point as a bind mount and are restored
+// to it as a symbolic link by [PathMap.Relink], but neither has happened yet at the moment a
+// redirection is opened — RunProcess opens it on this host and the engine inherits the descriptor,
+// both before the container starts. Opening the placement would connect the tool's standard input
+// to an empty file. Resolved is where the bytes are the whole time, so that is what is opened.
+//
+// Without a container the answer is the same one by a different route, which is why there is no
+// branch on it here: Apply placed a symbolic link to Resolved, so reading either reads the same
+// bytes.
+func (m *PathMap) hostSource(target string) string {
+	for index := range m.plan {
+		mapping := &m.plan[index]
+
+		if mapping.Target == target && mapping.Action == StageLink && mapping.Resolved != "" {
+			return mapping.Resolved
+		}
+	}
+
+	return m.hostPath(target)
+}
+
 // hostOutputPath maps a path a tool named in its own output object back to this host's filesystem.
 //
 // It differs from [PathMap.hostPath] in what it does with a path the map does not span, and the

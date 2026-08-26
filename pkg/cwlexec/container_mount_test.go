@@ -99,3 +99,43 @@ func TestContainerBindMountsNeverLandOnASymlink(t *testing.T) {
 		t.Error("no planned placement is bind-mounted; the fixture no longer covers this")
 	}
 }
+
+// TestContainerStdinOpensTheBytesRatherThanTheMountPoint pins when a redirection is resolved
+// relative to when the mount that carries its bytes exists.
+//
+// `stdin: $(inputs.f.path)` names a path only the tool has, and this process is the one that opens
+// it: RunProcess opens the file here and the engine inherits the descriptor. That happens *before*
+// the container starts, so the mount point a staged link is placed as is still empty — the bytes
+// arrive over it, and are restored to it only once the tool has exited. Opening the placement would
+// connect the tool's standard input to nothing, which reads end-to-end as an output file that holds
+// "" instead of what the tool was fed.
+func TestContainerStdinOpensTheBytesRatherThanTheMountPoint(t *testing.T) {
+	t.Parallel()
+
+	tool := execTool([]string{execCat}, execFileOut(execOutName))
+	tool.Stdin = "$(inputs." + execInPort + ".path)"
+	tool.Stdout = execOutName
+
+	call := ctrRunCall(t, tool, ctrPulled())
+	call.Inputs = map[string]any{execInPort: execSourceFile(t, execGreeting)}
+
+	run := runInvocation(t, call)
+
+	err := run.prepare(t.Context())
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+
+	spec, err := run.spec()
+	if err != nil {
+		t.Fatalf("spec: %v", err)
+	}
+
+	if spec.Stdin == "" {
+		t.Fatal("no standard input resolved; the fixture no longer redirects one")
+	}
+
+	if got := execRead(t, spec.Stdin); got != execGreeting {
+		t.Errorf("standard input %q holds %q, want %q", spec.Stdin, got, execGreeting)
+	}
+}

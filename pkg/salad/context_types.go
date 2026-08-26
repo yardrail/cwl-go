@@ -38,40 +38,50 @@ var typeKinds = map[string]bool{
 // addTypeTree registers every type definition reachable from n, including the
 // named types nested inside field types, so that their names and symbols enter
 // the vocabulary.
-func (c *Context) addTypeTree(n Node) {
+func (c *Context) addTypeTree(n Node) *Error {
 	switch v := n.(type) {
 	case *SeqNode:
 		for _, item := range v.Items() {
-			c.addTypeTree(item)
+			if err := c.addTypeTree(item); err != nil {
+				return err
+			}
 		}
 	case *MapNode:
-		c.addTypeMap(v)
+		return c.addTypeMap(v)
 	default:
 	}
+
+	return nil
 }
 
 // addTypeMap registers a mapping that may be a $graph wrapper, a type
 // definition, or merely a container of nested type definitions.
-func (c *Context) addTypeMap(m *MapNode) {
+func (c *Context) addTypeMap(m *MapNode) *Error {
 	if graph, ok := m.Get(dirGraph); ok {
-		c.addTypeTree(graph)
-
-		return
+		return c.addTypeTree(graph)
 	}
 
 	if isTypeDefinition(m) {
-		c.registerType(m)
+		if err := c.registerType(m); err != nil {
+			return err
+		}
 	}
 
 	for _, val := range m.All() {
-		c.addTypeTree(val)
+		if err := c.addTypeTree(val); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 // registerType adds one type definition's own name, symbols and fields to the
 // context. Nested definitions are left to the surrounding tree walk.
-func (c *Context) registerType(m *MapNode) {
-	c.registerTypeName(m)
+func (c *Context) registerType(m *MapNode) *Error {
+	if err := c.registerTypeName(m); err != nil {
+		return err
+	}
 
 	kind, _ := AsString(nodeOrNil(m, keyType))
 	switch shortName(kind) {
@@ -81,26 +91,36 @@ func (c *Context) registerType(m *MapNode) {
 		c.registerFields(m)
 	default:
 	}
+
+	return nil
 }
 
 // registerTypeName adds a named type's own name to the vocabulary, honouring
 // inVocab: false.
-func (c *Context) registerTypeName(m *MapNode) {
+func (c *Context) registerTypeName(m *MapNode) *Error {
 	name, ok := AsString(nodeOrNil(m, keyName))
 	if !ok || name == "" {
-		return
+		return nil
 	}
 
 	if inVocab, isBool := AsScalar(nodeOrNil(m, keyInVocab)); isBool && inVocab.IsBool() && !inVocab.AsBool() {
-		return
+		return nil
 	}
 
 	iri := c.expandPrefix(name)
-	c.putVocab(shortName(iri), iri)
+
+	return c.putVocabTerm(shortName(iri), iri, m.Loc())
 }
 
 // registerSymbols adds an enum's symbols to the vocabulary under their short
 // names, which is how documents spell them.
+//
+// This stays on the lenient putVocab path, like registerField: an
+// unqualified symbol's default IRI is scoped under its own enum's name (e.g.
+// ".../BaseEnum/green" vs ".../MoreEnum/green"), and a subtype enum
+// legitimately re-lists a symbol it shares with a base it extends (see
+// expandEnum in flatten.go) — that is a normal part of the extends/merge
+// mechanism, not a collision.
 func (c *Context) registerSymbols(m *MapNode) {
 	seq, ok := AsSeq(nodeOrNil(m, keySymbols))
 	if !ok {

@@ -117,7 +117,11 @@ func BuildContext(schemaDoc Node, metadata *MapNode) (*Context, error) {
 	c := newContext()
 	c.addNamespaces(metadata)
 	c.addSchemas(metadata)
-	c.addTypeTree(schemaDoc)
+
+	if err := c.addTypeTree(schemaDoc); err != nil {
+		return nil, err
+	}
+
 	c.finish()
 
 	return c, nil
@@ -301,10 +305,14 @@ func (c *Context) finish() {
 
 // putVocab records a vocabulary entry, keeping the first definition of a term.
 //
-// Unlike schema-salad, a later conflicting definition is ignored rather than
-// reported: a schema that reaches the same short name through two inheritance
-// paths is common, and refusing to build a context for it would be fatal where
-// the specification only cares that resolution is deterministic.
+// This is the lenient path: it is used to seed $namespaces prefixes into the
+// vocabulary in finish() (where iteration order over a Go map is not
+// deterministic, so a hard error here could not be reported deterministically),
+// by the hand-authored bootstrap vocabulary in bootstrap.go, and by
+// registerField for field predicates — a field's default predicate is
+// per-record-scoped, so two unrelated records sharing a plain field name is
+// ordinary and must not fail. Type names and enum symbols go through
+// putVocabTerm instead, which is where the real collision check lives.
 func (c *Context) putVocab(term, iri string) {
 	if term == "" || iri == "" || isKeyword(iri) {
 		return
@@ -313,6 +321,35 @@ func (c *Context) putVocab(term, iri string) {
 	if _, exists := c.vocab[term]; !exists {
 		c.vocab[term] = iri
 	}
+}
+
+// putVocabTerm records a vocabulary entry derived from a schema's own named
+// type declarations, rejecting a term whose short name already maps to a
+// different IRI.
+//
+// This is the analogue of schema-salad's
+// SchemaException("Predicate collision on %s, %r != %r"): two different
+// vocabulary IRIs — typically declared under different $bases in one $graph —
+// must not resolve to the same short name for a type name. Only type names go
+// through this path; enum symbols and field predicates keep their own
+// per-container-scoped default and stay on putVocab (see registerSymbols and
+// registerField).
+func (c *Context) putVocabTerm(term, iri string, loc SourceLine) *Error {
+	if term == "" || iri == "" || isKeyword(iri) {
+		return nil
+	}
+
+	if existing, exists := c.vocab[term]; exists {
+		if existing != iri {
+			return Errorf(loc, "Predicate collision on %s, %q != %q", term, existing, iri)
+		}
+
+		return nil
+	}
+
+	c.vocab[term] = iri
+
+	return nil
 }
 
 // expandPrefix applies rule 7 of identifier resolution: a declared namespace

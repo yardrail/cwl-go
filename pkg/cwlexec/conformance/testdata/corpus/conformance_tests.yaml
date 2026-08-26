@@ -1,0 +1,42 @@
+# A miniature corpus in the shape of the real one, so that the driver's whole path --
+# manifest reader, in-process run, output-object rendering and comparison -- is exercised
+# by "go test" without the pinned cwl-v1.2 checkout and without the network.
+
+- tool: tests/echo.cwl
+  job: tests/echo-job.json
+  output:
+    out:
+      class: File
+      checksum: sha1$f572d396fae9206628714fb2ce00f72e94f2258f
+      location: out.txt
+      size: 6
+  id: echo_writes_a_file
+  doc: A tool whose output object must match on checksum, size and location
+  tags: [ required, command_line_tool ]
+
+- tool: tests/echo.cwl
+  job: tests/echo-job.json
+  output:
+    out:
+      class: File
+      location: out.txt
+      size: 99
+  id: echo_with_the_wrong_size
+  doc: An expectation the run cannot meet, so that a failure is exercised too
+  tags: [ required, command_line_tool ]
+
+- tool: tests/broken.cwl
+  id: a_document_that_does_not_load
+  doc: A document naming no process class must be rejected
+  tags: [ required, command_line_tool ]
+  should_fail: true
+
+- tool: tests/noinput.cwl
+  output:
+    out:
+      class: File
+      location: out.txt
+      contents: "no job\n"
+  id: a_tool_that_needs_no_job_order
+  doc: An entry naming no job file, run against an empty input object
+  tags: [ required, command_line_tool ]

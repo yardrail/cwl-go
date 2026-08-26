@@ -1,0 +1,4 @@
+# Valid YAML, wrong shape: a job order must be a mapping of input names to
+# values, and this is a sequence.
+- greeting: hello
+- message: goodbye

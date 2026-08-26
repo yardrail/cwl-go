@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Cycles, which real ontologies do contain: a mutual subclass pair, a longer
+  subclass ring, a self-loop, and an equivalence ring. None of these may hang
+  or overflow the closure walk.
+-->
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#">
+
+  <owl:Class rdf:about="http://example.org/cyc#x">
+    <rdfs:subClassOf rdf:resource="http://example.org/cyc#y"/>
+  </owl:Class>
+  <owl:Class rdf:about="http://example.org/cyc#y">
+    <rdfs:subClassOf rdf:resource="http://example.org/cyc#x"/>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://example.org/cyc#ring1">
+    <rdfs:subClassOf rdf:resource="http://example.org/cyc#ring2"/>
+  </owl:Class>
+  <owl:Class rdf:about="http://example.org/cyc#ring2">
+    <rdfs:subClassOf rdf:resource="http://example.org/cyc#ring3"/>
+  </owl:Class>
+  <owl:Class rdf:about="http://example.org/cyc#ring3">
+    <rdfs:subClassOf rdf:resource="http://example.org/cyc#ring1"/>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://example.org/cyc#self">
+    <rdfs:subClassOf rdf:resource="http://example.org/cyc#self"/>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://example.org/cyc#p">
+    <owl:equivalentClass rdf:resource="http://example.org/cyc#q"/>
+  </owl:Class>
+  <owl:Class rdf:about="http://example.org/cyc#q">
+    <owl:equivalentClass rdf:resource="http://example.org/cyc#p"/>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://example.org/cyc#outside"/>
+
+</rdf:RDF>

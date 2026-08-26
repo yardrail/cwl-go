@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  owl:equivalentClass, including the spec's worked example of equivalence being
+  transitive with subclassing:
+
+      "<B> owl:equivalentClass <C>" and "<B> owl:subclassOf <A>"
+      then infer "<C> owl:subclassOf <A>"
+
+  plus a nested-form equivalence (d <-> e) and an rdf:parseType="Collection"
+  class expression, which carries no named-class edge and must be ignored
+  rather than mistaken for one.
+-->
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#">
+
+  <owl:Class rdf:about="http://example.org/eq#a"/>
+
+  <owl:Class rdf:about="http://example.org/eq#b">
+    <owl:equivalentClass rdf:resource="http://example.org/eq#c"/>
+    <rdfs:subClassOf rdf:resource="http://example.org/eq#a"/>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://example.org/eq#d">
+    <owl:equivalentClass>
+      <owl:Class rdf:about="http://example.org/eq#e"/>
+    </owl:equivalentClass>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://example.org/eq#intersection">
+    <owl:equivalentClass>
+      <owl:Class>
+        <owl:intersectionOf rdf:parseType="Collection">
+          <owl:Class rdf:about="http://example.org/eq#a"/>
+          <owl:Class rdf:about="http://example.org/eq#d"/>
+        </owl:intersectionOf>
+      </owl:Class>
+    </owl:equivalentClass>
+  </owl:Class>
+
+</rdf:RDF>

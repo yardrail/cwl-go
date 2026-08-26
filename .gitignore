@@ -3,5 +3,11 @@
 /cwl-inspect
 *.exe
 
+# 'task build' output
+/bin/
+
+# 'task test:cover' output
+/coverage.out
+
 # Task's checksum cache for sources/generates up-to-date checks
 /.task/

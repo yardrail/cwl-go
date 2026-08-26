@@ -1,0 +1,6 @@
+# A job order whose File reference is relative to *this* file's directory,
+# not to the process working directory.
+greeting: hello
+message:
+  class: File
+  location: ../files/hello.txt

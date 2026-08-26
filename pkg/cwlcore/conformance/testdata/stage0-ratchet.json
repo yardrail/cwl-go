@@ -1,0 +1,34 @@
+{
+  "corpusTag": "v1.2.1",
+  "documents": 344,
+  "passing": 339,
+  "knownFailures": [
+    "tests/mixed-versions/invalid-tool-v10.cwl",
+    "tests/mixed-versions/invalid-tool-v11.cwl",
+    "tests/mixed-versions/invalid-wf-v10.cwl",
+    "tests/mixed-versions/invalid-wf-v11.cwl",
+    "tests/mixed-versions/invalid-wf-v12.cwl"
+  ],
+  "clusters": [
+    {
+      "headline": "tests/mixed-versions/invalid-wf-v11.cwl is not valid CWL v1.1, because: the field \"steps\" is not declared by CommandLineTool; expected one of: id, label, doc, inputs, outputs, requirements, hints, cwlVersion, class, baseCommand, arguments, stdin, ...",
+      "documents": 1
+    },
+    {
+      "headline": "tests/mixed-versions/invalid-tool-v10.cwl is not valid CWL v1.0, because: the field \"coresMin\" is not declared by DockerRequirement; expected one of: class, dockerPull, dockerLoad, dockerFile, dockerImport, dockerImageId, dockerOutputDirectory",
+      "documents": 1
+    },
+    {
+      "headline": "tests/mixed-versions/invalid-tool-v11.cwl is not valid CWL v1.1, because: the required field \"enableReuse\" is missing; it must be one of boolean, Expression",
+      "documents": 1
+    },
+    {
+      "headline": "tests/mixed-versions/invalid-wf-v10.cwl is not valid CWL v1.0, because: the value is a mapping, but Expression was expected",
+      "documents": 1
+    },
+    {
+      "headline": "the step \"tests/mixed-versions/invalid-wf-v12.cwl#toolv10\" cannot run \"tests/mixed-versions/invalid-tool-v10.cwl\", because: the field \"coresMin\" is not declared by DockerRequirement; expected one of: class, dockerPull, dockerLoad, dockerFile, dockerImport, dockerImageId, dockerOutputDirectory",
+      "documents": 1
+    }
+  ]
+}

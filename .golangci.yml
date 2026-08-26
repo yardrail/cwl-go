@@ -22,6 +22,13 @@ linters:
       check-type-assertions: true
       check-blank: true
       disable-default-exclusions: true
+    exhaustive:
+      # The typed model has wide discriminators (ValueKind, TypeKind, and the
+      # CWL enums). Most switches over them legitimately care about two or three
+      # members and delegate the rest to default:. Without this, every such
+      # switch must enumerate all members, which pushes consumers into if-chains
+      # -- strictly worse code than the switch it replaces.
+      default-signifies-exhaustive: true
     tagalign:
       align: true
       sort: true
@@ -155,6 +162,15 @@ linters:
       enable-all: true
     govet:
       enable-all: true
+      disable:
+        # fieldalignment is in direct, unresolvable conflict with
+        # embeddedstructfieldcheck for our shared-base structs: a base whose
+        # field set ends in booleans must move last to satisfy fieldalignment,
+        # which embeddedstructfieldcheck forbids. Struct padding is a
+        # micro-optimisation on a document model that is decoded once per run,
+        # whereas embedding a shared base is load-bearing for decode.go. So
+        # fieldalignment loses.
+        - fieldalignment
   exclusions:
     generated: lax
     presets:
@@ -170,6 +186,15 @@ linters:
       - linters:
           - gosec
         text: "G704"
+      # CWL mandates sha1 as the File.checksum content digest ("sha1$<hex>"),
+      # and the cwltest conformance harness re-verifies it from disk -- so the
+      # algorithm is fixed by the spec, not chosen by us. It is a content
+      # digest, never a security control. SHA-1 use is deliberately confined to
+      # *_digest.go files so this exclusion can stay narrow.
+      - linters:
+          - gosec
+        text: "G401|G505"
+        path: "pkg/cwlexec/.*_digest\\.go$"
       - linters:
           - godoclint
         text: "symbol should have a godoc"

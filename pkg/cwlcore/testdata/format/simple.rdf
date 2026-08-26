@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A minimal hand-written format ontology using the most common RDF/XML shape:
+  typed node elements identified by absolute rdf:about, with property elements
+  in the rdf:resource attribute form.
+
+      csv  -> tabular -> text
+      tsv  -> tabular -> text
+      binary (unrelated root)
+-->
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#">
+
+  <owl:Class rdf:about="http://example.org/formats#text">
+    <rdfs:label>Text</rdfs:label>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://example.org/formats#tabular">
+    <rdfs:label>Tabular text</rdfs:label>
+    <rdfs:subClassOf rdf:resource="http://example.org/formats#text"/>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://example.org/formats#csv">
+    <rdfs:label>Comma-separated values</rdfs:label>
+    <rdfs:subClassOf rdf:resource="http://example.org/formats#tabular"/>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://example.org/formats#tsv">
+    <rdfs:label>Tab-separated values</rdfs:label>
+    <rdfs:subClassOf rdf:resource="http://example.org/formats#tabular"/>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://example.org/formats#binary">
+    <rdfs:label>Binary</rdfs:label>
+  </owl:Class>
+
+</rdf:RDF>

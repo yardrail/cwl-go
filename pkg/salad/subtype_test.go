@@ -140,6 +140,10 @@ func TestIsSubtypeEnums(t *testing.T) {
 			want:  true,
 		},
 		{
+			// IsSubtype's own generic contract: this is the structural comparison
+			// used everywhere except checkOverride's enum-field-override rule,
+			// which bypasses IsSubtype for enums entirely (see overrideNarrows in
+			// flatten.go) and is tested separately in flatten_test.go.
 			name:  "symbols are matched by short name across scopes",
 			sub:   enumType(typeShade, "https://example.com/other#Shade/red"),
 			super: enumType(typeColour, symbolRed),

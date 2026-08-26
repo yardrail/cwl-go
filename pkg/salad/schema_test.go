@@ -297,9 +297,9 @@ func TestLoadSchemaReportsAnUnreadableReference(t *testing.T) {
 func TestLoadSchemaRejectsADocumentThatIsNotASchema(t *testing.T) {
 	t.Parallel()
 
-	fsys := fstest.MapFS{"schema.yml": &fstest.MapFile{Data: []byte("hello: world\n")}}
+	fsys := fstest.MapFS{testSchemaFile: &fstest.MapFile{Data: []byte("hello: world\n")}}
 
-	_, err := LoadSchema(testSchemaMount+"schema.yml", WithFetcher(NewFSFetcher(fsys, testSchemaMount)))
+	_, err := LoadSchema(testSchemaMount+testSchemaFile, WithFetcher(NewFSFetcher(fsys, testSchemaMount)))
 	if err == nil {
 		t.Fatal("a document that is not a schema loaded as one")
 	}

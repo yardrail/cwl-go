@@ -9,6 +9,10 @@ import (
 // testSchemaMount is where an inline schema fixture is mounted for loading.
 const testSchemaMount = "file:///test-schema/"
 
+// testSchemaFile is the entry-point filename an inline schema fixture is
+// loaded from, under testSchemaMount.
+const testSchemaFile = "schema.yml"
+
 // testSchemaBase is the base URI the inline schema fixtures declare, so that the
 // names they define are predictable.
 const testSchemaBase = "http://example.com/test#"
@@ -29,14 +33,14 @@ const (
 func resolveSchema(t *testing.T, src string, skipLinks bool) (Node, *Context) {
 	t.Helper()
 
-	fsys := fstest.MapFS{"schema.yml": &fstest.MapFile{Data: []byte(src)}}
+	fsys := fstest.MapFS{testSchemaFile: &fstest.MapFile{Data: []byte(src)}}
 	loader := NewLoader(
 		WithFetcher(NewFSFetcher(fsys, testSchemaMount)),
 		WithContext(saladBootstrapContext()),
 		WithSkipLinkCheck(skipLinks),
 	)
 
-	doc, err := loader.Load(testSchemaMount + "schema.yml")
+	doc, err := loader.Load(testSchemaMount + testSchemaFile)
 	if err != nil {
 		t.Fatalf("loading the schema fixture: %v", err)
 	}
@@ -404,6 +408,67 @@ $graph:
 
 			_, err := flattenSource(t, strings.Replace(strings.Replace(fixture,
 				"%s", tc.base, 1), "%s", tc.derived, 1))
+
+			assertErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestFlattenEnumFieldOverrideNarrowing(t *testing.T) {
+	t.Parallel()
+
+	const fixture = `
+$base: "` + testSchemaBase + `"
+$namespaces:
+  t: "` + testSchemaBase + `"
+$graph:
+- name: BaseClass
+  type: enum
+  symbols: [t:Base]
+- name: DerivedClass
+  type: enum
+  symbols: [t:Derived]
+- name: UnrelatedClass
+  type: enum
+  symbols: [t:Something]
+- name: Base
+  type: record
+  fields:
+    - name: class
+      type: BaseClass
+- name: Derived
+  type: record
+  extends: Base
+  fields:
+    - name: class
+      type: %s
+`
+
+	cases := []struct {
+		name        string
+		derivedType string
+		wantErr     string
+	}{
+		{
+			name:        "an override naming itself is accepted",
+			derivedType: "DerivedClass",
+		},
+		{
+			name:        "an override naming an unrelated symbol is rejected",
+			derivedType: "UnrelatedClass",
+			wantErr:     msgNotNarrow,
+		},
+		{
+			name:        "an override restating the identical named enum is still accepted",
+			derivedType: "BaseClass",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := flattenSource(t, strings.Replace(fixture, "%s", tc.derivedType, 1))
 
 			assertErrorContains(t, err, tc.wantErr)
 		})

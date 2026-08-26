@@ -26,6 +26,10 @@ type outputs struct {
 
 // gather resolves the configuration, runs cwltest and reads its result.
 func gather(ctx context.Context, cfg *config) (*report, error) {
+	if cfg.badges != "" {
+		return recorded(cfg)
+	}
+
 	err := cfg.resolve()
 	if err != nil {
 		return nil, err
@@ -47,6 +51,38 @@ func gather(ctx context.Context, cfg *config) (*report, error) {
 	}
 
 	return newReport(cfg, statuses, paths.junit), nil
+}
+
+// recorded reads a badge directory a previous run left behind, instead of
+// producing one.
+//
+// Re-recording the ratchet needs a machine that can run the whole execution
+// suite: cwltest, a python on PATH for the corpus documents that call one, and
+// a container engine that can bind-mount this filesystem. The machine holding
+// the working tree often has none of the three, and the one whose result the
+// ratchet is guarding is CI -- which already uploads its badge directory. So
+// the record can be rewritten from a run that really happened, on the machine
+// it is meant to describe, rather than from a second run somewhere else that
+// would have to be trusted to agree.
+//
+// The suite is not re-run and nothing is checked against the corpus, so a badge
+// directory naming tests the corpus no longer has would be recorded as-is. That
+// is the price of not running it, and it is why the flag is spelled out in a
+// commit rather than wired into a task.
+func recorded(cfg *config) (*report, error) {
+	dir, err := filepath.Abs(cfg.badges)
+	if err != nil {
+		return nil, err
+	}
+
+	statuses, err := readBadges(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	// No JUnit XML: none was produced here, and naming the one a previous run
+	// wrote would put a path this command cannot vouch for into the report.
+	return newReport(cfg, statuses, ""), nil
 }
 
 // prepareOutputs creates the output directory and returns the paths inside it.

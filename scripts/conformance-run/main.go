@@ -24,6 +24,7 @@
 //	-corpus DIR    corpus root (default: $CWL_CONFORMANCE_CORPUS, else the Stage 0 cache)
 //	-runner PATH   the cwl-runner-compatible binary under test (default: bin/cwl-run)
 //	-out DIR       where the JUnit XML and badge files are written
+//	-badges DIR    read a previous run's badge directory instead of running
 //	-jobs N        how many tests cwltest runs at once
 //	-timeout D     per-test timeout
 //	-update        rewrite stage1-ratchet.json from this run instead of comparing
@@ -125,6 +126,8 @@ func parseFlags(args []string, stderr *os.File) (*config, error) {
 	set.StringVar(&cfg.outDir, "out", cfg.outDir, "directory for the JUnit XML and badge output")
 	set.IntVar(&cfg.jobs, "jobs", cfg.jobs, "how many tests cwltest runs at once")
 	set.DurationVar(&cfg.timeout, "timeout", cfg.timeout, "per-test timeout")
+	set.StringVar(&cfg.badges, "badges", "",
+		"read a badge directory a previous run left behind instead of running the suite")
 	set.BoolVar(&cfg.update, "update", false, "rewrite the ratchet record from this run")
 	set.BoolVar(&cfg.gateRequired, "gate-required", false, "fail when the required subset is not at 100%")
 

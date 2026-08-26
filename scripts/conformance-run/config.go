@@ -44,6 +44,10 @@ var errSkipped = errors.New("conformance run skipped")
 
 // config is one resolved invocation of the suite.
 type config struct {
+	// badges names a badge directory a previous run left behind, read instead
+	// of producing one. See [recorded].
+	badges string
+
 	corpus       string
 	runner       string
 	outDir       string

@@ -32,12 +32,9 @@ jobs:
     # its own ratchet. Stage 1 executes the suite through cwltest, ratchets the
     # result, and gates the `required` subset at 100%.
     #
-    # The gate is deliberately wired ahead of the work that satisfies it, so
-    # this job reports the two remaining exclusions -- container execution and
-    # documents declaring a cwlVersion below v1.2 -- rather than absorbing them
-    # into a number that looks like progress. It is red until both land. The
-    # ratchet runs underneath regardless, so a red gate never masks a fresh
-    # regression.
+    # The suite stands at 378 of 378. The ratchet records the passing ids rather
+    # than a count, so it still runs underneath the gate and still has something
+    # to say: a count alone lets one test start passing while another stops.
     #
     # -gate-required keys on "zero failures in the required-tagged set", never
     # on a count: one suite entry is tagged `require` (an upstream typo), so

@@ -161,9 +161,12 @@ func TestContainerInvocationHandsOutputCollectionHostPaths(t *testing.T) {
 	// Needs an engine, to resolve the image, but never starts a container: what it asserts is the
 	// pair of views one invocation keeps. Every stage that describes what the tool will do reads
 	// the tool's, and output collection — the one that goes back to a real filesystem — reads
-	// this host's.
+	// this host's, at the durable path rather than at the placement; see
+	// [TestContainerOutputsNameInputsWhereTheyOutliveTheStep].
+	source := execSourceFile(t, execGreeting)
+
 	call := ctrRunCall(t, execTool([]string{execTrue}), ctrPulled())
-	call.Inputs = map[string]any{execInPort: execSourceFile(t, execGreeting)}
+	call.Inputs = map[string]any{execInPort: source}
 
 	run := runInvocation(t, call)
 
@@ -173,8 +176,7 @@ func TestContainerInvocationHandsOutputCollectionHostPaths(t *testing.T) {
 	}
 
 	pmWantPath(t, run.inputs[execInPort], containerStagedir+"/"+execSourceName)
-	pmWantPath(t, run.hostInputs()[execInPort],
-		filepath.Join(call.TmpDir, containerStageName, execSourceName))
+	pmWantPath(t, run.hostInputs()[execInPort], pathOf(source))
 
 	// runtime.outdir and runtime.tmpdir are the tool's, because the document's own expressions
 	// are what read them; the invocation's own directories stay this host's.

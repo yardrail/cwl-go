@@ -506,17 +506,28 @@ func TestContainerPathMapHostViewUndoesTheRewrite(t *testing.T) {
 		t.Fatalf("Stage the outside entry: %v", err)
 	}
 
-	inputs := mapper.RewriteInputs(map[string]any{"staged": staged, "outside": outside})
+	// A literal has no bytes anywhere but the placement, which is the other half of the answer.
+	literal, err := mapper.StageContents("lit.txt", execGreeting)
+	if err != nil {
+		t.Fatalf("StageContents: %v", err)
+	}
+
+	inputs := mapper.RewriteInputs(map[string]any{
+		"staged": staged, "outside": outside, literalName: pmHostFile(literal),
+	})
 
 	// What the tool sees.
 	pmWantPath(t, inputs["staged"], pmcToolWork+"/"+pmName)
 	pmWantPath(t, inputs["outside"], pmEscape)
+	pmWantPath(t, inputs[literalName], pmcToolWork+"/lit.txt")
 
 	back := mapper.hostView().RewriteInputs(inputs)
 
-	// The staged one is reached through the host directory mounted at the tool's working
-	// directory; the one outside every mount has no host placement, so its bytes are still where
-	// they were and that is where the host view points.
-	pmWantPath(t, back["staged"], pmWork+"/"+pmName)
+	// Both come back as the bytes rather than as the placement routing the tool to them, and for
+	// the same reason: a placement lives in this invocation's scratch directory and does not
+	// outlive the step, while an output may name an input outright. The second entry never had a
+	// placement at all — nothing outside every mount does.
+	pmWantPath(t, back["staged"], pmHostPath)
 	pmWantPath(t, back["outside"], "/data/y.txt")
+	pmWantPath(t, back[literalName], pmWork+"/lit.txt")
 }

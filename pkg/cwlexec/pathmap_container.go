@@ -107,6 +107,17 @@ func (m *PathMap) hostPath(target string) string {
 	return filepath.Join(m.hostStaging, outsideName, target)
 }
 
+// hostBytesOf returns the durable host path of one placement: the bytes themselves for a link, and
+// the placement for anything that materialized bytes of its own — a copy, a written literal, a
+// created directory — which have nowhere else to be.
+func hostBytesOf(mapping *PathMapping) string {
+	if mapping.Action == StageLink && mapping.Resolved != "" {
+		return mapping.Resolved
+	}
+
+	return mapping.Host
+}
+
 // hostSource returns where the bytes a tool sees at target are on this host *while the tool runs*,
 // which is not always where [PathMap.hostPath] says the placement for them lives.
 //
@@ -125,7 +136,7 @@ func (m *PathMap) hostSource(target string) string {
 		mapping := &m.plan[index]
 
 		if mapping.Target == target && mapping.Action == StageLink && mapping.Resolved != "" {
-			return mapping.Resolved
+			return hostBytesOf(mapping)
 		}
 	}
 
@@ -213,6 +224,17 @@ func (m *PathMap) targetIn(base, name string) (string, error) {
 // link's target against those paths *with their own symlinks resolved*. A container path resolves
 // to nothing here, so the test would reject a value the specification requires to be published.
 //
+// A linked input is reported at the bytes rather than at the placement routing the tool to them,
+// and the reason is lifetime. The placement lives in this invocation's scratch directory, which is
+// discarded the moment the step finishes; the bytes were somewhere durable before the step began and
+// stay there. A document can publish an input outright — an output expression may return one, as
+// conformance test initial_workdir_secondary_files_expr does — and a value carrying the placement
+// would name a path that no longer exists by the time the next step opens it.
+//
+// It is also what makes the containment test in [outputCollector.checkPublishable] work: the
+// placement is a symbolic link to those same bytes once [PathMap.Relink] has restored it, so the
+// path an admitted output resolves to is this one either way.
+//
 // It is built as a path map rather than as a second walk because relocating an input object is
 // already [PathMap.RewriteInputs]'s whole job; only the lookup it consults differs.
 func (m *PathMap) hostView() *PathMap {
@@ -221,12 +243,7 @@ func (m *PathMap) hostView() *PathMap {
 	for index := range m.plan {
 		mapping := &m.plan[index]
 
-		// A placement with no host path of its own is one the executor bind-mounts from
-		// Resolved, which is where its bytes are on this host.
-		host := mapping.Host
-		if host == "" {
-			host = mapping.Resolved
-		}
+		host := hostBytesOf(mapping)
 
 		if _, claimed := back.byPath[mapping.Target]; !claimed {
 			back.byPath[mapping.Target] = host

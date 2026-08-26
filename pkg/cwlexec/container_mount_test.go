@@ -100,6 +100,42 @@ func TestContainerBindMountsNeverLandOnASymlink(t *testing.T) {
 	}
 }
 
+// TestContainerOutputsNameInputsWhereTheyOutliveTheStep pins which of an input's two host paths an
+// output is allowed to carry.
+//
+// A staged input has both: the bytes it was read from, and the placement inside this invocation's
+// own scratch directory that routes the tool to them. The scratch directory is discarded the moment
+// the step finishes, so a value published at the placement names a path that no longer exists by the
+// time the next step reads it — and a document can publish one, because an output expression may
+// return an input object outright. Conformance test initial_workdir_secondary_files_expr does
+// exactly that: `${ return [self.basename+".idx7", inputs.secondfile]; }`, whose File is then a
+// second step's input.
+//
+// It only bites under a container. Without one an input already lying where the tool wants it is
+// left alone, so its only path is the durable one; a container has no such case, because "where it
+// lies" is a path the tool does not have.
+func TestContainerOutputsNameInputsWhereTheyOutliveTheStep(t *testing.T) {
+	t.Parallel()
+
+	source := execSourceFile(t, execGreeting)
+
+	call := ctrRunCall(t, execTool([]string{execTrue}), ctrPulled())
+	call.Inputs = map[string]any{execInPort: source}
+
+	run := runInvocation(t, call)
+
+	err := run.prepare(t.Context())
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+
+	// The tool is told the container's path, as every stage describing what it will do is...
+	pmWantPath(t, run.inputs[execInPort], containerStagedir+"/"+execSourceName)
+
+	// ...and output collection is told the bytes' own path, not the placement under TmpDir.
+	pmWantPath(t, run.hostInputs()[execInPort], source.Path)
+}
+
 // TestContainerStdinOpensTheBytesRatherThanTheMountPoint pins when a redirection is resolved
 // relative to when the mount that carries its bytes exists.
 //

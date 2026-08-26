@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A format ontology that identifies its classes relatively and declares no
+  xml:base of its own, so the only thing that can make its IRIs absolute is the
+  URL the $schemas entry was fetched from. Loaded through LoadOntologyAt with
+  that URL the classes become absolute and compare equal to a format: field;
+  loaded through LoadOntology they stay relative.
+
+      #child -> #parent -> shared.rdf#root
+-->
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#">
+
+  <owl:Class rdf:about="#child">
+    <rdfs:subClassOf rdf:resource="#parent"/>
+  </owl:Class>
+
+  <owl:Class rdf:about="#parent">
+    <rdfs:subClassOf rdf:resource="shared.rdf#root"/>
+  </owl:Class>
+
+</rdf:RDF>

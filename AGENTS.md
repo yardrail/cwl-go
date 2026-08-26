@@ -10,9 +10,15 @@ Do not hand-edit AGENTS.md directly.
 
 This project uses [Task](https://taskfile.dev) (`Taskfile.yml`) to run common workflows. Run `task <name>` for any of the following:
 
-- `generate` — Run go generate across the module (currently a no-op until the CWL schema is vendored)
+- `generate` — Run go generate across the module
 - `lint` — Run all lints
+- `build` — Build the cwl-run, cwl-validate and cwl-inspect binaries into bin/
 - `test` — Run the test suite
+- `test:race` — Run the test suite under the race detector
+- `test:cover` — Run the test suite with coverage and print the per-package summary
+- `test:conformance` — Run the Stage 0 CWL parse/validate sweep (fetches the pinned cwl-v1.2 corpus; skips if unavailable)
+- `test:conformance:run` — Run the Stage 1 CWL execution suite through cwltest and ratchet the result (skips if cwltest is absent)
+- `test:conformance:run:update` — Rewrite scripts/conformance-run/stage1-ratchet.json from an execution-suite run
 - `docs:agents` — Regenerate AGENTS.md from scripts/gen-agents-md/AGENTS.md.tmpl and the current package docs
 - `docs:agents:check` — Fail if AGENTS.md is out of date with the template or the package docs (used in CI)
 ## Package map
@@ -20,8 +26,10 @@ This project uses [Task](https://taskfile.dev) (`Taskfile.yml`) to run common wo
 Package doc comments for everything under `cmd/` and `pkg/`, scraped via `go list`.
 
 - `cmd/cwl-inspect` — Command cwl-inspect parses a CWL document and dumps its resolved intermediate representation, for debugging pkg/salad and pkg/cwlcore.
-- `cmd/cwl-run` — Command cwl-run is a cwl-runner-compatible CLI entrypoint: it drives execution of a CWL document, following the cwl-runner (https://www.commonwl.org/v1.2/CommandLineTool.html#Executing_CWL_documents_and_tools) invocation and exit-code contract so it can be exercised by the cwltest conformance harness.
+- `cmd/cwl-run` — Command cwl-run is a cwl-runner-compatible CLI entrypoint: it drives execution of a CWL document, following the cwl-runner invocation and exit-code contract (https://www.commonwl.org/v1.2/CommandLineTool.html#Executing_CWL_documents_and_tools) so it can be exercised by the cwltest conformance harness.
 - `cmd/cwl-validate` — Command cwl-validate validates a CWL document against the embedded CWL v1.2 schema, for use in local development and CI.
+- `cmd/internal/cwlcli` — Package cwlcli holds the plumbing the cwl-go developer command-line tools share: a deterministic ordered value model, JSON and text renderers for it, one place where an error becomes something a human can act on, and the version banner.
 - `pkg/cwlcore` — Package cwlcore implements the CWL v1.2 (https://www.commonwl.org/v1.2/) typed object model: the vendored CWL schema, decoding a validated github.com/yardrail/cwl-go/pkg/salad document tree into typed Process/CommandLineTool/ Workflow/ExpressionTool/Operation structs, requirements/hints scoping, file format validation, and CWL expression evaluation.
+- `pkg/cwlcore/conformance` — Package conformance is the Stage 0 conformance sweep: every CWL document in the pinned common-workflow-language/cwl-v1.2 corpus is loaded through pkg/salad and decoded by pkg/cwlcore, and the resulting pass count is ratcheted so a regression fails the build.
 - `pkg/cwlexec` — Package cwlexec implements the CWL execution engine: a reactive ready-queue scheduler, scatter (dotproduct / nested_crossproduct / flat_crossproduct) expansion, when: conditional-skip propagation, and the StepHandler registry that dispatches execution by a step's `class:` value.
 - `pkg/salad` — Package salad implements a generic Schema Salad (https://www.commonwl.org/v1.2/SchemaSalad.html) engine: document loading with $import/$include resolution, jsonldPredicate-driven context/vocab resolution, extends/specialize flattening into a typed schema graph, and validation of instance documents against that graph.

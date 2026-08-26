@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The same information expressed with the other syntactic forms real ontologies
+  use: a document-level xml:base, rdf:ID instead of rdf:about, relative
+  rdf:resource references, nested node elements instead of the rdf:resource
+  attribute, and a bare rdf:Description node element.
+
+      alpha -> beta -> gamma -> delta
+-->
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#"
+         xml:base="http://example.org/nested">
+
+  <owl:Class rdf:ID="alpha">
+    <rdfs:subClassOf>
+      <owl:Class rdf:ID="beta">
+        <rdfs:subClassOf rdf:resource="#gamma"/>
+      </owl:Class>
+    </rdfs:subClassOf>
+  </owl:Class>
+
+  <rdf:Description rdf:ID="gamma">
+    <rdfs:subClassOf>
+      <rdf:Description rdf:about="http://example.org/nested#delta"/>
+    </rdfs:subClassOf>
+  </rdf:Description>
+
+</rdf:RDF>

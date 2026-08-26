@@ -1,0 +1,23 @@
+# The specification's sfdsl_res_proc.yml with its missing closing braces
+# restored. Nothing else is changed.
+[
+    {
+        "secondaryFiles": {
+          "pattern": ".bai",
+          "required": null
+    }},
+    {
+        "secondaryFiles": {
+          "pattern": ".bai",
+          "required": false
+    }},
+    {
+        "secondaryFiles": {
+          "pattern": ".bai?"
+    }},
+    {
+        "secondaryFiles": {
+          "pattern": ".bai?",
+          "required": true
+    }},
+]

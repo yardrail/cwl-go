@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A second $schemas document that extends simple.rdf at both ends: it adds a
+  subclass below #csv and a superclass above #text. Only the merge of the two
+  ontologies can chain #csv-gzip all the way up to #any.
+-->
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#">
+
+  <owl:Class rdf:about="http://example.org/formats#csv-gzip">
+    <rdfs:subClassOf rdf:resource="http://example.org/formats#csv"/>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://example.org/formats#text">
+    <rdfs:subClassOf rdf:resource="http://example.org/formats#any"/>
+  </owl:Class>
+
+</rdf:RDF>

@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<!--
+  An excerpt of EDAM (http://edamontology.org), the format ontology CWL users
+  actually reference from $schemas, kept in the exact RDF/XML serialization
+  EDAM.owl ships in. Trimmed to the format_* branch reached by the conformance
+  examples, but structurally untouched: an owl:Ontology header, typed node
+  elements, literal annotations carrying rdf:datatype, and anonymous
+  owl:Restriction superclasses nested under rdfs:subClassOf.
+
+      format_1929 (FASTA)  -> format_2200 (FASTA-like text) -> format_2330 -> format_1915
+      format_1930 (FASTQ)  -> format_2182 (FASTQ-like text) -> format_2330 -> format_1915
+      format_3475 (TSV)    -> format_2330 -> format_1915
+-->
+<rdf:RDF xmlns="http://edamontology.org#"
+     xml:base="http://edamontology.org"
+     xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+     xmlns:owl="http://www.w3.org/2002/07/owl#"
+     xmlns:xsd="http://www.w3.org/2001/XMLSchema#"
+     xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+     xmlns:oboInOwl="http://www.geneontology.org/formats/oboInOwl#">
+
+    <owl:Ontology rdf:about="http://edamontology.org">
+        <owl:versionIRI rdf:resource="http://edamontology.org/EDAM_1.25.owl"/>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">EDAM excerpt</rdfs:label>
+    </owl:Ontology>
+
+    <owl:ObjectProperty rdf:about="http://edamontology.org/is_format_of">
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">is format of</rdfs:label>
+    </owl:ObjectProperty>
+
+    <owl:Class rdf:about="http://edamontology.org/format_1915">
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Format</rdfs:label>
+        <oboInOwl:hasDefinition rdf:datatype="http://www.w3.org/2001/XMLSchema#string">A defined way or layout of representing and structuring data in a computer file, blob, string, message, or elsewhere.</oboInOwl:hasDefinition>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://edamontology.org/format_2330">
+        <rdfs:subClassOf rdf:resource="http://edamontology.org/format_1915"/>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Textual format</rdfs:label>
+        <oboInOwl:hasDefinition rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Textual format.</oboInOwl:hasDefinition>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://edamontology.org/format_2200">
+        <rdfs:subClassOf rdf:resource="http://edamontology.org/format_2330"/>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">FASTA-like (text)</rdfs:label>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://edamontology.org/format_2182">
+        <rdfs:subClassOf rdf:resource="http://edamontology.org/format_2330"/>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">FASTQ-like format (text)</rdfs:label>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://edamontology.org/format_1929">
+        <rdfs:subClassOf rdf:resource="http://edamontology.org/format_2200"/>
+        <rdfs:subClassOf>
+            <owl:Restriction>
+                <owl:onProperty rdf:resource="http://edamontology.org/is_format_of"/>
+                <owl:someValuesFrom rdf:resource="http://edamontology.org/data_2044"/>
+            </owl:Restriction>
+        </rdfs:subClassOf>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">FASTA</rdfs:label>
+        <oboInOwl:hasDefinition rdf:datatype="http://www.w3.org/2001/XMLSchema#string">FASTA format including NCBI-style IDs.</oboInOwl:hasDefinition>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://edamontology.org/format_1930">
+        <rdfs:subClassOf rdf:resource="http://edamontology.org/format_2182"/>
+        <rdfs:subClassOf>
+            <owl:Restriction>
+                <owl:onProperty rdf:resource="http://edamontology.org/is_format_of"/>
+                <owl:someValuesFrom rdf:resource="http://edamontology.org/data_2044"/>
+            </owl:Restriction>
+        </rdfs:subClassOf>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">FASTQ</rdfs:label>
+        <oboInOwl:hasDefinition rdf:datatype="http://www.w3.org/2001/XMLSchema#string">FASTQ short read format ignoring quality scores.</oboInOwl:hasDefinition>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://edamontology.org/format_3475">
+        <rdfs:subClassOf rdf:resource="http://edamontology.org/format_2330"/>
+        <rdfs:label rdf:datatype="http://www.w3.org/2001/XMLSchema#string">TSV</rdfs:label>
+    </owl:Class>
+
+</rdf:RDF>

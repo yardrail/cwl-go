@@ -2,7 +2,7 @@ version: '3'
 
 tasks:
   generate:
-    desc: Run go generate across the module (currently a no-op until the CWL schema is vendored)
+    desc: Run go generate across the module
     cmd: go generate ./...
 
   lint:
@@ -15,9 +15,46 @@ tasks:
       - govulncheck ./...
       - nilaway -exclude-file-docstrings "Code generated" -exclude-test-files ./...
 
+  build:
+    desc: Build the cwl-run, cwl-validate and cwl-inspect binaries into bin/
+    sources:
+      - go.mod
+      - go.sum
+      - cmd/**/*.go
+      - pkg/**/*.go
+    generates:
+      - bin/*
+    cmds:
+      - for: ['cwl-run', 'cwl-validate', 'cwl-inspect']
+        cmd: go build -o bin/{{.ITEM}} ./cmd/{{.ITEM}}
+
   test:
     desc: Run the test suite
     cmd: go test ./...
+
+  test:race:
+    desc: Run the test suite under the race detector
+    cmd: go test -race ./...
+
+  test:cover:
+    desc: Run the test suite with coverage and print the per-package summary
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -func=coverage.out | tail -1
+
+  test:conformance:
+    desc: Run the Stage 0 CWL parse/validate sweep (fetches the pinned cwl-v1.2 corpus; skips if unavailable)
+    cmd: CWL_CONFORMANCE=1 go test -count=1 ./pkg/cwlcore/conformance/...
+
+  test:conformance:run:
+    desc: Run the Stage 1 CWL execution suite through cwltest and ratchet the result (skips if cwltest is absent)
+    deps: [build, test:conformance]
+    cmd: go run ./scripts/conformance-run {{.CLI_ARGS}}
+
+  test:conformance:run:update:
+    desc: Rewrite scripts/conformance-run/stage1-ratchet.json from an execution-suite run
+    deps: [build, test:conformance]
+    cmd: go run ./scripts/conformance-run -update {{.CLI_ARGS}}
 
   docs:agents:
     desc: Regenerate AGENTS.md from scripts/gen-agents-md/AGENTS.md.tmpl and the current package docs

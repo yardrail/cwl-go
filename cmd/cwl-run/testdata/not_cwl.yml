@@ -1,0 +1,9 @@
+foo: bar
+baz:
+  - 1
+  - 2
+qux: 3
+quux: 4
+corge: 5
+grault: 6
+garply: 7

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
@@ -352,6 +353,92 @@ func applyEnvVars(env map[string]string, scope *cwlcore.RequirementScope, inputs
 	}
 
 	return nil
+}
+
+// envVarDeclares reports whether an EnvVarRequirement in scope sets a variable itself, as opposed
+// to [ToolEnvironment] having filled it in.
+func envVarDeclares(scope *cwlcore.RequirementScope, name string) bool {
+	declared, found := envVarRequirement(scope)
+	if !found {
+		return false
+	}
+
+	return slices.ContainsFunc(declared.EnvDef, func(definition cwlcore.EnvironmentDef) bool {
+		return definition.EnvName == name
+	})
+}
+
+// withoutInheritedPath drops the PATH this process inherited, for a tool that is about to run
+// somewhere this process's PATH does not describe.
+//
+// [ToolEnvironment] sets PATH from this process's own, which the specification permits: "PATH...
+// may be inherited from the parent process". Inside a container the environment to inherit from is
+// the image's, not this machine's — cwltool's DockerCommandLineJob._required_env passes TMPDIR and
+// HOME and nothing else — and forcing a host PATH onto a container hides the image's own, so a tool
+// whose program lives somewhere this host does not have it is not found. HOME and TMPDIR are
+// unaffected: both were resolved to the paths the tool sees before they were rendered.
+//
+// A PATH an EnvVarRequirement declared is the document's rather than this process's, and stays.
+func withoutInheritedPath(env []string, scope *cwlcore.RequirementScope) []string {
+	if envVarDeclares(scope, envPath) {
+		return env
+	}
+
+	prefix := envPath + "="
+
+	kept := make([]string, 0, len(env))
+	for _, variable := range env {
+		if !strings.HasPrefix(variable, prefix) {
+			kept = append(kept, variable)
+		}
+	}
+
+	return kept
+}
+
+// ToolNetworkAccess reports whether the tool may reach the network outside its own machine.
+//
+// CommandLineTool.yml, NetworkAccess: "Indicate whether a process requires outgoing IPv4/IPv6
+// network access. Choice of IPv4 or IPv6 is implementation and site specific... If `networkAccess`
+// is false or not specified, tools must not assume network access, except for localhost." So the
+// default is off, and the field may be written as an expression over the invocation's inputs.
+//
+// It is a question only an executor that can *withhold* the network has any use for, which on this
+// host is none: a child process has whatever network this one has. A container is where the answer
+// becomes actionable, and conformance test networkaccess_disabled — a should_fail test whose tool
+// declares nothing and tries to open a connection — is what asserts the default is honoured.
+func ToolNetworkAccess(scope *cwlcore.RequirementScope, inputs map[string]any,
+	eval *cwlcore.Evaluator, rt cwlcore.RuntimeContext,
+) (bool, error) {
+	declared, found := networkAccess(scope)
+	if !found || !declared.NetworkAccess.IsSet() {
+		return false, nil
+	}
+
+	if declared.NetworkAccess.Kind() != cwlcore.ValueExpression {
+		return declared.NetworkAccess.Bool(), nil
+	}
+
+	return eval.EvalBool(string(declared.NetworkAccess.Expression()),
+		&cwlcore.EvalContext{Inputs: outExpressionObject(inputs), Runtime: rt})
+}
+
+// networkAccess resolves the NetworkAccess requirement in effect for a scope. A declaration in
+// hints counts: the field is a statement about what the tool needs, and an engine that can grant it
+// has no reason to withhold it because the author wrote the statement advisorily.
+func networkAccess(scope *cwlcore.RequirementScope) (*cwlcore.NetworkAccess, bool) {
+	if scope == nil {
+		return nil, false
+	}
+
+	requirement, found, _ := scope.GetRequirement(cwlcore.ClassNetworkAccess)
+	if !found {
+		return nil, false
+	}
+
+	typed, ok := requirement.(*cwlcore.NetworkAccess)
+
+	return typed, ok
 }
 
 // envVarRequirement resolves the EnvVarRequirement in effect for a scope.

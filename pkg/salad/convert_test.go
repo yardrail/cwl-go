@@ -67,8 +67,12 @@ func TestFromAnyScalars(t *testing.T) {
 		{name: "uint16", input: uint16(5), want: int64(5)},
 		{name: "uint32", input: uint32(5), want: int64(5)},
 		{name: "uint64", input: uint64(5), want: int64(5)},
-		{name: "huge uint64 widens", input: uint64(math.MaxUint64), want: float64(math.MaxUint64)},
+		{
+			name: "huge uint64 stays exact", input: uint64(math.MaxUint64),
+			want: mustDecimal(t, "18446744073709551615"),
+		},
 		{name: "float32", input: float32(0.5), want: 0.5},
+		{name: "a Decimal", input: mustDecimal(t, "1.230"), want: mustDecimal(t, "1.230")},
 		{name: nameFloat, input: 0.5, want: 0.5},
 	}
 

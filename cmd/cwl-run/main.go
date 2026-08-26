@@ -117,6 +117,18 @@ type config struct {
 	// outdir is the directory the run's output files are written under.
 	// Empty means the process working directory.
 	outdir string
+	// noContainer declines every DockerRequirement: a hint runs on this host,
+	// and a requirement is refused. It is cwltool's --no-container.
+	noContainer bool
+	// noMatchUser runs a container's tool as the image's own user rather than
+	// as this process's. It is cwltool's --no-match-user.
+	noMatchUser bool
+	// noReadOnly leaves a container's root filesystem writable. It is
+	// cwltool's --no-read-only.
+	noReadOnly bool
+	// leaveContainer does not remove a container once its tool has exited. It
+	// is cwltool's --leave-container.
+	leaveContainer bool
 	// quiet suppresses the non-essential half of stderr, leaving failures.
 	quiet bool
 	// verbose prints every line of an error tree instead of its head.
@@ -135,13 +147,25 @@ type config struct {
 // and optionally a job order. A third is rejected rather than ignored, because
 // silently dropping it would make a mistyped flag look like a working command.
 func parseFlags(args []string, stderr io.Writer) (*config, error) {
-	cfg := &config{process: "", job: "", outdir: "", quiet: false, verbose: false, version: false, help: false}
+	cfg := &config{
+		process: "", job: "", outdir: "",
+		noContainer: false, noMatchUser: false, noReadOnly: false, leaveContainer: false,
+		quiet: false, verbose: false, version: false, help: false,
+	}
 
 	fs := flag.NewFlagSet(toolName, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, usageText()) }
 
 	fs.StringVar(&cfg.outdir, "outdir", "", "write the run's output files under this directory")
+	fs.BoolVar(&cfg.noContainer, "no-container", false,
+		"do not run tools in a software container, even where DockerRequirement is a hint")
+	fs.BoolVar(&cfg.noMatchUser, "no-match-user", false,
+		"do not pass this process's uid and gid to a container")
+	fs.BoolVar(&cfg.noReadOnly, "no-read-only", false,
+		"do not hold a container's root filesystem read-only")
+	fs.BoolVar(&cfg.leaveContainer, "leave-container", false,
+		"do not remove a container once its tool has exited")
 	fs.BoolVar(&cfg.quiet, "quiet", false, "suppress progress and advisory messages on stderr")
 	fs.BoolVar(&cfg.quiet, "q", false, "alias for -quiet")
 	fs.BoolVar(&cfg.verbose, "verbose", false, "print every line of an error report instead of its head")

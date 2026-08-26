@@ -7,8 +7,10 @@ import (
 
 // Bounds used by the numeric fit check the specification requires: "the value
 // appearing in the document must fit into the specified type". They are spelled
-// as float64 because the out-of-range case can only reach the validator as a
-// float — an integer literal too large for an int64 is parsed as one.
+// as float64 because that is the type the check that uses them compares in: a
+// float literal is the remaining way a whole number out of int's or long's range
+// reaches the validator, an over-large integer literal being a [DecimalScalar]
+// that fails both by construction.
 const (
 	// maxIntPlusOne is 2^31, the first value an int cannot hold.
 	maxIntPlusOne = 2147483648
@@ -97,25 +99,34 @@ func (v *validator) checkString(n Node) *Error {
 // would hide a real mistake in a document. The two ways that can go wrong are
 // told apart, because "3.0 is not an integer" and "1e30 does not fit in an int"
 // call for different fixes.
+//
+// A [DecimalScalar] is an integer, and is rejected for both widths anyway: it is
+// the kind an integer literal takes only when no int64 can hold it, so it is out
+// of int's and long's range by construction. That is the case DECIDED-10 turns
+// on — such a value is accepted for float and double, where [ScalarNode.AsFloat]
+// converts it, and nowhere else.
+//
+// The range check is exact. Both kinds carry the literal the document wrote, so
+// the comparison is between whole numbers rather than between the float64s they
+// round to, and 2^63 is told apart from 2^63-1.
 func (v *validator) checkInteger(k PrimitiveKind, n Node) *Error {
 	s, ok := AsScalar(n)
 	if !ok {
 		return v.wrongType(n, k.String())
 	}
 
-	if val, isInt := s.AsInt(); isInt {
-		if intFits(k, val) {
+	switch s.Kind() {
+	case IntScalar, DecimalScalar:
+		if val, isInt := s.AsInt(); isInt && intFits(k, val) {
 			return nil
 		}
 
 		return v.fail(nodeLoc(n), "the value %s does not fit in %s", s.String(), k.String())
-	}
-
-	if s.Kind() != FloatScalar {
+	case FloatScalar:
+		return v.rejectFloatAsInteger(k, s)
+	default:
 		return v.wrongType(n, k.String())
 	}
-
-	return v.rejectFloatAsInteger(k, s)
 }
 
 // rejectFloatAsInteger explains why a float cannot stand in for an integer,
@@ -131,7 +142,10 @@ func (v *validator) rejectFloatAsInteger(k PrimitiveKind, s *ScalarNode) *Error 
 }
 
 // checkFloating validates that n is a number that fits the given precision.
-// Integers are accepted, as the specification's numeric hierarchy requires.
+// Integers are accepted, as the specification's numeric hierarchy requires,
+// including one too large for an int64: this is where a document's
+// forty-three-digit `double` default is range-checked, and the only numeric type
+// it is legal for.
 func (v *validator) checkFloating(k PrimitiveKind, n Node) *Error {
 	s, ok := AsScalar(n)
 	if !ok {
@@ -161,8 +175,9 @@ func intFits(k PrimitiveKind, val int64) bool {
 }
 
 // floatFitsInteger reports whether a whole-numbered float lies within the range
-// of an int or a long. It is the only way a value too large for an int64 can be
-// range-checked, because such a literal is parsed as a float in the first place.
+// of an int or a long. It exists to tell 3.0 (whole, in range, still not an
+// integer) apart from 1e30 (whole, and out of range whatever else is wrong with
+// it), which are two different mistakes in a document.
 func floatFitsInteger(k PrimitiveKind, f float64) bool {
 	if k == PrimitiveInt {
 		return f >= minIntValue && f < maxIntPlusOne

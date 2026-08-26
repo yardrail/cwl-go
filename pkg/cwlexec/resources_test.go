@@ -216,7 +216,9 @@ func TestAsNumberRejectsNonNumbers(t *testing.T) {
 		}
 	}
 
-	for _, value := range []any{3, int64(3), 3.0} {
+	// A number a document wrote arrives as its literal, and a resource request is one of the
+	// places that wants the float64 it rounds to rather than the digits.
+	for _, value := range []any{3, int64(3), 3.0, jobDecimal(t, "3"), jobDecimal(t, "3.0")} {
 		number, numeric := asNumber(value)
 		if !numeric || number != 3 {
 			t.Fatalf("asNumber(%v) = %v, %v; want 3, true", value, number, numeric)

@@ -22,18 +22,6 @@ type docResult struct {
 	// graphOnly marks a $graph document that decoded as a whole but names no entry
 	// point, so it can only be addressed by fragment. See decodeWholeGraph.
 	graphOnly bool
-	// version is the cwlVersion the document declared, when it loaded.
-	version string
-}
-
-// staleVersion reports a document this implementation accepted even though it declares a
-// CWL version other than v1.2.
-//
-// cwlcore.CWLVersionV12 is documented as the only version accepted, and there is
-// deliberately no document-upgrade machinery, so accepting one is a fail-open: the
-// document is validated against a schema it was not written for.
-func (r docResult) staleVersion() bool {
-	return r.ok() && r.version != "" && r.version != cwlcore.CWLVersionV12
 }
 
 // ok reports whether the document loaded.
@@ -91,10 +79,18 @@ func (s *sweep) failingPaths() []string {
 // run loads every document in the corpus, in parallel across GOMAXPROCS workers, and
 // tallies the outcome.
 //
-// Each document is loaded exactly as cmd/cwl-validate would load it: through
-// cwlcore.LoadFile, which is salad's $import/$include resolution and link checking,
-// schema validation against the embedded CWL v1.2 schema, and decoding into the typed
-// model. Nothing is executed.
+// Each document is loaded exactly as cmd/cwl-run would load it: through
+// cwlcore.LoadFile under strict validation, which is salad's $import/$include resolution
+// and link checking, schema validation against the embedded schema for the CWL version
+// the document declares, the upgrade of anything older into v1.2 form, and decoding into
+// the typed model. Nothing is executed.
+//
+// Strict is what the runner uses, and it is what the reference implementation uses --
+// cwltool's LoadingContext.strict defaults to true. It matters here for one reason worth
+// naming: v1.0 and v1.1 spell a requirement's class as a plain string rather than a
+// single-symbol enum, so under permissive validation a mistyped ResourceRequirement field
+// simply matches some other requirement record with an undeclared field, and the document
+// that should have been rejected is accepted instead.
 func run(ctx context.Context, c *corpus, docs []string, m manifest) *sweep {
 	results := make([]docResult, len(docs))
 
@@ -131,10 +127,8 @@ func loadOne(ctx context.Context, c *corpus, rel string, m manifest) docResult {
 		return out
 	}
 
-	process, err := cwlcore.LoadFile(ctx, abs)
+	_, err = cwlcore.LoadFile(ctx, abs, salad.Strict(true))
 	if err == nil {
-		out.version = process.Base().CWLVersion
-
 		return out
 	}
 
@@ -160,7 +154,7 @@ func loadOne(ctx context.Context, c *corpus, rel string, m manifest) docResult {
 // so the happy path stays a single load through the full stack, external run references
 // included.
 func decodeWholeGraph(ctx context.Context, abs string) bool {
-	doc, err := cwlcore.LoadFileDocument(ctx, abs)
+	doc, err := cwlcore.LoadFileDocument(ctx, abs, salad.Strict(true))
 	if err != nil {
 		return false
 	}

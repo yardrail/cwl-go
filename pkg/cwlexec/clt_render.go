@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
+	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
 // Rendering a sorted leaf binding into command-line elements: step 5 of the specification's
@@ -237,7 +238,17 @@ func argText(value any) (string, error) {
 
 // numberText renders any Go numeric type as the "decimal representation" the binding rules call
 // for. ok is false for everything that is not a number.
+//
+// A number a document wrote arrives as a [salad.Decimal] and is rendered from its own digits, which
+// is what the reference implementation does and what this rule means by "the decimal
+// representation": Builder.tostr puts a document's float on a command line through Python's
+// decimal.Decimal, so 1.23e-05 is written 0.0000123 and an integer literal declared as a float is
+// written without a ".0". Only a computed number reaches the reflective path below.
 func numberText(value any) (string, bool) {
+	if literal, ok := value.(salad.Decimal); ok {
+		return literal.String(), true
+	}
+
 	reflected := reflect.ValueOf(value)
 
 	switch {
@@ -252,16 +263,13 @@ func numberText(value any) (string, bool) {
 	}
 }
 
-// floatText renders a float onto a command line, which is the same rendering
+// floatText renders a computed float onto a command line, which is the same rendering
 // [cwlcore.EncodeJSON] gives it and is deliberately not a second copy of that rule.
 //
 // The two agree because the reference implementation makes them agree: it puts a number on a
 // command line with Python's str() and into an interpolated string with json.dumps, and for a float
 // those are the same function — json.dumps writes a float through its repr, and in Python 3 str and
-// repr of a float are identical. So a whole number keeps its ".0", small magnitudes switch to an
-// exponent where Python's repr does, and a magnitude at or above 1e16 is written as its full run of
-// digits, because at that size a float64 can only be an integer literal that pkg/salad widened and
-// Python would have printed in full.
+// repr of a float are identical.
 //
 // Keeping a private copy here is what actually goes wrong in practice: the copy was byte-identical
 // to cwlcore's until cwlcore's changed, and then a `double` input carrying an inputBinding put
@@ -275,6 +283,10 @@ func floatText(value float64) string {
 // anything that is not an integer, including a float with a fractional part and one too large for
 // an int64 to hold faithfully.
 func integerValue(value any) (int64, bool) {
+	if literal, ok := value.(salad.Decimal); ok {
+		return literal.Int64()
+	}
+
 	reflected := reflect.ValueOf(value)
 
 	switch {

@@ -7,6 +7,10 @@ on:
 
 jobs:
   test:
+    # A Docker daemon is a hard dependency of the test suite, not an optional
+    # extra: the CommandLineTool container tests fail rather than skip when one
+    # is absent, so that "the tests passed" means the same thing everywhere.
+    # ubuntu-latest runners ship one already started.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -15,6 +19,9 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Confirm the Docker daemon is reachable
+        run: docker version
+
       - run: go build ./...
       - run: go test ./...
 
@@ -22,14 +29,20 @@ jobs:
     # The official CWL v1.2 conformance suite, in two stages.
     #
     # Stage 0 is the parse/validate sweep in pkg/cwlcore/conformance, gated at
-    # its own ratchet. Stage 1 executes the 378-test suite through cwltest and
-    # ratchets the result: it fails only when a test that used to pass stops
-    # passing.
+    # its own ratchet. Stage 1 executes the suite through cwltest, ratchets the
+    # result, and gates the `required` subset at 100%.
     #
-    # The `required` subset is deliberately NOT gated yet -- it stands at 59 of
-    # 83 -- because a gate we do not meet is a permanently red build, not a
-    # signal. Once required reaches 100%, add `-gate-required` to the Stage 1
-    # step and this job starts enforcing it.
+    # The gate is deliberately wired ahead of the work that satisfies it, so
+    # this job reports the two remaining exclusions -- container execution and
+    # documents declaring a cwlVersion below v1.2 -- rather than absorbing them
+    # into a number that looks like progress. It is red until both land. The
+    # ratchet runs underneath regardless, so a red gate never masks a fresh
+    # regression.
+    #
+    # -gate-required keys on "zero failures in the required-tagged set", never
+    # on a count: one suite entry is tagged `require` (an upstream typo), so
+    # --tags required selects 83 of an intended 84, and a hardcoded denominator
+    # would break the day upstream fixes the spelling.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -51,8 +64,8 @@ jobs:
       # test:conformance:run depends on build and on the Stage 0 sweep, so this
       # one step fetches the pinned corpus, gates Stage 0 and ratchets Stage 1.
       # Many suite documents run `python`, which setup-python puts on PATH.
-      - name: Stage 0 + Stage 1 (ratcheted; required subset ungated)
-        run: task test:conformance:run
+      - name: Stage 0 + Stage 1 (ratcheted; required subset gated at 100%)
+        run: task test:conformance:run -- -gate-required
 
       - name: Upload conformance results
         if: always()

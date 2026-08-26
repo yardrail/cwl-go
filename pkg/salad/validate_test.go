@@ -207,6 +207,12 @@ func TestValidatePrimitives(t *testing.T) {
 	}
 }
 
+// bigIntegerLiteral is the 43-digit integer paramref_arguments_inputs declares
+// as a double default: 1 followed by 42 zeros. No int64 holds it and no float64
+// reproduces it, which is what makes it the value the whole representation turns
+// on.
+const bigIntegerLiteral = "1000000000000000000000000000000000000000000"
+
 func TestValidateNumericFit(t *testing.T) {
 	t.Parallel()
 
@@ -223,12 +229,34 @@ func TestValidateNumericFit(t *testing.T) {
 		{name: "long max", kind: PrimitiveLong, value: "9223372036854775807", valid: true},
 		{name: "long min", kind: PrimitiveLong, value: "-9223372036854775808", valid: true},
 		{name: "long overflow", kind: PrimitiveLong, value: "9223372036854775808", valid: false},
+		{name: "long underflow", kind: PrimitiveLong, value: litUnderLong, valid: false},
 		{name: "long overflow far", kind: PrimitiveLong, value: "1.0e+30", valid: false},
 		{name: "int given integral float", kind: PrimitiveInt, value: "3.0", valid: false},
 		{name: "long given integral float", kind: PrimitiveLong, value: "3.0", valid: false},
 		{name: "float overflow", kind: PrimitiveFloat, value: "1.0e+300", valid: false},
 		{name: "double holds 1e300", kind: PrimitiveDouble, value: "1.0e+300", valid: true},
 		{name: "float holds infinity", kind: PrimitiveFloat, value: ".inf", valid: true},
+
+		// DECIDED-10, pinned on the literal the conformance suite's
+		// paramref_arguments_inputs declares as a double default. An integer
+		// too large for an int64 fails int and long by construction and is
+		// accepted by double, which is the only reason it can be written at
+		// all. float rejects it because it also overflows single precision.
+		{name: "big integer as an int", kind: PrimitiveInt, value: bigIntegerLiteral, valid: false},
+		{name: "big integer as a long", kind: PrimitiveLong, value: bigIntegerLiteral, valid: false},
+		{name: "big integer as a float", kind: PrimitiveFloat, value: bigIntegerLiteral, valid: false},
+		{name: "big integer as a double", kind: PrimitiveDouble, value: bigIntegerLiteral, valid: true},
+		{name: "big integer as a string", kind: PrimitiveString, value: bigIntegerLiteral, valid: false},
+
+		// The range check reads the digits rather than a float64 the digits
+		// round to, so the two values a float64 cannot tell apart are told
+		// apart here.
+		{
+			name: "long max is not long max plus one", kind: PrimitiveLong,
+			value: "9223372036854775807", valid: true,
+		},
+		{name: "long max plus one", kind: PrimitiveLong, value: "9223372036854775808", valid: false},
+		{name: "int max plus one as a long", kind: PrimitiveLong, value: "2147483648", valid: true},
 	}
 
 	for _, tc := range tests {

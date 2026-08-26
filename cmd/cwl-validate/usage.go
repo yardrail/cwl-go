@@ -8,7 +8,8 @@ import "github.com/yardrail/cwl-go/cmd/internal/cwlcli"
 // the exit statuses are this tool's real interface, and PrintDefaults has
 // nowhere to put them.
 func usageText() string {
-	return `cwl-validate validates CWL v1.2 documents against the embedded CWL schema.
+	return `cwl-validate validates CWL documents against the embedded CWL schema for the
+version each one declares -- v1.0, v1.1 or v1.2.
 
 Usage:
   cwl-validate [flags] <document>...

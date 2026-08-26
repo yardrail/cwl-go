@@ -2,6 +2,7 @@ package salad
 
 import (
 	"io/fs"
+	"math/big"
 	"net/http"
 )
 
@@ -48,4 +49,17 @@ var (
 	_ func(string, []byte) (Node, error)                                = Parse
 	_ func(Node) any                                                    = ToAny
 	_ func(any, SourceLine) (Node, error)                               = FromAny
+
+	// The exact-decimal representation. Every consumer that renders a number
+	// or range-checks one reads it through these, so they are pinned too.
+	_ func(string) (Decimal, bool)          = ParseDecimal
+	_ func(Decimal) string                  = Decimal.String
+	_ func(Decimal) ([]byte, error)         = Decimal.MarshalJSON
+	_ func(Decimal) float64                 = Decimal.Float64
+	_ func(Decimal) (int64, bool)           = Decimal.Int64
+	_ func(Decimal) (*big.Int, bool)        = Decimal.BigInt
+	_ func(Decimal) bool                    = Decimal.IsIntegral
+	_ func(Decimal) bool                    = Decimal.IsFloatForm
+	_ func(SourceLine, Decimal) *ScalarNode = NewNumberNode
+	_ func(*ScalarNode) (Decimal, bool)     = (*ScalarNode).AsDecimal
 )

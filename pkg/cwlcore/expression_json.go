@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
 // hexDigits indexes the lowercase hexadecimal digits used by \u escapes.
@@ -28,10 +30,10 @@ const (
 	// exponent, matching where Python's float repr switches.
 	exponentBelow = 1e-4
 
-	// digitsAtOrAbove is the magnitude at or above which a float is written
-	// as its full run of decimal digits rather than with an exponent. See
-	// [formatJSONFloat] for why that is the integer spelling and not the
-	// float one.
+	// digitsAtOrAbove is the magnitude at or above which a computed float is
+	// written as its full run of decimal digits rather than with an
+	// exponent. See [formatJSONFloat] for why that is the integer spelling
+	// and not the float one.
 	digitsAtOrAbove = 1e16
 )
 
@@ -75,6 +77,8 @@ func appendJSON(dst []byte, value any) []byte {
 		return strconv.AppendBool(dst, typed)
 	case string:
 		return appendJSONString(dst, typed)
+	case salad.Decimal:
+		return append(dst, typed.String()...)
 	case []any:
 		return appendJSONArray(dst, typed)
 	case map[string]any:
@@ -120,24 +124,29 @@ func appendJSONNumber(dst []byte, value any) ([]byte, bool) {
 	}
 }
 
-// formatJSONFloat formats a float the way json.dumps writes the value it came
-// from: below [digitsAtOrAbove] as a Python float, at or above it as a Python
-// integer.
+// formatJSONFloat formats a float that carries no literal — one this engine
+// computed rather than one a document wrote.
 //
-// Below that magnitude this is Python's float repr — a whole number keeps its
-// ".0", and the switch to exponent notation happens at the same place.
+// A number a document wrote never reaches here. It arrives as a [salad.Decimal]
+// and is rendered from its own digits, which is how 1.23e-05 goes back out as
+// 0.0000123 and a 43-digit integer keeps all 43. This function is what is left:
+// the result of arithmetic, of a JavaScript expression, or of a JSON reparse.
+//
+// Below [digitsAtOrAbove] this is Python's float repr — a whole number keeps its
+// ".0", and the switch to exponent notation at the small end happens where
+// Python's does.
 //
 // At or above it, the value is written as its full run of digits with no
-// exponent and no ".0". That is not float repr, which would say "1e+42", and
-// the difference is deliberate. A float64 that large is always a whole number:
-// the gap between neighbouring floats passes 1 at 2^52, well under 1e16, so
-// there is no fraction left to print. Nothing in this range is a float that a
-// document meant as a float. It is an integer literal too big for an int64,
-// which pkg/salad widens to a float so that range checking has something to
-// compare — and json.dumps prints an integer in full however large it is,
-// because a Python int has no magnitude limit to fall back from. Rendering the
-// exponent instead loses that: reparsing "1e+42" yields a float, which no
-// longer compares equal to the integer the document wrote.
+// exponent and no ".0", where Python's repr would say "1e+42". The difference is
+// deliberate and it is the one place this function is not repr. A float64 that
+// large is always a whole number — the gap between neighbouring floats passes 1
+// at 2^52, well under 1e16 — so the full spelling loses nothing and reparses to
+// the identical float64. What it buys is the case where a large integer has been
+// through a JavaScript expression, which is the one way a document's literal can
+// still lose its lexeme: Node has a single number type, so the value comes back
+// as a float64 and only the digits keep it comparing equal to the integer the
+// document wrote. The reference implementation writes "1e+42" there and could
+// not pass such a test itself.
 //
 // NaN and the infinities have no JSON spelling; they are written the way
 // json.dumps writes them, which keeps an interpolated string readable even

@@ -296,7 +296,7 @@ func TestCollectOutputsRecordFieldLoadContentsOverTheLimit(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	outWriteFile(t, dir, outNameA, strings.Repeat("x", outContentLimit+1))
+	outWriteFile(t, dir, outNameA, strings.Repeat("x", joMaxContentsBytes+1))
 
 	binding := outGlobBinding(outNameA)
 	binding.LoadContents = true

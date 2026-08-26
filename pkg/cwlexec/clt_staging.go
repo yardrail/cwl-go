@@ -338,6 +338,10 @@ func (s *workDirStager) serialized(name string, value any) error {
 
 // Apply carries out the plan against a real filesystem, in the order the placements were made.
 //
+// It is always *this* host's filesystem, which is why every placement is carried out at its Host
+// rather than at its Target: under a container the two are paths in different namespaces, and only
+// one of them is a path this process can write to. See the pathmap.go package comment.
+//
 // It is safe to re-run over a directory a previous attempt half-filled, which is what a resumed
 // invocation needs: every placement replaces whatever is at its target rather than expecting it to
 // be absent.
@@ -347,38 +351,41 @@ func (m *PathMap) Apply() error {
 
 		err := applyMapping(mapping)
 		if err != nil {
-			return fmt.Errorf("staging %q: %w", mapping.Target, err)
+			return fmt.Errorf("staging %q: %w", mapping.Host, err)
 		}
 	}
 
 	return nil
 }
 
-// applyMapping carries out one placement.
+// applyMapping carries out one placement, on this host.
+//
+// A placement with no Host is one the executor places for itself by mounting Resolved at Target, and
+// there is nothing here to do for it.
 func applyMapping(mapping *PathMapping) error {
-	if mapping.Resolved != "" && mapping.Resolved == mapping.Target {
+	if mapping.Host == "" || mapping.Resolved == mapping.Host {
 		return nil
 	}
 
-	err := os.MkdirAll(filepath.Dir(mapping.Target), stageDirPerm)
+	err := os.MkdirAll(filepath.Dir(mapping.Host), stageDirPerm)
 	if err != nil {
 		return err
 	}
 
 	switch mapping.Action {
 	case StageMkdir:
-		return os.MkdirAll(mapping.Target, stageDirPerm)
+		return os.MkdirAll(mapping.Host, stageDirPerm)
 	case StageWrite:
-		return replaceWith(mapping.Target, func() error {
-			return os.WriteFile(mapping.Target, []byte(mapping.Contents), stageFilePerm)
+		return replaceWith(mapping.Host, func() error {
+			return os.WriteFile(mapping.Host, []byte(mapping.Contents), stageFilePerm)
 		})
 	case StageLink:
-		return replaceWith(mapping.Target, func() error {
-			return os.Symlink(mapping.Resolved, mapping.Target)
+		return replaceWith(mapping.Host, func() error {
+			return os.Symlink(mapping.Resolved, mapping.Host)
 		})
 	case StageCopy:
-		return replaceWith(mapping.Target, func() error {
-			return copyTo(mapping.Resolved, mapping.Target)
+		return replaceWith(mapping.Host, func() error {
+			return copyTo(mapping.Resolved, mapping.Host)
 		})
 	default:
 		return fmt.Errorf("%w: unknown staging action %q", ErrStageValue, mapping.Action)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -55,8 +56,10 @@ func TestCheckCWLVersion(t *testing.T) {
 		declared string
 	}{
 		{name: "the version this engine implements", declared: cwlcore.CWLVersionV12, want: nil},
-		{name: "an earlier version", declared: "v1.0", want: cwlexec.ErrUnsupportedFeature},
-		{name: "a draft version", declared: "draft-3", want: cwlexec.ErrUnsupportedFeature},
+		// An earlier version is no longer this check's business: the
+		// loader routes it to its own schema and upgrades it, so by the
+		// time the version is checked it is a version we ran.
+		{name: "an earlier version", declared: cwlcore.CWLVersionV10, want: nil},
 		{name: "none at all", declared: "", want: errNoCWLVersion},
 	}
 
@@ -76,39 +79,33 @@ func TestCheckCWLVersion(t *testing.T) {
 	}
 }
 
-func TestCheckRunVersionsIgnoresAProcessWithNoSteps(t *testing.T) {
+// TestUnsupportedVersionMapsOnlyTheVersionFailure pins the translation that decides
+// between exit 33 and exit 1: a version this engine has no schema for is an unsupported
+// feature, and every other failure passes through untouched so that an invalid document
+// is not quietly recorded as a skip.
+// errMalformed stands in for any failure that is not about a version.
+var errMalformed = errors.New("the document is malformed")
+
+func TestUnsupportedVersionMapsOnlyTheVersionFailure(t *testing.T) {
 	t.Parallel()
 
-	err := checkRunVersions(&cwlcore.ExpressionTool{})
-	if err != nil {
-		t.Errorf("checkRunVersions on a non-Workflow = %v, want nil", err)
-	}
-}
-
-func TestCheckRunVersionsWalksNestedWorkflows(t *testing.T) {
-	t.Parallel()
-
-	legacy := &cwlcore.ExpressionTool{}
-	legacy.CWLVersion = "v1.1"
-
-	inner := &cwlcore.Workflow{Steps: []cwlcore.WorkflowStep{
-		{ID: "outer/deep", Run: cwlcore.StepRun{Process: legacy}},
-	}}
-
-	outer := &cwlcore.Workflow{Steps: []cwlcore.WorkflowStep{
-		// A step that embeds nothing at all is skipped rather than
-		// blamed: an unresolved run: reference is the scheduler's to
-		// report, not this check's.
-		{ID: "unresolved", Run: cwlcore.StepRun{Ref: "elsewhere.cwl"}},
-		{ID: "outer", Run: cwlcore.StepRun{Process: inner}},
-	}}
-
-	err := checkRunVersions(outer)
-	if !errors.Is(err, cwlexec.ErrUnsupportedFeature) {
-		t.Fatalf("checkRunVersions = %v, want an unsupported-feature failure", err)
+	got := unsupportedVersion("the document", errMalformed)
+	if !errors.Is(got, errMalformed) {
+		t.Errorf("unsupportedVersion on an unrelated error = %v, want it returned unchanged", got)
 	}
 
-	if !strings.Contains(err.Error(), `step "deep"`) {
-		t.Errorf("checkRunVersions = %q, want it to name the offending step", err)
+	if errors.Is(errMalformed, cwlexec.ErrUnsupportedFeature) {
+		t.Fatal("the control error must not already be an unsupported-feature failure")
+	}
+
+	version := fmt.Errorf("%w: %q", cwlcore.ErrUnsupportedVersion, "draft-3")
+
+	got = unsupportedVersion("the document", version)
+	if !errors.Is(got, cwlexec.ErrUnsupportedFeature) || !errors.Is(got, cwlcore.ErrUnsupportedVersion) {
+		t.Fatalf("unsupportedVersion = %v, want both an unsupported-feature and a version failure", got)
+	}
+
+	if !strings.Contains(got.Error(), "the document") {
+		t.Errorf("unsupportedVersion = %q, want it to name the document", got)
 	}
 }

@@ -24,13 +24,23 @@ import (
 // tool will see them. Nothing here touches a filesystem; [PathMap.Apply], in clt_staging.go, is
 // what carries the plan out.
 //
-// The split is what makes a container implementation possible without rewriting the executor. A
-// container runs the tool in a different filesystem namespace, so every path in its argv is a
-// container path while every path in the plan's Resolved field stays a host path — which is exactly
-// the pair a bind mount is built from. A container path mapper differs from this one in the two
-// directories it is constructed with and in nothing else, because [PathMap.RewriteInputs] is what
-// puts the mapped paths into the input object and every later stage — argv, redirections,
-// expressions, output collection — reads that one rewritten object.
+// The split is what makes container execution possible without rewriting the executor, and a
+// container is where the two namespaces a placement spans stop being the same one. Three paths
+// describe one placement, and each names a different filesystem:
+//
+//   - Resolved is where the bytes are now, on this host.
+//   - Target is where the *tool* will find them, which inside a container is a path this host does
+//     not have.
+//   - Host is where [PathMap.Apply] must write, on this host, for the tool to find them at Target.
+//
+// On this machine the last two are the same string and the distinction is invisible. Under a
+// container they are not: a mapper built by [NewContainerPathMap] plans Targets under the
+// directories the *tool* sees and derives each Host from the host directory that will be mounted
+// there. A placement with no Host at all is one the executor satisfies by bind-mounting Resolved
+// straight at Target, with nothing for this host to do.
+//
+// What does not change is that [PathMap.RewriteInputs] puts the Targets into the one input object
+// every later stage — argv, redirections, expressions, output collection — reads.
 
 // StageAction says how one mapped value is placed at its target path.
 type StageAction string
@@ -91,8 +101,16 @@ type PathMapping struct {
 	// — a literal to write, or a directory to create.
 	Resolved string
 
-	// Target is the absolute path the tool will see the value at.
+	// Target is the absolute path the tool will see the value at. Inside a container that is a
+	// path this host does not have.
 	Target string
+
+	// Host is the absolute path on this host that [PathMap.Apply] must produce for the tool to
+	// find the value at Target, or "" when there is nothing for this host to do because the
+	// executor bind-mounts Resolved at Target instead.
+	//
+	// On a host invocation it is always Target. See the package comment above.
+	Host string
 
 	// Contents is the literal text to write. It is meaningful only for [StageWrite], where ""
 	// is an ordinary value: an empty file literal.
@@ -100,6 +118,11 @@ type PathMapping struct {
 
 	// Action is how Target is produced from Resolved.
 	Action StageAction
+
+	// Writable reports that the document asked for an entry the tool may modify. It is what
+	// tells a container executor to bind-mount the placement read-write; on this host the
+	// isolation is already decided, by Action being [StageCopy] rather than [StageLink].
+	Writable bool
 }
 
 // PathMap is the plan for one invocation: every placement it needs, in the order they must be
@@ -134,25 +157,43 @@ type PathMap struct {
 	// value the document never asked to stage must not turn up in an output glob.
 	staging string
 
+	// hostWorkdir and hostStaging are the directories on *this* host that workdir and staging
+	// are reached through. They differ from those two only under a container; see
+	// [NewContainerPathMap].
+	hostWorkdir string
+	hostStaging string
+
 	// inplace records that an InplaceUpdateRequirement permits a writable entry to be placed as
 	// a link to the original rather than as a copy. See [PathMap.AllowInplaceUpdate].
 	inplace bool
+
+	// contained records that the tool runs in its own filesystem namespace, which is what makes
+	// workdir and hostWorkdir two different paths rather than one.
+	contained bool
+
+	// absolute records that a listing entry may name a target outside the working directory
+	// altogether. See [PathMap.AllowAbsoluteTargets].
+	absolute bool
 }
 
 // NewPathMap returns an empty path map.
 //
 // workdir is the invocation's designated output directory, where an InitialWorkDirRequirement's
 // entries are staged and where a relative `entryname` resolves. staging is where values that only
-// need to be reachable are materialized; it is normally the invocation's scratch directory, and a
-// container implementation would make it the host side of a mount instead.
+// need to be reachable are materialized; it is normally the invocation's scratch directory.
+//
+// The tool runs on this host, so every placement's Host is its Target. [NewContainerPathMap] is the
+// constructor for the case where the two part company.
 func NewPathMap(workdir, staging string) *PathMap {
 	return &PathMap{
-		byPath:  make(map[string]string),
-		byValue: make(map[cwlcore.FileOrDirectory]string),
-		used:    make(map[string]bool),
-		plan:    make([]PathMapping, 0),
-		workdir: workdir,
-		staging: staging,
+		byPath:      make(map[string]string),
+		byValue:     make(map[cwlcore.FileOrDirectory]string),
+		used:        make(map[string]bool),
+		plan:        make([]PathMapping, 0),
+		workdir:     workdir,
+		staging:     staging,
+		hostWorkdir: workdir,
+		hostStaging: staging,
 	}
 }
 
@@ -249,8 +290,14 @@ func (m *PathMap) Stage(value cwlcore.FileOrDirectory, name string, writable boo
 // A value already lying where all three sentences want it needs nothing and is left alone. That
 // exemption is what keeps the common case — a job order naming files that are already arranged the
 // way the document expects — free of copies, links and rewritten paths.
+//
+// The exemption does not survive a container, and that is not an optimization being declined. "Where
+// it lies" is a path on this host, and a tool in its own filesystem namespace does not have that
+// path at all: every value it is to open has to be given a target inside the namespace for the
+// executor to mount it at. cwltool's PathMapper reaches the same place from the other direction, by
+// mapping every referenced file to a target under its stage directory with no exemption to decline.
 func (m *PathMap) Materialize(value cwlcore.FileOrDirectory) error {
-	if stagedInPlace(value) {
+	if !m.contained && stagedInPlace(value) {
 		return nil
 	}
 
@@ -304,7 +351,7 @@ func (m *PathMap) StageContents(name, contents string) (string, error) {
 		return "", err
 	}
 
-	m.add(PathMapping{Target: target, Contents: contents, Action: StageWrite}, nil)
+	m.add(&PathMapping{Target: target, Contents: contents, Action: StageWrite}, nil)
 
 	return target, nil
 }
@@ -365,9 +412,15 @@ func (m *PathMap) stageAt(value cwlcore.FileOrDirectory, target string, writable
 func (m *PathMap) stageFile(file *cwlcore.File, target string, writable bool) error {
 	switch local := pathOf(file); {
 	case local != "":
-		m.add(PathMapping{Resolved: local, Target: target, Action: stageActions[m.isolate(writable)]}, file)
+		m.add(&PathMapping{
+			Resolved: local, Target: target,
+			Action: stageActions[m.isolate(writable)], Writable: writable,
+		}, file)
 	case file.Contents.IsSet():
-		m.add(PathMapping{Target: target, Contents: file.Contents.Value(), Action: StageWrite}, file)
+		m.add(&PathMapping{
+			Target: target, Contents: file.Contents.Value(),
+			Action: StageWrite, Writable: writable,
+		}, file)
 	case file.Location != "":
 		return fmt.Errorf("%w: %s is not on a filesystem this engine can read",
 			ErrUnsupportedFeature, file.Location)
@@ -396,7 +449,10 @@ func (m *PathMap) stageFile(file *cwlcore.File, target string, writable bool) er
 func (m *PathMap) stageDirectory(dir *cwlcore.Directory, target string, writable bool) error {
 	local := pathOf(dir)
 	if local != "" {
-		m.add(PathMapping{Resolved: local, Target: target, Action: stageActions[m.isolate(writable)]}, dir)
+		m.add(&PathMapping{
+			Resolved: local, Target: target,
+			Action: stageActions[m.isolate(writable)], Writable: writable,
+		}, dir)
 
 		return nil
 	}
@@ -410,7 +466,7 @@ func (m *PathMap) stageDirectory(dir *cwlcore.Directory, target string, writable
 		return fmt.Errorf("%w: Directory %q has neither a path nor a listing", ErrStageValue, dir.Basename)
 	}
 
-	m.add(PathMapping{Target: target, Action: StageMkdir}, dir)
+	m.add(&PathMapping{Target: target, Action: StageMkdir, Writable: writable}, dir)
 
 	for _, entry := range dir.Listing {
 		err := m.stageAt(entry, filepath.Join(target, basenameOf(entry)), writable)
@@ -427,8 +483,10 @@ func (m *PathMap) stageDirectory(dir *cwlcore.Directory, target string, writable
 // A host path already staged keeps its first target. CommandLineTool.yml: "If the same File or
 // Directory appears more than once in the `InitialWorkDirRequirement` listing, the implementation
 // must choose exactly one value for `path`; how this value is chosen is undefined".
-func (m *PathMap) add(mapping PathMapping, value cwlcore.FileOrDirectory) {
-	m.plan = append(m.plan, mapping)
+func (m *PathMap) add(mapping *PathMapping, value cwlcore.FileOrDirectory) {
+	mapping.Host = m.hostFor(mapping.Target, mapping.Action)
+
+	m.plan = append(m.plan, *mapping)
 	m.used[mapping.Target] = true
 
 	if value != nil {
@@ -442,26 +500,6 @@ func (m *PathMap) add(mapping PathMapping, value cwlcore.FileOrDirectory) {
 	if _, claimed := m.byPath[mapping.Resolved]; !claimed {
 		m.byPath[mapping.Resolved] = mapping.Target
 	}
-}
-
-// targetIn resolves a document-supplied entry name against a base directory, rejecting anything that
-// would put the entry somewhere else.
-//
-// An absolute name is not merely invalid, it is a feature this engine does not have: the
-// specification permits one only when "the program is will run inside a software container where,
-// from the perspective of the program, the root filesystem is not shared with any other user or
-// running program", and container execution is exactly what [ErrUnsupportedFeature] covers.
-func (m *PathMap) targetIn(base, name string) (string, error) {
-	if filepath.IsAbs(name) {
-		return "", fmt.Errorf("%w: an absolute entryname (%q) requires container execution",
-			ErrUnsupportedFeature, name)
-	}
-
-	if name == "" || !filepath.IsLocal(name) {
-		return "", fmt.Errorf("%w: %q", ErrStagePath, name)
-	}
-
-	return filepath.Join(base, name), nil
 }
 
 // unique returns a path in the staging directory named after name, pushed into a numbered

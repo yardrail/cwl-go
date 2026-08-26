@@ -1,5 +1,7 @@
-// Command cwl-validate validates a CWL document against the embedded CWL v1.2 schema,
-// for use in local development and CI.
+// Command cwl-validate validates a CWL document against the embedded schema for the CWL
+// version it declares, and reports whether a document written against an earlier version
+// also upgrades cleanly into the v1.2 form this implementation runs. For use in local
+// development and CI.
 package main
 
 import (

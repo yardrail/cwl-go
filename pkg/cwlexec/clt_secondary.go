@@ -119,7 +119,7 @@ func (c *outputCollector) attachToPrimary(
 func (c *outputCollector) resolveSecondary(
 	primary *cwlcore.File, schema *cwlcore.SecondaryFileSchema,
 ) ([]cwlcore.FileOrDirectory, error) {
-	self := outFileObject(primary)
+	self := cwlcore.ToExpressionValue(primary)
 	pattern := outTrimOptionalMarker(string(schema.Pattern))
 
 	policy, err := c.declaredPolicy(schema, self)
@@ -246,7 +246,7 @@ func (c *outputCollector) secondaryValue(
 // an array consisting of strings or File or Directory objects. ... The expression may return 'null'
 // in which case there is no secondaryFile from that expression".
 func (c *outputCollector) secondaryCandidates(
-	pattern string, primary *cwlcore.File, self map[string]any,
+	pattern string, primary *cwlcore.File, self any,
 ) ([]any, error) {
 	if !cwlcore.NeedsParsing(pattern) {
 		return []any{outSubstitutePattern(primary.Basename, pattern)}, nil
@@ -270,7 +270,7 @@ func (c *outputCollector) secondaryCandidates(
 // Process.yml: "When not explicitly specified, secondary files specified for `inputs` are required
 // and `outputs` are optional." These are outputs, so an undeclared field is optional.
 func (c *outputCollector) declaredPolicy(
-	schema *cwlcore.SecondaryFileSchema, self map[string]any,
+	schema *cwlcore.SecondaryFileSchema, self any,
 ) (outSecondaryPolicy, error) {
 	switch schema.Required.Kind() {
 	case cwlcore.ValueBool:
@@ -363,7 +363,7 @@ func (c *outputCollector) applyFormat(format []cwlcore.Expression, value any) er
 	declared := make([]string, 0, len(files))
 
 	for _, primary := range files {
-		iri, err := c.eval.EvalString(string(format[0]), c.context(outFileObject(primary)))
+		iri, err := c.eval.EvalString(string(format[0]), c.context(cwlcore.ToExpressionValue(primary)))
 		if err != nil {
 			return err
 		}
@@ -372,14 +372,14 @@ func (c *outputCollector) applyFormat(format []cwlcore.Expression, value any) er
 		declared = append(declared, iri)
 	}
 
-	return cwlcore.CheckFormat(outExpressionValue(value), declared, nil)
+	return cwlcore.CheckFormat(cwlcore.ToExpressionValue(value), declared, nil)
 }
 
 // checkFormatless reports a format declared on an output whose value holds no File to carry it. A
 // null value — an optional output that collected nothing — is fine, and cwlcore.CheckFormat is what
 // says which of the two this is.
 func (c *outputCollector) checkFormatless(format cwlcore.Expression, value any) error {
-	rendered := outExpressionValue(value)
+	rendered := cwlcore.ToExpressionValue(value)
 
 	iri, err := c.eval.EvalString(string(format), c.context(rendered))
 	if err != nil {

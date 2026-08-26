@@ -129,7 +129,7 @@ func TestStageInitialWorkDirDirentShapes(t *testing.T) {
 
 	pmWantPlan(t, stgPlan(t, listing, inputs), []PathMapping{
 		{Target: "/work/entry.txt", Contents: execGreeting, Action: StageWrite},
-		{Resolved: stgHostFile, Target: "/work/renamed.txt", Action: StageCopy},
+		{Resolved: stgHostFile, Target: "/work/renamed.txt", Action: StageCopy, Writable: true},
 		{Target: "/work/numbers.json", Contents: `{"a": 1}`, Action: StageWrite},
 		{Target: "/work/list.json", Contents: `[1, 2]`, Action: StageWrite},
 	})
@@ -312,8 +312,9 @@ func TestExpressionValueRendersAnAbsentFilesystemValueAsNull(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := outExpressionValue(value); got != nil {
-				t.Errorf("outExpressionValue = %#v, want null", got)
+			rendered := outExpressionObject(map[string]any{"v": value})
+			if got := rendered["v"]; got != nil {
+				t.Errorf("outExpressionObject rendered %#v, want null", got)
 			}
 		})
 	}
@@ -445,7 +446,7 @@ func TestApplyFailures(t *testing.T) {
 			t.Parallel()
 
 			mapper := NewPathMap(work, work)
-			mapper.plan = append(mapper.plan, testCase.mapping)
+			mapper.add(&testCase.mapping, nil)
 
 			err := mapper.Apply()
 			if err == nil {
@@ -462,7 +463,7 @@ func TestApplySkipsAValueAlreadyInPlace(t *testing.T) {
 	local := outWriteFile(t, work, execSourceName, execGreeting)
 
 	mapper := NewPathMap(work, work)
-	mapper.plan = append(mapper.plan, PathMapping{Resolved: local, Target: local, Action: StageLink})
+	mapper.add(&PathMapping{Resolved: local, Target: local, Action: StageLink}, nil)
 
 	err := mapper.Apply()
 	if err != nil {
@@ -651,7 +652,7 @@ func TestStageInitialWorkDirInplaceUpdate(t *testing.T) {
 			}
 
 			pmWantPlan(t, mapper, []PathMapping{
-				{Resolved: stgHostFile, Target: "/work/" + pmName, Action: testCase.want},
+				{Resolved: stgHostFile, Target: "/work/" + pmName, Action: testCase.want, Writable: true},
 			})
 		})
 	}

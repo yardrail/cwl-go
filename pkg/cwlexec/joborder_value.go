@@ -204,10 +204,24 @@ func joIntValue(scalar *salad.ScalarNode, n salad.Node, v *joValueCtx) (any, *sa
 }
 
 // joFloatValue converts a float or a double. An integer widens.
+//
+// The literal the job order wrote is kept rather than the float64 it rounds to, because that is
+// what the value is eventually rendered from: a `float` default written 1.23e-05 has to reach a
+// command line as 0.0000123, and a `double` default written as forty-three digits has to reach the
+// output object with all forty-three. Neither survives a float64, and the reference implementation
+// never converts one — ruamel hands it a scalar that still knows its own lexeme.
+//
+// A value with no literal behind it is the ordinary float64 it always was. Nothing in a job order
+// is one today, since every job order is parsed from a document, but a caller synthesising an input
+// object is not obliged to supply one.
 func joFloatValue(scalar *salad.ScalarNode, n salad.Node, v *joValueCtx) (any, *salad.Error) {
 	number, ok := scalar.AsFloat()
 	if !ok {
 		return nil, joTypeErr(n, v)
+	}
+
+	if literal, written := scalar.AsDecimal(); written {
+		return literal, nil
 	}
 
 	return number, nil
@@ -410,7 +424,7 @@ func (l *joLoader) freeformSeq(ctx context.Context, seq *salad.SeqNode, v *joVal
 
 // joClassOf returns the `class` of a mapping when it is a string, and "" otherwise.
 func joClassOf(m *salad.MapNode) string {
-	node, ok := m.Get(joKeyClass)
+	node, ok := m.Get(outKeyClass)
 	if !ok {
 		return ""
 	}

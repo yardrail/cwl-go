@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 	"github.com/yardrail/cwl-go/pkg/salad"
@@ -19,23 +18,6 @@ import (
 // fields and leaves as a fully-populated [cwlcore.File] or [cwlcore.Directory]: an absolute
 // file:// location, an absolute local path, the four derived name fields, and — for a File — a
 // size and a sha1 checksum read from the bytes themselves.
-
-// The field names of a File, of a Directory, and the class discriminator they share.
-const (
-	joKeyClass          = "class"
-	joKeyLocation       = "location"
-	joKeyPath           = "path"
-	joKeyBasename       = "basename"
-	joKeyDirname        = "dirname"
-	joKeyNameroot       = "nameroot"
-	joKeyNameext        = "nameext"
-	joKeyChecksum       = "checksum"
-	joKeySize           = "size"
-	joKeyFormat         = "format"
-	joKeyContents       = "contents"
-	joKeySecondaryFiles = "secondaryFiles"
-	joKeyListing        = "listing"
-)
 
 // joFileFields and joDirectoryFields are the fields each filesystem value may carry.
 //
@@ -50,11 +32,11 @@ const (
 // worst contradict it.
 var (
 	joFileFields = []string{
-		joKeyClass, joKeyLocation, joKeyPath, joKeyBasename, joKeyDirname, joKeyNameroot, joKeyNameext,
-		joKeyChecksum, joKeySize, joKeyFormat, joKeyContents, joKeySecondaryFiles,
+		outKeyClass, outKeyLocation, outKeyPath, outKeyBasename, outKeyDirname, outKeyNameroot, outKeyNameext,
+		outKeyChecksum, outKeySize, outKeyFormat, outKeyContents, outKeySecondaryFiles,
 	}
 
-	joDirectoryFields = []string{joKeyClass, joKeyLocation, joKeyPath, joKeyBasename, joKeyListing}
+	joDirectoryFields = []string{outKeyClass, outKeyLocation, outKeyPath, outKeyBasename, outKeyListing}
 )
 
 // fileValue converts a value declared as `type: File`.
@@ -109,7 +91,7 @@ func (l *joLoader) normalizeFile(ctx context.Context, m *salad.MapNode, v *joVal
 		return nil, measured
 	}
 
-	secondary, _, err := l.entries(ctx, m, joKeySecondaryFiles, v)
+	secondary, _, err := l.entries(ctx, m, outKeySecondaryFiles, v)
 	if err != nil {
 		return nil, err
 	}
@@ -128,9 +110,9 @@ func (l *joLoader) fileShell(m *salad.MapNode, v *joValueCtx) (*cwlcore.File, *s
 
 	reader := &joFieldReader{m: m, path: v.path}
 	ref := joResolveRef(reader, v.base)
-	contents := reader.optText(joKeyContents)
-	basename := reader.text(joKeyBasename)
-	format := l.vocab.expandFormat(reader.text(joKeyFormat))
+	contents := reader.optText(outKeyContents)
+	basename := reader.text(outKeyBasename)
+	format := l.vocab.expandFormat(reader.text(outKeyFormat))
 
 	if reader.err != nil {
 		return nil, reader.err
@@ -145,19 +127,69 @@ func (l *joLoader) fileShell(m *salad.MapNode, v *joValueCtx) (*cwlcore.File, *s
 		basename = ref.name
 	}
 
-	parts := joSplitBasename(basename)
+	parts := outSplitName(basename)
 
 	return &cwlcore.File{
 		Node:     m,
 		Location: ref.location,
 		Path:     ref.local,
 		Basename: basename,
-		Dirname:  joDirnameOf(ref.local),
+		Dirname:  outDirname(ref.local),
 		Nameroot: parts.root,
 		Nameext:  parts.ext,
 		Format:   format,
 		Contents: contents,
 	}, nil
+}
+
+// joMeasure fills in a File's size and checksum, and its contents when the parameter asked for
+// them.
+//
+// A File with a local path is measured from disk, which is the only source the specification
+// allows: "The `size` property is the size in bytes of the File. It must be computed from the
+// resource and made available to expressions". A size or checksum written by hand in a job file
+// is therefore replaced rather than trusted.
+func joMeasure(file *cwlcore.File, m *salad.MapNode, v *joValueCtx) *salad.Error {
+	if file.Path == "" {
+		outMeasureLiteral(file)
+
+		return nil
+	}
+
+	stats, err := outDigest(file.Path)
+	if err != nil {
+		return salad.Errorf(m.Loc(), "%s: cannot read file: %v", v.path, err)
+	}
+
+	file.Size = cwlcore.NewOptInt(stats.size)
+	file.Checksum = stats.checksum
+
+	return joLoadContents(file, m, v, &stats)
+}
+
+// joLoadContents puts a File's bytes into its contents field when the declaring parameter
+// asked for them with loadContents.
+//
+// Process.yml, loadContents: "the file (or each file in the array) must be a UTF-8 text file 64
+// KiB or smaller, and the implementation must read the entire contents of the file ... If the
+// size of the file is greater than 64 KiB, the implementation must raise a fatal error".
+//
+// The bytes come from the digest pass rather than a second read, which is both cheaper and the
+// only way to be certain the contents an expression sees are the ones the checksum describes.
+func joLoadContents(file *cwlcore.File, m *salad.MapNode, v *joValueCtx, stats *outFileStats) *salad.Error {
+	if !v.loadContents {
+		return nil
+	}
+
+	if stats.size > joMaxContentsBytes {
+		return salad.Errorf(m.Loc(),
+			"%s: loadContents is set but the file is %d bytes, over the %d byte limit",
+			v.path, stats.size, joMaxContentsBytes)
+	}
+
+	file.Contents = cwlcore.NewOptString(string(stats.head))
+
+	return nil
 }
 
 // joCheckFileIdentity enforces the two rules that decide whether a File mapping names anything at
@@ -201,7 +233,7 @@ func (l *joLoader) normalizeDirectory(
 
 	reader := &joFieldReader{m: m, path: v.path}
 	ref := joResolveRef(reader, v.base)
-	basename := reader.text(joKeyBasename)
+	basename := reader.text(outKeyBasename)
 
 	if reader.err != nil {
 		return nil, reader.err
@@ -227,7 +259,7 @@ func (l *joLoader) normalizeDirectory(
 func (l *joLoader) directoryListing(
 	ctx context.Context, m *salad.MapNode, ref *joFileRef, v *joValueCtx,
 ) ([]cwlcore.FileOrDirectory, *salad.Error) {
-	listing, supplied, err := l.entries(ctx, m, joKeyListing, v)
+	listing, supplied, err := l.entries(ctx, m, outKeyListing, v)
 	if err != nil {
 		return nil, err
 	}
@@ -348,18 +380,18 @@ type joFileRef struct {
 // basename is still derived but no size or checksum is computed: fetching a remote resource is a
 // staging concern, not a loading one.
 func joResolveRef(r *joFieldReader, base string) joFileRef {
-	if local := r.text(joKeyPath); local != "" {
+	if local := r.text(outKeyPath); local != "" {
 		return joRefAt(joUnwrapFileIRI(local), base)
 	}
 
-	location := r.text(joKeyLocation)
+	location := r.text(outKeyLocation)
 	if location == "" {
 		return joFileRef{}
 	}
 
 	parsed, err := url.Parse(location)
 	if err != nil {
-		r.err = salad.Errorf(joNodeLoc(r.node(joKeyLocation)),
+		r.err = salad.Errorf(joNodeLoc(r.node(outKeyLocation)),
 			"%s: location %q is not a valid IRI: %v", r.path, location, err)
 
 		return joFileRef{}
@@ -374,9 +406,9 @@ func joResolveRef(r *joFieldReader, base string) joFileRef {
 
 // joRefAt builds a reference to a local filesystem path, which may be relative to base.
 func joRefAt(local, base string) joFileRef {
-	abs := joAbsolutize(local, base)
+	abs := outAbsolutize(local, base)
 
-	return joFileRef{location: joFileURI(abs), local: abs, name: filepath.Base(abs)}
+	return joFileRef{location: outFileURI(abs), local: abs, name: filepath.Base(abs)}
 }
 
 // joUnwrapFileIRI returns the filesystem path a `path` field names.
@@ -398,65 +430,6 @@ func joUnwrapFileIRI(ref string) string {
 	}
 
 	return parsed.Path
-}
-
-// joAbsolutize resolves a possibly-relative filesystem path against base.
-func joAbsolutize(p, base string) string {
-	if filepath.IsAbs(p) {
-		return filepath.Clean(p)
-	}
-
-	return filepath.Join(base, p)
-}
-
-// joFileURI renders an absolute local path as a file:// IRI, percent-escaping as the URL syntax
-// requires.
-func joFileURI(p string) string {
-	uri := url.URL{Scheme: joSchemeFile, Path: p}
-
-	return uri.String()
-}
-
-// joDirnameOf returns the directory component of a local path, and "" when there is no path.
-//
-// Process.yml, dirname: "The implementation must set this field based on the value of `path`
-// prior to evaluating parameter references or expressions in a CommandLineTool document". A
-// value with no path — a file literal, or a remote location — therefore has no dirname.
-func joDirnameOf(local string) string {
-	if local == "" {
-		return ""
-	}
-
-	return filepath.Dir(local)
-}
-
-// joNameParts is a basename split into the two halves the specification requires, kept together so
-// that they are always derived from the same basename by the same rule.
-type joNameParts struct {
-	root string
-	ext  string
-}
-
-// joSplitBasename splits a basename into nameroot and nameext.
-//
-// Process.yml, nameroot: "The basename root such that `nameroot + nameext == basename`, and
-// `nameext` is empty or begins with a period and contains at most one period. For the purposes
-// of path splitting leading periods on the basename are ignored; a basename of `.cshrc` will
-// have a nameroot of `.cshrc`".
-//
-// So: skip the run of leading periods, split what remains at its *last* period, and give the
-// leading periods back to the root. ".cshrc" splits as (".cshrc", ""), "a.b.c" as ("a.b", ".c"),
-// ".gitignore.bak" as (".gitignore", ".bak"), and "README" as ("README", ""). This is the same
-// rule Python's os.path.splitext implements, which is what the reference implementation calls.
-func joSplitBasename(basename string) joNameParts {
-	dots := len(basename) - len(strings.TrimLeft(basename, "."))
-
-	last := strings.LastIndexByte(basename[dots:], '.')
-	if last < 0 {
-		return joNameParts{root: basename}
-	}
-
-	return joNameParts{root: basename[:dots+last], ext: basename[dots+last:]}
 }
 
 // joStatDirectory reports an error unless local names an existing directory, and returns what the

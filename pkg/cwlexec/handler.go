@@ -146,6 +146,15 @@ type StepCall struct {
 	// registered with [Unbudgeted].
 	Resources Resources
 
+	// Containers is the container policy the caller configured on [Config.Containers], carried
+	// here because a handler is told about its own invocation and nothing about the run around
+	// it — the same route [StepCall.Logger] travels, and for the same reason.
+	//
+	// The zero value asks for nothing, which is what an engine given no instruction does. A
+	// handler that runs tools in containers is expected to honour it; one that does not may
+	// ignore it, exactly as it ignores Resources it has no use for.
+	Containers ContainerPolicy
+
 	// OutDir is the directory this invocation must write its output files to, allocated by the
 	// scheduler. It is runtime.outdir.
 	OutDir string

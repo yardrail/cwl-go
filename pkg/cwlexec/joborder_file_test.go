@@ -134,7 +134,7 @@ func TestFileNameFieldsAreDerivedFromTheBasename(t *testing.T) {
 func TestSplitBasenameEdgeCases(t *testing.T) {
 	t.Parallel()
 
-	cases := map[string]joNameParts{
+	cases := map[string]outNameParts{
 		"":               {root: "", ext: ""},
 		".":              {root: ".", ext: ""},
 		"..":             {root: "..", ext: ""},
@@ -145,13 +145,13 @@ func TestSplitBasenameEdgeCases(t *testing.T) {
 	}
 
 	for basename, want := range cases {
-		got := joSplitBasename(basename)
+		got := outSplitName(basename)
 		if got != want {
-			t.Errorf("joSplitBasename(%q) = %+v, want %+v", basename, got, want)
+			t.Errorf("outSplitName(%q) = %+v, want %+v", basename, got, want)
 		}
 
 		if got.root+got.ext != basename {
-			t.Errorf("joSplitBasename(%q) does not reassemble", basename)
+			t.Errorf("outSplitName(%q) does not reassemble", basename)
 		}
 	}
 }

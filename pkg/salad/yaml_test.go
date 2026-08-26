@@ -69,7 +69,7 @@ func TestParseScalarKinds(t *testing.T) {
 		{name: "single-quoted string", src: "v: '42'", want: "42"},
 		{name: nameInt, src: "v: 42", want: int64(42)},
 		{name: "negative int", src: "v: -42", want: int64(-42)},
-		{name: nameFloat, src: "v: 4.25", want: 4.25},
+		{name: nameFloat, src: "v: 4.25", want: mustDecimal(t, "4.25")},
 		{name: nameBoolean, src: "v: true", want: true},
 		{name: "explicit null", src: "v: null", want: nil},
 		{name: "implicit null", src: "v:", want: nil},
@@ -79,7 +79,19 @@ func TestParseScalarKinds(t *testing.T) {
 		{name: "str tag forces a string", src: "v: !!str 42", want: "42"},
 		{name: "unknown tag is transparent", src: "v: !custom 42", want: "42"},
 		{name: "infinity", src: "v: .inf", want: math.Inf(1)},
-		{name: "huge int widens to float", src: "v: 18446744073709551615", want: float64(math.MaxUint64)},
+		{
+			name: "an integer past MaxInt64 stays exact", src: "v: 18446744073709551615",
+			want: mustDecimal(t, "18446744073709551615"),
+		},
+
+		// goccy's numeric grammar is wider than the core schema's base-ten one.
+		// A literal ParseDecimal does not recognize keeps the value goccy
+		// parsed and carries no lexeme, which is what the two literal
+		// converters fall back to.
+		{name: "a hexadecimal integer keeps goccy's value", src: "v: 0x1f", want: int64(31)},
+		{name: "an octal integer keeps goccy's value", src: "v: 0o17", want: int64(15)},
+		{name: "a separated integer keeps goccy's value", src: "v: 1_0", want: int64(10)},
+		{name: "a separated float keeps goccy's value", src: "v: 1_0.5", want: 10.5},
 	}
 
 	for _, tc := range tests {
@@ -118,17 +130,29 @@ func TestParseRecoversCoreSchemaNumbers(t *testing.T) {
 		src  string
 	}{
 		// The literal from the conformance suite's paramref_arguments_inputs
-		// job order: 1 followed by 42 zeros.
-		{name: "huge integer widens to float", src: "v: 1" + strings.Repeat("0", 42), want: 1e42},
-		{name: "exponent without a point", src: "v: 1e40", want: 1e40},
-		{name: "negative exponent literal", src: "v: -1e40", want: -1e40},
-		{name: "capital exponent", src: "v: 1E40", want: 1e40},
-		{name: "signed exponent", src: "v: 1e+40", want: 1e40},
-		{name: "point and exponent", src: "v: 1.5e300", want: 1.5e300},
-		{name: "just past MaxInt64", src: "v: 9223372036854775808", want: 9.223372036854776e18},
-		{name: "past MaxUint64", src: "v: 18446744073709551616", want: 1.8446744073709552e19},
-		{name: "negative past MinInt64", src: "v: -9223372036854775809", want: -9.223372036854776e18},
-		{name: "overflowing exponent saturates", src: "v: 1e400", want: math.Inf(1)},
+		// job order: 1 followed by 42 zeros. It keeps every digit; widening
+		// it to a float was the old answer and float(1e42) is not 10**42.
+		{
+			name: "a huge integer keeps its digits", src: "v: 1" + strings.Repeat("0", 42),
+			want: mustDecimal(t, "1"+strings.Repeat("0", 42)),
+		},
+		{name: "exponent without a point", src: "v: 1e40", want: mustDecimal(t, "1e40")},
+		{name: "negative exponent literal", src: "v: -1e40", want: mustDecimal(t, "-1e40")},
+		{name: "capital exponent", src: "v: 1E40", want: mustDecimal(t, "1E40")},
+		{name: "signed exponent", src: "v: 1e+40", want: mustDecimal(t, "1e+40")},
+		{name: "point and exponent", src: "v: 1.5e300", want: mustDecimal(t, "1.5e300")},
+		{name: "just past MaxInt64", src: "v: 9223372036854775808", want: mustDecimal(t, "9223372036854775808")},
+		{name: "past MaxUint64", src: "v: 18446744073709551616", want: mustDecimal(t, "18446744073709551616")},
+		{
+			name: "negative past MinInt64", src: "v: -9223372036854775809",
+			want: mustDecimal(t, "-9223372036854775809"),
+		},
+		{name: "an exponent past float64 stays exact", src: "v: 1e400", want: mustDecimal(t, "1e400")},
+
+		// The one literal the grammar accepts that ParseDecimal will not
+		// hold: rendering it would expand thirteen source characters into a
+		// gigabyte of digits, so it falls back to the float it always was.
+		{name: "an absurd exponent saturates", src: "v: 1e999999999", want: math.Inf(1)},
 
 		// Quoting is how a document says a value is a string, and a plain
 		// scalar that only resembles a number is still a string.

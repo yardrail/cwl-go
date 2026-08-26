@@ -7,6 +7,6 @@ outputs:
     outputSource: inner/out
 steps:
   inner:
-    run: docker_hint.cwl
+    run: echo.cwl
     in: []
     out: [out]

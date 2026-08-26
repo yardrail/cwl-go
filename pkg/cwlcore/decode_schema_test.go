@@ -330,7 +330,7 @@ func BenchmarkSchemaLoadAndFlatten(b *testing.B) {
 	// measuring is the one paid once, at first use, by every entry point that
 	// validates a document.
 	for b.Loop() {
-		_, err := loadEmbeddedSchema()
+		_, err := loadEmbeddedSchema(schemaSetV12)
 		if err != nil {
 			b.Fatalf("loading the embedded schema: %v", err)
 		}

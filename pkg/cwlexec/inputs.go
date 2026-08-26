@@ -127,11 +127,11 @@ func (s *sink) value(lookup sourceLookup) (any, error) {
 // values has produced something its own declaration forbids, and a runner that handed it back
 // anyway would be reporting a workflow output the document says cannot exist.
 //
-// The value is rendered through [outExpressionValue] first, for the same reason an output binding's
+// The value is rendered through [cwlcore.ToExpressionValue] first, for the same reason an output binding's
 // result is: inside the engine a File is a *cwlcore.File, and the type checker works on the plain
 // JSON-shaped objects a CWL type describes.
 func (s *sink) checkType(value any) error {
-	err := checkValueType(outExpressionValue(value), s.Type)
+	err := checkValueType(cwlcore.ToExpressionValue(value), s.Type)
 	if err != nil {
 		return fmt.Errorf("output %q: %w", s.Name, err)
 	}

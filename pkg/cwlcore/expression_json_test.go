@@ -4,12 +4,102 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
 // bigIntegerDigits is the 43-digit integer literal the paramref_arguments_inputs
-// conformance test declares as a double default. It is too large for an int64,
-// so it reaches the renderer as a float.
+// conformance test declares as a double default. It is too large for an int64
+// and not representable in binary64, so it reaches the renderer as the
+// [salad.Decimal] the document wrote — which is the only form that can come back
+// out as the integer it is.
 const bigIntegerDigits = "1000000000000000000000000000000000000000000"
+
+// Literals these tables repeat, named because goconst counts occurrences
+// package-wide.
+const (
+	litWholeFloat = "3.0"
+	litAFloat     = "4.2"
+)
+
+// jsonDecimal is a literal a document wrote, as the renderer receives it.
+func jsonDecimal(t *testing.T, text string) salad.Decimal {
+	t.Helper()
+
+	value, ok := salad.ParseDecimal(text)
+	if !ok {
+		t.Fatalf("ParseDecimal(%q) rejected a valid literal", text)
+	}
+
+	return value
+}
+
+// TestEncodeJSONRendersLiteralsFromTheirText pins the half of number rendering
+// that the representation, not the renderer, is responsible for.
+//
+// Every value here is one a document wrote, so it carries its literal and is
+// written back from it. That is what the reference implementation does —
+// Builder.tostr runs a document's number through Python's decimal.Decimal — and
+// it is why none of these rows depends on the float64 spelling rules below.
+func TestEncodeJSONRendersLiteralsFromTheirText(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct{ name, text, want string }{
+		// paramref_arguments_inputs: the value the whole representation
+		// exists for. No point, no exponent, all 43 digits.
+		{name: "a_double", text: bigIntegerDigits, want: bigIntegerDigits},
+		{name: "its negation", text: "-" + bigIntegerDigits, want: "-" + bigIntegerDigits},
+
+		// very_big_and_very_floats: four `float` defaults whose spellings the
+		// suite compares byte for byte.
+		{name: "annotation_prokka_evalue", text: "0.00001", want: "0.00001"},
+		{name: "annotation_prokka_evalue2", text: "1.23e-05", want: "0.0000123"},
+		{name: "annotation_prokka_evalue3", text: "1.23e5", want: "123000"},
+		{name: "annotation_prokka_evalue4", text: "1230000", want: "1230000"},
+
+		// An integer literal declared as a float gains no ".0", and a float
+		// literal keeps the one it has. The float64 path cannot tell these
+		// apart at all, which is the reason the literal travels with the
+		// value.
+		{name: "a whole float keeps its point", text: litWholeFloat, want: litWholeFloat},
+		{name: "an integer gains none", text: "3", want: "3"},
+
+		{name: "a_float", text: litAFloat, want: litAFloat},
+		{name: "a_long", text: "4147483647", want: "4147483647"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := EncodeJSON(jsonDecimal(t, tc.text)); got != tc.want {
+				t.Errorf("EncodeJSON(%q) = %s, want %s", tc.text, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestEncodeJSONLiteralsSurviveContainers checks the literal is not lost on the
+// way through an array or an object, which is how paramref_arguments_inputs
+// actually renders it: the whole input object goes through one interpolation.
+func TestEncodeJSONLiteralsSurviveContainers(t *testing.T) {
+	t.Parallel()
+
+	value := map[string]any{
+		"an_array_of_doubles": []any{
+			jsonDecimal(t, bigIntegerDigits),
+			jsonDecimal(t, "-"+bigIntegerDigits),
+		},
+		"a_double": jsonDecimal(t, bigIntegerDigits),
+	}
+
+	want := `{"a_double": ` + bigIntegerDigits +
+		`, "an_array_of_doubles": [` + bigIntegerDigits + `, -` + bigIntegerDigits + `]}`
+
+	if got := EncodeJSON(value); got != want {
+		t.Errorf("EncodeJSON = %s, want %s", got, want)
+	}
+}
 
 // namedInt stands in for any named integer type a caller might hand us.
 type namedInt int
@@ -88,15 +178,20 @@ func TestEncodeJSONNumbers(t *testing.T) {
 		name  string
 		want  string
 	}{
-		// paramref_arguments_inputs declares this as a double default. It
-		// has to come back out as all of its digits: reparsed as an
-		// exponent it is a float, and float(1e42) does not equal 10**42.
-		{name: "the big integer default", value: 1e42, want: bigIntegerDigits},
-		{name: "an exponent literal of the same size", value: 1e42, want: bigIntegerDigits},
+		// A large integer that has been through a JavaScript expression
+		// comes back as a float64, its literal spent: Node has one number
+		// type. Writing every digit is what still makes it compare equal
+		// to the integer the document wrote, where an exponent would not.
+		// See TestEncodeJSONRendersLiteralsFromTheirText for the path that
+		// never loses the literal in the first place.
+		{name: "a big integer that lost its literal", value: 1e42, want: bigIntegerDigits},
 		{name: "its negation", value: -1e42, want: "-" + bigIntegerDigits},
 
 		// The boundary. Below it a float is a float, with the ".0" Python
-		// gives a whole one; at and above it every float64 is an integer.
+		// gives a whole one; at and above it every float64 is an integer,
+		// and is written as one. This is the one place the computed-float
+		// spelling is deliberately not Python's repr, which would say
+		// "1e+16"; see formatJSONFloat.
 		{name: "just below the boundary", value: 1e15, want: "1000000000000000.0"},
 		{name: "at the boundary", value: 1e16, want: "1" + strings.Repeat("0", 16)},
 
@@ -116,8 +211,9 @@ func TestEncodeJSONNumbers(t *testing.T) {
 		{name: "a negative integer", value: -7, want: "-7"},
 		{name: "the largest int64", value: int64(math.MaxInt64), want: "9223372036854775807"},
 
-		// The values the currently-passing numeric tests carry. From
-		// paramref_arguments_inputs:
+		// The values the currently-passing numeric tests carry, in the
+		// shape they take once a JavaScript expression has spent their
+		// literals. From paramref_arguments_inputs:
 		{name: "a_float", value: 4.2, want: "4.2"},
 		{name: "an_array_of_floats", value: []any{2.3, 4.2}, want: "[2.3, 4.2]"},
 		{name: "a_long", value: int64(4147483647), want: "4147483647"},
@@ -132,8 +228,10 @@ func TestEncodeJSONNumbers(t *testing.T) {
 		{name: "a params.cwl integer", value: int64(2), want: "2"},
 		{name: "a params.cwl integer in an object", value: map[string]any{"b az": int64(2)}, want: `{"b az": 2}`},
 
-		// From floats_small_and_large, whose four defaults all sit in the
-		// range where the float spelling is unchanged by this rule:
+		// From floats_small_and_large, in the shape they take after a
+		// JavaScript round trip. The document's own spellings — 0.00001,
+		// 0.0000123, 123000, 1230000 — are what the suite compares, and
+		// they come from the literal, not from here:
 		{name: "annotation_prokka_evalue", value: 0.00001, want: "1e-05"},
 		{name: "annotation_prokka_evalue2", value: 1.23e-05, want: "1.23e-05"},
 		{name: "annotation_prokka_evalue3", value: 1.23e5, want: "123000.0"},

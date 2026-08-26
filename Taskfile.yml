@@ -16,14 +16,12 @@ tasks:
       - nilaway -exclude-file-docstrings "Code generated" -exclude-test-files ./...
 
   build:
+    # Deliberately not cached on sources/generates. Task's checksum was observed
+    # serving a stale binary after a source change, and a stale bin/cwl-run does
+    # not fail -- it silently measures the previous build, which is how a
+    # conformance run reports a number for code that is not in the tree. Go's
+    # own build cache already makes a no-op rebuild cheap.
     desc: Build the cwl-run, cwl-validate and cwl-inspect binaries into bin/
-    sources:
-      - go.mod
-      - go.sum
-      - cmd/**/*.go
-      - pkg/**/*.go
-    generates:
-      - bin/*
     cmds:
       - for: ['cwl-run', 'cwl-validate', 'cwl-inspect']
         cmd: go build -o bin/{{.ITEM}} ./cmd/{{.ITEM}}
@@ -45,6 +43,16 @@ tasks:
   test:conformance:
     desc: Run the Stage 0 CWL parse/validate sweep (fetches the pinned cwl-v1.2 corpus; skips if unavailable)
     cmd: CWL_CONFORMANCE=1 go test -count=1 ./pkg/cwlcore/conformance/...
+
+  test:conformance:inprocess:
+    desc: Run the CWL execution suite through the in-process driver -- the fast dev loop, no Python (skips if the corpus is absent)
+    deps: [test:conformance]
+    cmd: CWL_CONFORMANCE=1 go test -count=1 -timeout 30m -v -run 'TestInProcessSuite' ./pkg/cwlexec/conformance/ {{.CLI_ARGS}}
+
+  test:conformance:inprocess:compare:
+    desc: Assert the in-process driver's pass/fail/skip sets equal cwltest's (skips if cwltest is absent)
+    deps: [test:conformance]
+    cmd: CWL_CONFORMANCE=1 go test -count=1 -timeout 90m -v -run 'TestInProcessMatchesCwltest' ./pkg/cwlexec/conformance/ {{.CLI_ARGS}}
 
   test:conformance:run:
     desc: Run the Stage 1 CWL execution suite through cwltest and ratchet the result (skips if cwltest is absent)

@@ -205,6 +205,13 @@ func describeProcess(p Process) string {
 
 // stepError blames a step for an error raised while following its run
 // reference, keeping the underlying error tree intact when there is one.
+//
+// The fallback wraps rather than renders. A step's run: target is a document in
+// its own right and may fail for a reason a caller has to be able to recognize
+// rather than merely print — a cwlVersion this implementation has no schema for
+// is the case that matters, since the cwl-runner contract answers it with a
+// different exit status. Flattening the cause into the message would have made
+// that indistinguishable from a malformed document.
 func stepError(step *WorkflowStep, err error) error {
 	msg := fmt.Sprintf("the step %q cannot run %q, because", step.ID, step.Run.Ref)
 
@@ -213,7 +220,7 @@ func stepError(step *WorkflowStep, err error) error {
 		return salad.Group(salad.SourceLine{}, msg, nested)
 	}
 
-	return salad.Errorf(salad.SourceLine{}, "%s %s", msg, err)
+	return fmt.Errorf("%s %w", msg, err)
 }
 
 // runTarget is a run reference split into the document to load and the object to
@@ -227,17 +234,12 @@ type runTarget struct {
 // wrote it, which is what makes a relative reference mean the same thing however
 // the process running it was invoked.
 func runTargetOf(base, ref string) (runTarget, error) {
-	loaded, err := cwlSchema()
-	if err != nil {
-		return runTarget{}, err
-	}
-
 	document := documentPart(ref)
 	if document == "" {
 		document = documentPart(base)
 	}
 
-	uri, err := loaded.Loader.Fetcher().Normalize(documentPart(base), document)
+	uri, err := documentFetcher().Normalize(documentPart(base), document)
 	if err != nil {
 		return runTarget{}, salad.Errorf(salad.SourceLine{File: base},
 			"the reference cannot be resolved against %s: %s", base, err)

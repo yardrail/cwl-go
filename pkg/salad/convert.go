@@ -3,23 +3,29 @@ package salad
 import (
 	"math"
 	"slices"
+	"strconv"
 )
 
-// fromUint64 converts an unsigned integer into a scalar node, widening values
-// that do not fit in an int64 into floats.
+// fromUint64 converts an unsigned integer into a scalar node. A value above
+// [math.MaxInt64] becomes a [DecimalScalar], which holds it exactly; it is still
+// an integer, and the only thing an int64 cannot do for it is store it.
 func fromUint64(v uint64, loc SourceLine) *ScalarNode {
-	if v > math.MaxInt64 {
-		return NewFloatNode(loc, float64(v))
+	if v <= math.MaxInt64 {
+		return NewIntNode(loc, int64(v))
 	}
 
-	return NewIntNode(loc, int64(v))
+	// Twenty digits at most, which ParseDecimal always accepts.
+	value, _ := ParseDecimal(strconv.FormatUint(v, decimalBase))
+
+	return NewNumberNode(loc, value)
 }
 
 // ToAny converts a Node tree into plain Go values, for JSON round-trips and for
 // deep-equality assertions in tests.
 //
 // A *MapNode becomes a map[string]any, a *SeqNode becomes a []any, and a
-// *ScalarNode becomes nil, bool, int64, float64 or string. A nil Node becomes nil.
+// *ScalarNode becomes nil, bool, int64, [Decimal], float64 or string. A nil Node
+// becomes nil.
 //
 // Key order is lost, because Go maps are unordered. Never round-trip
 // order-significant data (record fields, enum symbols, identifier maps) through
@@ -52,8 +58,8 @@ func ToAny(n Node) any {
 // arrive from encoding/json.
 //
 // Accepted inputs are nil, bool, string, the signed and unsigned integer types,
-// float32/float64, []any, []MapEntry, map[string]any, and any existing Node
-// (returned unchanged). Anything else is an error.
+// [Decimal], float32/float64, []any, []MapEntry, map[string]any, and any existing
+// Node (returned unchanged). Anything else is an error.
 //
 // Because Go maps are unordered, the keys of a map[string]any are sorted
 // lexicographically so that conversion is deterministic. Pass a []MapEntry when
@@ -85,6 +91,8 @@ func fromAnyScalar(v any, loc SourceLine) (Node, bool) {
 		return NewFloatNode(loc, float64(t)), true
 	case float64:
 		return NewFloatNode(loc, t), true
+	case Decimal:
+		return NewNumberNode(loc, t), true
 	default:
 		return fromAnySigned(v, loc)
 	}
@@ -108,8 +116,9 @@ func fromAnySigned(v any, loc SourceLine) (Node, bool) {
 	}
 }
 
-// fromAnyUnsigned converts the unsigned integer types. Values above [math.MaxInt64]
-// become floats, matching how the YAML adapter widens oversized integers.
+// fromAnyUnsigned converts the unsigned integer types. Values above
+// [math.MaxInt64] become [DecimalScalar]s, matching how the YAML adapter parses
+// an oversized integer literal.
 func fromAnyUnsigned(v any, loc SourceLine) (Node, bool) {
 	switch t := v.(type) {
 	case uint:

@@ -64,7 +64,7 @@ func joMergeRequirements(root salad.Node, p cwlcore.Process) error {
 
 	loc := node.Loc()
 	synthetic := salad.NewMapNode(loc, []salad.MapEntry{
-		{Key: joKeyClass, Value: salad.NewStringNode(loc, cwlcore.ClassOperation)},
+		{Key: outKeyClass, Value: salad.NewStringNode(loc, cwlcore.ClassOperation)},
 		{Key: joKeyProcessRequirements, Value: node},
 	})
 

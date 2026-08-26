@@ -498,9 +498,9 @@ func outMeasureFile(local string) (*cwlcore.File, error) {
 // content of a zero-byte file, and an expression asking for `self.contents` must see it rather
 // than find the field missing.
 func outWithContents(file *cwlcore.File, stats *outFileStats) (*cwlcore.File, error) {
-	if stats.size > outContentLimit {
+	if stats.size > joMaxContentsBytes {
 		return nil, fmt.Errorf("%w: %s is %d bytes, over %d",
-			ErrContentsTooLarge, file.Path, stats.size, outContentLimit)
+			ErrContentsTooLarge, file.Path, stats.size, joMaxContentsBytes)
 	}
 
 	if !utf8.Valid(stats.head) {

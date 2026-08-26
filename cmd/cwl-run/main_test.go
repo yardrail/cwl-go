@@ -19,10 +19,13 @@ const (
 	echoTool       = "echo.cwl"
 	requiredInput  = "required_input.cwl"
 	jobFile        = "job.yml"
+	jobExtraKey    = "job_extra_key.yml"
 	dockerTool     = "docker.cwl"
 	dockerHint     = "docker_hint.cwl"
 	oldVersion     = "version_1_0.cwl"
 	oldVersionStep = "workflow_old_step.cwl"
+	draftVersion   = "version_draft.cwl"
+	draftStep      = "workflow_draft_step.cwl"
 	noVersion      = "no_version.cwl"
 	unknownType    = "unknown_type.cwl"
 	notCWL         = "not_cwl.yml"
@@ -226,6 +229,38 @@ func TestRunReportsAnInvalidDocumentAsAReadableTree(t *testing.T) {
 	}
 }
 
+// TestRunAcceptsAnEarlierCWLVersion pins the whole of the version-routing feature from
+// the outside: a document declaring an earlier CWL version is validated against that
+// version's own schema, upgraded, and run -- both as the document named on the command
+// line and as the target of a step in a newer one.
+func TestRunAcceptsAnEarlierCWLVersion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		file string
+		port string
+	}{
+		{name: "as the top-level document", file: oldVersion, port: "out"},
+		{name: "under a step's run", file: oldVersionStep, port: "result"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := exerciseIn(t, t.TempDir(), fixture(tc.file))
+			if got.err != nil {
+				t.Fatalf("run: %v\n%s", got.err, got.stderr)
+			}
+
+			if outputs := got.outputs(t); outputs[tc.port] != "hi" {
+				t.Errorf("%s = %v, want hi", tc.port, outputs[tc.port])
+			}
+		})
+	}
+}
+
 func TestRunExitsUnsupportedForFeaturesThisEngineLacks(t *testing.T) {
 	t.Parallel()
 
@@ -234,9 +269,13 @@ func TestRunExitsUnsupportedForFeaturesThisEngineLacks(t *testing.T) {
 		file string
 		want string
 	}{
-		{name: "an old cwlVersion", file: oldVersion, want: `cwlVersion "v1.0"`},
-		{name: "an old cwlVersion under a step's run", file: oldVersionStep, want: `step "legacy"`},
-		{name: "a DockerRequirement", file: dockerTool, want: "DockerRequirement"},
+		{name: "a cwlVersion with no vendored schema", file: draftVersion, want: `"draft-3"`},
+		{name: "such a cwlVersion under a step's run", file: draftStep, want: `#legacy`},
+		// A DockerRequirement was the third row here until container execution
+		// landed. It is deliberately not replaced: the row asserted that the
+		// engine reports what it cannot do, and there is now nothing in a
+		// DockerRequirement it cannot do. testdata/docker.cwl is exercised by
+		// the container tests instead, which run the tool rather than decline it.
 	}
 
 	for _, tc := range tests {
@@ -291,9 +330,13 @@ func TestRunReportsAMissingDocument(t *testing.T) {
 func TestRunQuietSuppressesAdvisoriesButNotResults(t *testing.T) {
 	t.Parallel()
 
-	const advisory = "DockerRequirement is a hint"
+	// An undeclared job-order key is the advisory this exercises. It was a
+	// DockerRequirement hint until container execution landed and that warning
+	// stopped existing -- and a test for -quiet should not need a container
+	// runtime to say anything at all.
+	const advisory = "ignoring job order keys"
 
-	loud := exerciseIn(t, t.TempDir(), fixture(dockerHint))
+	loud := exerciseIn(t, t.TempDir(), fixture(echoTool), fixture(jobExtraKey))
 	if loud.err != nil {
 		t.Fatalf("run: %v\n%s", loud.err, loud.stderr)
 	}
@@ -302,7 +345,7 @@ func TestRunQuietSuppressesAdvisoriesButNotResults(t *testing.T) {
 		t.Fatalf("stderr = %q, want the advisory %q; the fixture no longer exercises -quiet", loud.stderr, advisory)
 	}
 
-	quiet := exerciseIn(t, t.TempDir(), "--quiet", fixture(dockerHint))
+	quiet := exerciseIn(t, t.TempDir(), "--quiet", fixture(echoTool), fixture(jobExtraKey))
 	if quiet.err != nil {
 		t.Fatalf("run: %v\n%s", quiet.err, quiet.stderr)
 	}
@@ -386,24 +429,18 @@ func TestRunRunsAWorkflowWithAnExternalRunReference(t *testing.T) {
 // so a Workflow under a step's run: has no way of its own to reach the registry
 // and configuration this command line resolved; without the context it falls
 // back to a fresh registry and the zero Config. The fixture nests two levels so
-// that the tool doing the observable thing — warning about a DockerRequirement
-// hint — runs inside the nested scheduler rather than the outer one.
+// that the work happens inside the nested scheduler rather than the outer one.
+//
+// The nested run used to warn about a DockerRequirement hint, and the quiet test
+// below keyed on that. Container execution removed the warning — a hint is now
+// honoured rather than declined — and nothing the nested scheduler emits at
+// Info level replaced it. So the surviving assertion is the weaker one: -quiet
+// leaves stderr empty while the nested run's output still arrives. Said plainly
+// rather than dressed up, because a test that claims more than it checks is
+// worse than one that admits its reach.
 
 func TestRunCarriesQuietIntoASubworkflow(t *testing.T) {
 	t.Parallel()
-
-	const advisory = "DockerRequirement is a hint"
-
-	loud := exerciseIn(t, t.TempDir(), fixture(nestedWorkflow))
-	if loud.err != nil {
-		t.Fatalf("run: %v\n%s", loud.err, loud.stderr)
-	}
-
-	// step=inner is the nested run's step, so this warning could only have
-	// come from inside the subworkflow.
-	if !strings.Contains(loud.stderr, advisory) || !strings.Contains(loud.stderr, "step=inner") {
-		t.Fatalf("stderr = %q, want the nested step's advisory; the fixture no longer nests", loud.stderr)
-	}
 
 	quiet := exerciseIn(t, t.TempDir(), "--quiet", fixture(nestedWorkflow))
 	if quiet.err != nil {

@@ -19,10 +19,11 @@ var ErrFilesystemEntry = errors.New("secondaryFiles or listing entry is not a Fi
 
 // The field names of a File, a Directory and the class discriminator they share.
 //
-// These, and the small path helpers at the foot of this file, are deliberately private to output
-// collection. The job-order stream keeps its own copies under a jo prefix; the two sets are meant
-// to be consolidated into one neutral home once both streams have landed, and until then a shared
-// copy would couple two files being edited at the same time.
+// This is the package's only copy: the job-order path reads the same names, and a second set would
+// be a second thing to keep in step with the schema. pkg/cwlcore keeps an unexported copy of its
+// own — it cannot import this package, and exporting thirteen constants to reach literal
+// single-sourcing would widen its API for no behavioural gain — and TestFileFieldNamesMatchCwlcore
+// asserts the two agree so that a divergence is a failing test rather than a silent one.
 const (
 	outKeyClass          = "class"
 	outKeyLocation       = "location"
@@ -39,90 +40,39 @@ const (
 	outKeyListing        = "listing"
 )
 
-// outSchemeFile is the IRI scheme every conforming implementation must support for a File or
-// Directory location.
-const outSchemeFile = "file"
-
-// The number of fields each filesystem value may carry, used to size the objects an expression
-// reads. Directory's set is much smaller, and deliberately so: the vendored schema gives it only
-// class, location, path, basename and listing — no size, no checksum, no format and no
-// secondaryFiles.
-const (
-	outFileFields      = 12
-	outDirectoryFields = 5
-)
-
 // The bridge between the engine's typed filesystem values and the shape a CWL expression sees.
 //
 // A File is a [*cwlcore.File] everywhere in this package: that is what [LoadJobOrder] produces and
 // what [CollectOutputs] returns, and cwlcore's own documentation gives keeping one idea of what a
 // File is as the reason the types exist at all. cwlcore's expression evaluator, though, reads
 // objects as string-keyed maps — it has no knowledge of the Go types — so `self.basename` inside an
-// outputEval would find nothing without a translation. These two functions are that translation,
-// and they are inverses over the fields the schema defines.
+// outputEval would find nothing without a translation.
 //
-// Which fields appear is not cosmetic. An empty `size` is the size of an empty file and an empty
-// `contents` is the content of an empty file, so both are written whenever they were computed and
-// omitted only when they were not. A nil `listing` means nobody read the directory, which is a
-// different claim from an empty one, so it is omitted rather than written as [].
+// That translation is [cwlcore.ToExpressionValue], and this package uses it rather than owning a
+// second copy. Which fields appear is not cosmetic — an empty `size` is the size of an empty file,
+// an empty `nameext` is the extension of a name that has none, and a nil `listing` means nobody
+// read the directory — so two implementations of the rule are two answers a document can get for
+// the same File depending on which side of the engine rendered it.
 
-// outExpressionValue renders a collected value in the shape a CWL expression reads.
+// outExpressionObject renders every field of an object, which is how a record input or a job's
+// whole input object reaches an expression with its File values translated.
 //
-// The two pointer cases are matched with an explicit nil check rather than as switch arms because an
-// interface can hold a typed nil pointer — a *cwlcore.File that is not there is neither a usable
-// File nor an untyped nil — and rendering one would dereference nothing. Such a value reads as null,
-// which is what it describes.
-func outExpressionValue(value any) any {
-	if file, ok := value.(*cwlcore.File); ok {
-		if file == nil {
-			return nil
-		}
-
-		return outFileObject(file)
-	}
-
-	if dir, ok := value.(*cwlcore.Directory); ok {
-		if dir == nil {
-			return nil
-		}
-
-		return outDirectoryObject(dir)
-	}
-
-	switch typed := value.(type) {
-	case []cwlcore.FileOrDirectory:
-		return outExpressionList(outWiden(typed))
-	case []any:
-		return outExpressionList(typed)
-	case map[string]any:
-		return outExpressionObject(typed)
-	default:
-		return value
-	}
-}
-
-// outExpressionList renders every element of a list.
-func outExpressionList(values []any) []any {
-	rendered := make([]any, 0, len(values))
-	for _, value := range values {
-		rendered = append(rendered, outExpressionValue(value))
-	}
-
-	return rendered
-}
-
-// outExpressionObject renders every field of an object, which is how a record input or a job's whole
-// input object reaches an expression with its File values translated.
+// It exists only because [cwlcore.EvalContext].Inputs is typed as a map: ToExpressionValue returns
+// any, and unpacking that would need a type assertion at every call site. The rendering itself is
+// entirely cwlcore's.
 func outExpressionObject(object map[string]any) map[string]any {
 	rendered := make(map[string]any, len(object))
 	for key, value := range object {
-		rendered[key] = outExpressionValue(value)
+		rendered[key] = cwlcore.ToExpressionValue(value)
 	}
 
 	return rendered
 }
 
 // outWiden views a list of filesystem values as the plain list an output port carries.
+//
+// This is a widening and not a rendering: the elements stay typed. It is what hands a globbed
+// result to a path rewriter or to an output port, both of which want the values themselves.
 func outWiden(values []cwlcore.FileOrDirectory) []any {
 	widened := make([]any, 0, len(values))
 	for _, value := range values {
@@ -130,67 +80,6 @@ func outWiden(values []cwlcore.FileOrDirectory) []any {
 	}
 
 	return widened
-}
-
-// outFileObject renders a File as the object an expression reads.
-func outFileObject(file *cwlcore.File) map[string]any {
-	object := make(map[string]any, outFileFields)
-	object[outKeyClass] = cwlcore.ClassFile
-
-	outPutText(object, outKeyLocation, file.Location)
-	outPutText(object, outKeyPath, file.Path)
-	outPutText(object, outKeyDirname, file.Dirname)
-	outPutText(object, outKeyChecksum, file.Checksum)
-	outPutText(object, outKeyFormat, file.Format)
-
-	if file.Basename != "" {
-		// nameroot and nameext accompany the basename even when nameext is empty, which it is
-		// for any name without an extension. Process.yml requires that
-		// `nameroot + nameext == basename`, so an absent nameext would leave the identity
-		// unsatisfiable for an expression that reads it.
-		object[outKeyBasename] = file.Basename
-		object[outKeyNameroot] = file.Nameroot
-		object[outKeyNameext] = file.Nameext
-	}
-
-	if file.Size.IsSet() {
-		object[outKeySize] = file.Size.Int()
-	}
-
-	if file.Contents.IsSet() {
-		object[outKeyContents] = file.Contents.Value()
-	}
-
-	if file.SecondaryFiles != nil {
-		object[outKeySecondaryFiles] = outExpressionList(outWiden(file.SecondaryFiles))
-	}
-
-	return object
-}
-
-// outDirectoryObject renders a Directory as the object an expression reads. Its field set is the five
-// the vendored schema gives Directory and no more.
-func outDirectoryObject(dir *cwlcore.Directory) map[string]any {
-	object := make(map[string]any, outDirectoryFields)
-	object[outKeyClass] = cwlcore.ClassDirectory
-
-	outPutText(object, outKeyLocation, dir.Location)
-	outPutText(object, outKeyPath, dir.Path)
-	outPutText(object, outKeyBasename, dir.Basename)
-
-	if dir.Listing != nil {
-		object[outKeyListing] = outExpressionList(outWiden(dir.Listing))
-	}
-
-	return object
-}
-
-// outPutText sets key to text unless text is empty, in which case the field was never derived and an
-// expression must find it absent rather than blank.
-func outPutText(object map[string]any, key, text string) {
-	if text != "" {
-		object[key] = text
-	}
 }
 
 // outTextField reads a string-valued field, treating an absent field and a non-string one alike as
@@ -430,7 +319,7 @@ func (c *outputCollector) deriveRef(object map[string]any) outRef {
 // on some other kind of storage.
 func (c *outputCollector) localPath(location string) string {
 	parsed, err := url.Parse(location)
-	if err != nil || (parsed.Scheme != "" && parsed.Scheme != outSchemeFile) {
+	if err != nil || (parsed.Scheme != "" && parsed.Scheme != joSchemeFile) {
 		return ""
 	}
 
@@ -440,6 +329,15 @@ func (c *outputCollector) localPath(location string) string {
 
 	return outAbsolutize(parsed.Path, c.outdir)
 }
+
+// The four derivations a filesystem value's fields come out of: a basename split at its extension
+// boundary, a path turned into an IRI, a path's directory component, and a relative path resolved
+// against a base.
+//
+// These are the package's only copies. A job order's File and a globbed File are the same value
+// read from the same filesystem, and the specification derives their fields by the same rules, so a
+// second set of these would be a second answer to "what is this file's nameext" — which is the
+// question `nameroot + nameext == basename` makes it impossible to be wrong about twice.
 
 // outNameParts is a basename divided at its extension boundary.
 type outNameParts struct {
@@ -475,7 +373,7 @@ func outSplitName(basename string) outNameParts {
 // outFileURI renders an absolute local path as a file:// IRI, percent-escaping as the URL syntax
 // requires.
 func outFileURI(local string) string {
-	uri := url.URL{Scheme: outSchemeFile, Path: local}
+	uri := url.URL{Scheme: joSchemeFile, Path: local}
 
 	return uri.String()
 }
@@ -500,22 +398,6 @@ func outAbsolutize(local, base string) string {
 	}
 
 	return filepath.Join(base, local)
-}
-
-// outMeasureLiteral measures a file literal from its own contents.
-//
-// A literal has no location and does not exist yet — the runner creates it on disk when a tool
-// needs it — but its bytes are already known, so its size and checksum are too. A File carrying
-// neither a path nor contents names a resource somewhere this engine cannot read, and its Size
-// stays unset rather than becoming a misleading zero.
-func outMeasureLiteral(file *cwlcore.File) {
-	if !file.Contents.IsSet() {
-		return
-	}
-
-	content := []byte(file.Contents.Value())
-	file.Size = cwlcore.NewOptInt(int64(len(content)))
-	file.Checksum = outChecksumOf(content)
 }
 
 // outNumber widens the numeric shapes an expression can produce into an int64, for the one numeric

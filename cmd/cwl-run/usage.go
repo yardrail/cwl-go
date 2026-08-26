@@ -8,7 +8,9 @@ import "github.com/yardrail/cwl-go/cmd/internal/cwlcli"
 // exit statuses are this tool's real interface — the cwltest harness reads
 // nothing else — and PrintDefaults has nowhere to put them.
 func usageText() string {
-	return `cwl-run executes a CWL v1.2 document and prints its output object as JSON.
+	return `cwl-run executes a CWL document and prints its output object as JSON. Documents
+declaring v1.0 or v1.1 are validated against their own version's schema and
+upgraded before they run.
 
 Usage:
   cwl-run [flags] <process> [<job>]
@@ -31,14 +33,38 @@ Flags:
                abstract type explains every concrete subtype it was tried as
   -version     print version information and exit
 
+Software container flags. They are cwltool's, name for name, and each is an
+opt-out: without them a DockerRequirement runs a container, the tool runs as
+this process's user, the container's root filesystem is read-only, and the
+container is removed when the tool exits. They apply to the whole run, nested
+subworkflows included.
+
+  -no-container      do not run tools in a software container. A
+                     DockerRequirement in hints is declined and the tool runs
+                     on this host, which is what "an implementation may ignore
+                     a hint" permits. One in requirements is refused instead,
+                     and exits 33: the document says the tool must run in that
+                     image, and running it anywhere else is a different answer
+                     rather than a lesser one
+  -no-match-user     do not pass this process's uid and gid to the container.
+                     Without it the tool runs as the image's user, usually
+                     root, and what it writes into the output directory is
+                     owned by root on this host
+  -no-read-only      do not hold the container's root filesystem read-only, so
+                     a tool may write outside the directories staged for it
+  -leave-container   do not remove the container once its tool has exited, so
+                     that it can be inspected. Nothing else collects it
+
 Exit status:
   0   the run succeeded and its output object is on stdout
   1   the run did not produce an output object: the document is invalid, the
       job order does not fit it, or a step failed
   2   the command line could not be understood
   33  the document uses a feature this engine does not implement, including a
-      cwlVersion other than v1.2. Nothing was executed. The cwltest harness
-      counts this as a skipped test rather than a failed one
+      cwlVersion there is no vendored schema for. v1.0, v1.1 and v1.2 all run;
+      anything else stops here. It is also what -no-container reports for a
+      DockerRequirement under requirements. Nothing was executed. The cwltest
+      harness counts this as a skipped test rather than a failed one
 `
 }
 

@@ -1,0 +1,5 @@
+# A job order carrying a key echo.cwl does not declare. Loading it is not an
+# error -- the reference implementation ignores an undeclared key -- but it does
+# produce an advisory, which is what makes this a fixture for -quiet.
+message: from the job file
+notAnInput: ignored, with a warning

@@ -15,10 +15,9 @@ import (
 // strTagName is the YAML core-schema tag that forces a scalar to be a string.
 const strTagName = "!!str"
 
-// The radix and widths every recovered numeric literal is parsed with.
+// The radix and width every recovered numeric literal is parsed with.
 const (
 	decimalBase    = 10
-	bitsPerInt64   = 64
 	bitsPerFloat64 = 64
 )
 
@@ -358,12 +357,40 @@ func (c *yamlConverter) scalar(n ast.Node) (Node, error) {
 func (c *yamlConverter) numeric(n ast.Node, loc SourceLine) (Node, error) {
 	switch v := n.(type) {
 	case *ast.IntegerNode:
-		return integerNode(loc, v), nil
+		return integerLiteral(loc, v), nil
 	case *ast.FloatNode:
-		return NewFloatNode(loc, v.Value), nil
+		return floatLiteral(loc, v), nil
 	default:
 		return c.special(n, loc)
 	}
+}
+
+// integerLiteral converts a goccy integer, keeping the literal it was written as
+// so that rendering can reproduce it.
+//
+// The kind the literal resolves to is checked rather than assumed: goccy's
+// integer grammar is wider than the core schema's base-ten one — it takes hex and
+// octal too — and a literal [ParseDecimal] does not recognize keeps the value
+// goccy already parsed.
+func integerLiteral(loc SourceLine, v *ast.IntegerNode) *ScalarNode {
+	if value, ok := ParseDecimal(scalarText(v)); ok && !value.IsFloatForm() {
+		return NewNumberNode(loc, value)
+	}
+
+	return integerNode(loc, v)
+}
+
+// floatLiteral converts a goccy float, keeping the literal it was written as.
+//
+// This is where 1230000 declared as a float keeps its integer spelling and
+// 0.00001 keeps its point: the reference implementation renders a document's
+// float from the text the document wrote, and a float64 no longer knows it.
+func floatLiteral(loc SourceLine, v *ast.FloatNode) *ScalarNode {
+	if value, ok := ParseDecimal(scalarText(v)); ok && value.IsFloatForm() {
+		return NewNumberNode(loc, value)
+	}
+
+	return NewFloatNode(loc, v.Value)
 }
 
 // special converts the IEEE-754 special values, and reports anything left over as
@@ -458,27 +485,29 @@ func isPlainScalar(v *ast.StringNode) bool {
 
 // coreSchemaNumber resolves a plain scalar against the core schema's numeric
 // grammar, reporting false for the text that is genuinely a string.
+//
+// The literal travels with the value. [NewNumberNode] decides the kind from it,
+// which is how an integer too large for an int64 keeps every digit and how a
+// float written 1.23e-05 can still be written back as 0.0000123 — neither of
+// which survives a float64.
+//
+// A literal the grammar accepts but [ParseDecimal] will not hold — one whose
+// exponent would expand into megabytes of digits — falls back to being parsed as
+// a float, where it becomes the infinity or the signed zero it always was.
 func coreSchemaNumber(loc SourceLine, text string) (*ScalarNode, bool) {
-	if coreSchemaInt.MatchString(text) {
-		value, err := strconv.ParseInt(text, decimalBase, bitsPerInt64)
-		if err == nil {
-			return NewIntNode(loc, value), true
-		}
-
-		// An integer too large for an int64 is widened into a float. That is
-		// the only representation left for it, and it is the one the validator
-		// range-checks such a magnitude in.
-		return floatNode(loc, text)
+	if !coreSchemaInt.MatchString(text) && !coreSchemaFloat.MatchString(text) {
+		return nil, false
 	}
 
-	if !coreSchemaFloat.MatchString(text) {
-		return nil, false
+	if value, ok := ParseDecimal(text); ok {
+		return NewNumberNode(loc, value), true
 	}
 
 	return floatNode(loc, text)
 }
 
-// floatNode converts a literal the core-schema grammar has already accepted.
+// floatNode converts a literal the core-schema grammar has already accepted but
+// [ParseDecimal] declined to hold exactly.
 //
 // A magnitude outside float64's range is kept as the saturated infinity — or
 // signed zero — that IEEE 754 rounding produces, rather than rejected: the

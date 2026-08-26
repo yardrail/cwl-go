@@ -180,7 +180,7 @@ func (s *stepSecondaryPass) file(primary *cwlcore.File, schemas []cwlcore.Second
 func (s *stepSecondaryPass) pattern(
 	primary *cwlcore.File, schema *cwlcore.SecondaryFileSchema, path string,
 ) error {
-	self := outFileObject(primary)
+	self := cwlcore.ToExpressionValue(primary)
 
 	policy, policyErr := s.rules.policy(schema, self, path)
 	if policyErr != nil {

@@ -211,7 +211,7 @@ func (s *joSecondaryPass) file(
 func (s *joSecondaryPass) pattern(
 	found []cwlcore.FileOrDirectory, primary *cwlcore.File, schema *cwlcore.SecondaryFileSchema, path string,
 ) ([]cwlcore.FileOrDirectory, *salad.Error) {
-	self := outFileObject(primary)
+	self := cwlcore.ToExpressionValue(primary)
 
 	policy, err := s.policy(schema, self, path)
 	if err != nil {
@@ -246,7 +246,7 @@ func (s *joSecondaryPass) pattern(
 // false}` while the document is resolved — but a process built in memory never went through it,
 // and reading the marker here means the two spellings cannot disagree.
 func (s *joSecondaryPass) policy(
-	schema *cwlcore.SecondaryFileSchema, self map[string]any, path string,
+	schema *cwlcore.SecondaryFileSchema, self any, path string,
 ) (outSecondaryPolicy, *salad.Error) {
 	switch schema.Required.Kind() {
 	case cwlcore.ValueBool:
@@ -271,7 +271,7 @@ func (s *joSecondaryPass) policy(
 // types the field as a boolean, so a value that is not one is a document defect, and guessing at
 // its truth would decide whether a run fails on a value nobody meant to write.
 func (s *joSecondaryPass) evaluatedPolicy(
-	expr cwlcore.Expression, self map[string]any, path string,
+	expr cwlcore.Expression, self any, path string,
 ) (outSecondaryPolicy, *salad.Error) {
 	value, err := s.eval.Eval(string(expr), s.context(self))
 	if err != nil {
@@ -306,7 +306,7 @@ func joOptionalMarker(pattern string) bool {
 // objects as previously described. ... The expression may return 'null' in which case there is no
 // secondary file from that expression".
 func (s *joSecondaryPass) candidates(
-	schema *cwlcore.SecondaryFileSchema, primary *cwlcore.File, self map[string]any, path string,
+	schema *cwlcore.SecondaryFileSchema, primary *cwlcore.File, self any, path string,
 ) ([]any, *salad.Error) {
 	pattern := outTrimOptionalMarker(string(schema.Pattern))
 
@@ -400,11 +400,11 @@ type joSecondaryRef struct {
 // the primary's own directory. An object carries its own location or path, which the specification
 // explicitly allows to be one "taken from input as a secondaryFile" and so may sit anywhere.
 func joCandidateRef(candidate any, primary *cwlcore.File, path string) (joSecondaryRef, *salad.Error) {
-	dir := joDirnameOf(primary.Path)
+	dir := outDirname(primary.Path)
 
 	switch typed := candidate.(type) {
 	case string:
-		local := joAbsolutize(typed, dir)
+		local := outAbsolutize(typed, dir)
 
 		return joSecondaryRef{local: local, name: filepath.Base(local)}, nil
 	case map[string]any:
@@ -422,12 +422,12 @@ func joCandidateRef(candidate any, primary *cwlcore.File, path string) (joSecond
 // Setting the basename with an expression this way affects the `path` where the secondary file
 // will be staged to". So a basename the object supplies is kept rather than re-derived.
 func joObjectRef(object map[string]any, dir string) joSecondaryRef {
-	local := joSecondaryLocal(outTextField(object, joKeyPath), dir)
+	local := joSecondaryLocal(outTextField(object, outKeyPath), dir)
 	if local == "" {
-		local = joSecondaryLocal(outTextField(object, joKeyLocation), dir)
+		local = joSecondaryLocal(outTextField(object, outKeyLocation), dir)
 	}
 
-	name := outTextField(object, joKeyBasename)
+	name := outTextField(object, outKeyBasename)
 	if name == "" && local != "" {
 		name = filepath.Base(local)
 	}
@@ -452,7 +452,7 @@ func joSecondaryLocal(ref, dir string) string {
 		return ""
 	}
 
-	return joAbsolutize(parsed.Path, dir)
+	return outAbsolutize(parsed.Path, dir)
 }
 
 // joAlreadyPresent reports whether a secondary file of this name is already attached, which is how
@@ -479,7 +479,7 @@ func joRenamed(value cwlcore.FileOrDirectory, name string) cwlcore.FileOrDirecto
 		// nameroot and nameext are derived from the basename, so renaming without
 		// re-deriving them would leave `nameroot + nameext == basename` unsatisfiable for
 		// an expression that reads all three.
-		parts := joSplitBasename(name)
+		parts := outSplitName(name)
 		file.Basename, file.Nameroot, file.Nameext = name, parts.root, parts.ext
 
 		return file

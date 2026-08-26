@@ -101,7 +101,9 @@ const joSchemeFile = "file"
 //
 // ctx is observed at each filesystem value, so a cancelled context stops a job order that names
 // a great many files rather than hashing all of them.
-func LoadJobOrder(ctx context.Context, jobPath string, p cwlcore.Process) (map[string]any, error) {
+func LoadJobOrder(
+	ctx context.Context, jobPath string, p cwlcore.Process, opts ...JobOrderOption,
+) (map[string]any, error) {
 	// Making the path absolute and reading it are one step with one failure, because they
 	// fail together: filepath.Abs consults the working directory and can only fail when that
 	// directory has been removed, in which case reading a relative path fails too. Clean
@@ -114,7 +116,21 @@ func LoadJobOrder(ctx context.Context, jobPath string, p cwlcore.Process) (map[s
 		return nil, salad.Errorf(salad.SourceLine{File: jobPath}, "reading job order: %v", problem)
 	}
 
-	return ParseJobOrder(ctx, abs, src, p)
+	return ParseJobOrder(ctx, abs, src, p, opts...)
+}
+
+// JobOrderOption configures how a job order is loaded.
+type JobOrderOption func(*joLoader)
+
+// WithJobOrderLogger routes the advisories loading reports — an undeclared key, most of all — to
+// log rather than to [slog.Default].
+//
+// It exists because those advisories are otherwise unreachable. A caller that writes its own
+// diagnostics to a chosen stream, as cwl-run does so that --quiet can silence them, never sets
+// the default logger; the warning was therefore written to a stream nobody was reading, and no
+// flag could suppress it. An advisory the user cannot see is not an advisory.
+func WithJobOrderLogger(log *slog.Logger) JobOrderOption {
+	return func(l *joLoader) { l.log = log }
 }
 
 // ParseJobOrder normalises an in-memory job document, and is what [LoadJobOrder] is built from.
@@ -154,7 +170,9 @@ func LoadJobOrder(ctx context.Context, jobPath string, p cwlcore.Process) (map[s
 // everything that has to honour it — the execution environment, a nested step that inherits it, and
 // the load below, which consults a LoadListingRequirement. See [joMergeRequirements] for the
 // precedence and for why appending is what implements it.
-func ParseJobOrder(ctx context.Context, jobPath string, src []byte, p cwlcore.Process) (map[string]any, error) {
+func ParseJobOrder(
+	ctx context.Context, jobPath string, src []byte, p cwlcore.Process, opts ...JobOrderOption,
+) (map[string]any, error) {
 	if p == nil {
 		return nil, salad.Errorf(salad.SourceLine{File: jobPath},
 			"a job order must be loaded against a process, but none was given")
@@ -186,6 +204,10 @@ func ParseJobOrder(ctx context.Context, jobPath string, src []byte, p cwlcore.Pr
 		docDir:  joProcessDir(p, jobDir),
 		vocab:   joReadVocabulary(p, root),
 		listing: listing,
+	}
+
+	for _, opt := range opts {
+		opt(loader)
 	}
 
 	inputs, jobErr := loader.load(ctx, root, p)

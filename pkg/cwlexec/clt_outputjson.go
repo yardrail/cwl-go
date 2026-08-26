@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
+	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
 // The output object a tool wrote for itself.
@@ -92,22 +93,22 @@ func decodeOutputJSON(data []byte) (map[string]any, error) {
 	return object, nil
 }
 
-// jsonNumbers replaces every [json.Number] a decode produced with the int64 or float64 the rest of
-// the engine speaks, keeping an integer an integer.
+// jsonNumbers replaces every [json.Number] a decode produced with the value the rest of the engine
+// speaks, keeping an integer an integer.
+//
+// A [json.Number] is a lexeme, which is exactly what a number needs to survive this hop, so it is
+// parsed as a [salad.Decimal] rather than converted: a tool that wrote a forty-three-digit integer
+// into cwl.output.json gets forty-three digits back, and one that wrote 0.0000123 does not get
+// 1.23e-05. Only an int64 is taken out of the literal, because an integer is an integer however it
+// is written and the whole engine reads one as an int64.
+//
+// The one literal that stays text is the one no exact rendering will expand: encoding/json accepts
+// "1e99999999", and a hundred megabytes of digits is not a number anyone wanted. It is out of
+// float64's range too, so there is nothing to narrow it to either.
 func jsonNumbers(value any) any {
 	switch typed := value.(type) {
 	case json.Number:
-		whole, err := typed.Int64()
-		if err == nil {
-			return whole
-		}
-
-		fraction, err := typed.Float64()
-		if err != nil {
-			return typed.String()
-		}
-
-		return fraction
+		return jsonNumber(typed)
 	case map[string]any:
 		for key, member := range typed {
 			typed[key] = jsonNumbers(member)
@@ -123,6 +124,22 @@ func jsonNumbers(value any) any {
 	default:
 		return value
 	}
+}
+
+// jsonNumber converts one JSON number, keeping the literal the tool wrote.
+func jsonNumber(number json.Number) any {
+	literal, ok := salad.ParseDecimal(number.String())
+	if !ok {
+		return number.String()
+	}
+
+	if !literal.IsFloatForm() {
+		if whole, fits := literal.Int64(); fits {
+			return whole
+		}
+	}
+
+	return literal
 }
 
 // bindOutputJSON maps the object the tool wrote onto the tool's declared output ports.

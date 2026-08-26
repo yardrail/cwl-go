@@ -135,6 +135,11 @@ func (e subworkflowEnv) descend(workflow *cwlcore.Workflow, cfg *Config) subwork
 //   - Logger becomes the call's, which is the logger the outer run was configured with; it reaches
 //     here through the [StepCall] rather than through the context.
 //
+// Containers is taken from the call for the same reason Logger is, and it is the one that has to be:
+// a --no-container that stopped applying one level down would run a container the caller told this
+// engine not to run. Inheriting e.cfg would already carry it when a caller wired up
+// [WithSubworkflows]; reading it off the [StepCall] carries it whether or not they did.
+//
 // An unset OutDir or TmpDir stays unset, which reads as "this run allocates no directories" exactly
 // as it does at the top level.
 func (e subworkflowEnv) childConfig(call *StepCall) *Config {
@@ -144,6 +149,7 @@ func (e subworkflowEnv) childConfig(call *StepCall) *Config {
 	}
 
 	cfg.Logger = call.Logger
+	cfg.Containers = call.Containers
 	cfg.OutDir = call.OutDir
 	cfg.TmpDirPrefix = call.TmpDir
 

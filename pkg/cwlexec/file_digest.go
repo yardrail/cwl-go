@@ -7,9 +7,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
 // Size, checksum and contents: the three File fields that can only come from the bytes themselves.
+//
+// One implementation serves both directions. A File read out of a job order and a File collected
+// from a glob are the same value measured from the same filesystem, and two implementations would
+// be two chances to disagree about what a checksum of a given file is — which is exactly the kind
+// of drift the conformance harness, recomputing every checksum from disk, reports as a failure in
+// whichever half happens to be under test.
 //
 // SHA-1 is used here as a *content digest the specification mandates*, not as a security control.
 // Process.yml, File.checksum: "Optional hash code for validating file integrity. Currently, must be
@@ -18,20 +26,13 @@ import (
 // answer that is simply wrong. Nothing here depends on SHA-1 being collision-resistant and no
 // security decision is taken on the result.
 //
-// gosec objects on two rules — G505 on the import and G401 on the constructor — and this project
-// bans //nolint directives, so the finding is reported for the linter configuration to settle
-// rather than suppressed at the call site. Everything in this stream that touches SHA-1 is confined
-// to this one file so that an exclusion can be scoped to it and nowhere else.
+// gosec objects on two rules — G505 on the import and G401 on each constructor — and this project
+// bans //nolint directives, so the finding is settled in the linter configuration rather than
+// suppressed at the call site. This is the only file in the package that imports crypto/sha1, which
+// is what lets that exclusion stay scoped to a path pattern and nowhere else; TestOneDigest pins it.
 
 // outChecksumPrefix is the algorithm tag a CWL checksum carries, per Process.yml.
 const outChecksumPrefix = "sha1$"
-
-// outContentLimit is the ceiling the specification places on a loadContents read.
-//
-// Process.yml, loadContents: "the file (or each file in the array) must be a UTF-8 text file 64 KiB
-// or smaller ... If the size of the file is greater than 64 KiB, the implementation must raise a
-// fatal error". Nothing here truncates.
-const outContentLimit = 64 * 1024
 
 // outFileStats is what one pass over a file's bytes yields: its length, its CWL checksum, and the
 // leading bytes a loadContents request needs. The three travel together because they must all
@@ -41,7 +42,7 @@ type outFileStats struct {
 	// checksum is the "sha1$<hex>" digest of everything read.
 	checksum string
 
-	// head is the first outContentLimit bytes, kept for loadContents.
+	// head is the first joMaxContentsBytes bytes, kept for loadContents.
 	head []byte
 
 	// size is the number of bytes read, which is the file's size.
@@ -50,8 +51,8 @@ type outFileStats struct {
 
 // outDigest reads the file at local once and reports its size, checksum and leading bytes.
 func outDigest(local string) (outFileStats, error) {
-	// Clean is redundant — every path reaching here has been through filepath.Glob or
-	// filepath.Join — but it is what marks the value as sanitized for taint analysis.
+	// Clean is redundant — every path reaching here has been through filepath.Glob, filepath.Join
+	// or filepath.Clean — but it is what marks the value as sanitized for taint analysis.
 	file, err := os.Open(filepath.Clean(local))
 	if err != nil {
 		return outFileStats{}, err
@@ -71,11 +72,12 @@ func outDigest(local string) (outFileStats, error) {
 }
 
 // outHashAll streams r through the digest, keeping the leading bytes as it goes. Streaming rather
-// than reading the whole file keeps a multi-gigabyte output off the heap, which matters: tool
+// than reading the whole file keeps a multi-gigabyte value off the heap, which matters in both
+// directions: an input object routinely names alignment files and reference genomes, and tool
 // outputs are routinely alignments and archives.
 func outHashAll(r io.Reader) (outFileStats, error) {
 	digest := sha1.New()
-	head := &outHeadWriter{limit: outContentLimit}
+	head := &outHeadWriter{limit: joMaxContentsBytes}
 
 	size, err := io.Copy(io.MultiWriter(digest, head), r)
 	if err != nil {
@@ -94,6 +96,24 @@ func outChecksumOf(content []byte) string {
 	sum := sha1.Sum(content)
 
 	return outChecksumPrefix + hex.EncodeToString(sum[:])
+}
+
+// outMeasureLiteral measures a file literal from its own contents.
+//
+// A literal has no location and does not exist yet — the runner creates it on disk when a tool
+// needs it — but its bytes are already known, so its size and checksum are too, and an expression
+// that reads them before staging gets the same answer it would get afterwards. A File carrying
+// neither a path nor contents names a resource somewhere this engine cannot read, and its Size
+// stays unset rather than becoming a misleading zero, which is exactly the distinction
+// [cwlcore.OptInt] exists to keep.
+func outMeasureLiteral(file *cwlcore.File) {
+	if !file.Contents.IsSet() {
+		return
+	}
+
+	content := []byte(file.Contents.Value())
+	file.Size = cwlcore.NewOptInt(int64(len(content)))
+	file.Checksum = outChecksumOf(content)
 }
 
 // outHeadWriter keeps the first limit bytes written to it and silently drops the rest. It is how

@@ -110,6 +110,58 @@ func TestArgText(t *testing.T) {
 	}
 }
 
+// TestNumberTextRendersLiteralsFromTheirText pins the command-line spelling of a
+// number a document wrote, which comes from its literal and not from the float64 it
+// rounds to.
+//
+// The first four rows are the whole of the conformance suite's
+// very_big_and_very_floats: four `float` defaults, each with a bare inputBinding,
+// whose argv the suite compares as the string "0.00001 0.0000123 123000 1230000".
+// Every one of them renders differently from its float64 — 1e-05, 1.23e-05, 123000.0,
+// 1230000.0 — so this table is the difference between passing that test and not.
+func TestNumberTextRendersLiteralsFromTheirText(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct{ name, text, want string }{
+		{name: "annotation_prokka_evalue", text: "0.00001", want: "0.00001"},
+		{name: "annotation_prokka_evalue2", text: "1.23e-05", want: "0.0000123"},
+		{name: "annotation_prokka_evalue3", text: "1.23e5", want: "123000"},
+		{name: "annotation_prokka_evalue4", text: "1230000", want: "1230000"},
+
+		{name: "the 43-digit integer", text: outBigInteger, want: outBigInteger},
+		{name: "its negation", text: "-" + outBigInteger, want: "-" + outBigInteger},
+		{name: "a whole float keeps its point", text: "3.0", want: "3.0"},
+		{name: "an integer gains none", text: "3", want: "3"},
+		{name: "a negative zero keeps its sign", text: "-0.0", want: "-0.0"},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			literal := jobDecimal(t, testCase.text)
+
+			got, ok := numberText(literal)
+			if !ok {
+				t.Fatalf("numberText(%q) reported the literal is not a number", testCase.text)
+			}
+
+			if got != testCase.want {
+				t.Errorf("numberText(%q) = %q, want %q", testCase.text, got, testCase.want)
+			}
+
+			// A command-line rendering and an interpolated one are the same rule.
+			if encoded := cwlcore.EncodeJSON(literal); encoded != testCase.want {
+				t.Errorf("cwlcore.EncodeJSON(%q) = %q, want %q", testCase.text, encoded, testCase.want)
+			}
+		})
+	}
+}
+
+// TestFloatText pins the spelling of a *computed* float: one this engine produced by
+// arithmetic, or got back from a JavaScript expression, and which therefore carries no
+// literal. A float a document wrote never reaches here; see
+// TestNumberTextRendersLiteralsFromTheirText.
 func TestFloatText(t *testing.T) {
 	t.Parallel()
 
@@ -170,6 +222,11 @@ func TestIntegerValue(t *testing.T) {
 		{name: "a string", value: "3", ok: false},
 		{name: "bool", value: true, ok: false},
 		{name: "a nil value", value: nil, ok: false},
+
+		// A position a document wrote arrives as its literal, and is read exactly: no
+		// float64 stands between the digits and the answer.
+		{name: "a written integer", value: jobDecimal(t, "3"), want: 3, ok: true},
+		{name: "a written fraction", value: jobDecimal(t, "3.5"), ok: false},
 	}
 
 	for _, testCase := range cases {

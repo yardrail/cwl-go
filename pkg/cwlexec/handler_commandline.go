@@ -27,10 +27,9 @@ import (
 // code for a tool that "could not be run because a feature is unsupported", and the cwltest harness
 // reads that as a skip rather than a failure. Test for it with [errors.Is].
 //
-// What it covers today: a DockerRequirement in requirements, since container execution is not
-// implemented; an InitialWorkDirRequirement entryname that is an absolute path, which the
-// specification permits only inside a container; and a File or Directory whose location names a
-// scheme this engine cannot read from.
+// What it covers today: a File or Directory whose location names a scheme this engine cannot read
+// from, a DockerRequirement.dockerLoad naming one, and a DockerRequirement on a machine with no
+// container engine installed.
 var ErrUnsupportedFeature = errors.New("unsupported CWL feature")
 
 // ErrToolExit reports a tool whose exit code [ClassifyExit] called a failure.
@@ -47,7 +46,8 @@ var ErrInvocationDir = errors.New("an invocation directory must be an absolute p
 var _ StepHandler = commandLineToolHandler{}
 
 // commandLineToolHandler is the built-in handler for the CommandLineTool class. It runs the tool as
-// an ordinary child process of this one, on this machine.
+// an ordinary child process of this one — on this machine, or inside a software container when a
+// DockerRequirement is in scope.
 type commandLineToolHandler struct{}
 
 // Execute runs one CommandLineTool invocation from end to end.
@@ -68,7 +68,7 @@ func runCommandLineTool(ctx context.Context, call *StepCall) (Result, error) {
 
 	defer run.discardScratch()
 
-	err = run.prepare()
+	err = run.prepare(ctx)
 	if err != nil {
 		return PermanentFail(fmt.Errorf("%s: %w", describe(call), err))
 	}
@@ -84,27 +84,30 @@ type invocation struct {
 	eval    *cwlcore.Evaluator
 	mapper  *PathMap
 	inputs  map[string]any
+	docker  *cwlcore.DockerRequirement
+	box     *container
 	runtime cwlcore.RuntimeContext
 	outdir  string
 	tmpdir  string
 	scratch string
+
+	// absolute records that a listing entry may name a target outside the working directory,
+	// which a DockerRequirement in *requirements* is what licenses. See
+	// [PathMap.AllowAbsoluteTargets].
+	absolute bool
 }
 
-// newInvocation checks that the call is one this handler can run and allocates its directories.
+// newInvocation checks that the call is one this handler can run, allocates its directories and
+// settles which filesystem the tool will see them in.
 func newInvocation(call *StepCall) (*invocation, error) {
 	tool, ok := call.Process.(*cwlcore.CommandLineTool)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s is not a CommandLineTool", ErrWrongProcessClass, describe(call))
 	}
 
-	err := checkSupported(call)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", describe(call), err)
-	}
-
 	run := &invocation{call: call, tool: tool, eval: call.Evaluator()}
 
-	err = run.makeDirs()
+	err := run.makeDirs()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", describe(call), err)
 	}
@@ -112,35 +115,112 @@ func newInvocation(call *StepCall) (*invocation, error) {
 	run.runtime = call.RuntimeContext()
 	run.runtime.Outdir, run.runtime.Tmpdir = run.outdir, run.tmpdir
 
+	err = run.useContainer()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", describe(call), err)
+	}
+
 	return run, nil
 }
 
-// checkSupported refuses a call declaring a feature this engine does not have.
+// useContainer settles whether the tool runs in a container, and if it does, moves the runtime
+// context onto the paths it will see.
 //
-// Only a DockerRequirement in *requirements* is fatal. The distinction is the specification's own:
-// a requirement must be honoured or the process must not run, whereas hints are advisory and "may
-// be ignored". A workflow that hints at a container is describing a preference, and running its
-// tool on this host is a legitimate reading of that hint — which is what an implementation without
-// container support does. A requirement is not a preference, and running a container-targeted tool
-// on the host would produce wrong results rather than missing ones.
-func checkSupported(call *StepCall) error {
-	if call.Requirements == nil {
-		return nil
-	}
-
-	_, found, origin := call.Requirements.GetRequirement(cwlcore.ClassDockerRequirement)
+// A caller may have asked for no containers at all, which is [ContainerPolicy.Disabled]; that answer
+// is [invocation.declineContainer]'s, and it is not always "run it here".
+//
+// Moving them is the whole of what the rest of the handler needs to know. runtime.outdir and
+// runtime.tmpdir are what the document's own expressions read, and a tool inside a container must be
+// told the directories *it* has, not the ones this process allocated for it: an argv built from
+// $(runtime.outdir), a HOME and a TMPDIR, a glob pattern. Everything that touches a real file goes
+// on using the invocation's own outdir and tmpdir, which are the host side of the same two mounts.
+func (i *invocation) useContainer() error {
+	declared, origin, found := dockerRequirement(i.call.Requirements)
 	if !found {
 		return nil
 	}
 
-	if origin == cwlcore.OriginHints {
-		call.Log().Warn("running on the host: DockerRequirement is a hint and container execution is not implemented",
-			"step", call.StepID)
-
-		return nil
+	if i.call.Containers.Disabled {
+		return i.declineContainer(origin)
 	}
 
-	return fmt.Errorf("%w: DockerRequirement (container execution is not implemented)", ErrUnsupportedFeature)
+	return i.enterContainer(declared, origin)
+}
+
+// declineContainer settles what a DockerRequirement means to a caller who asked for no containers.
+//
+// The two origins get different answers, and cwltool's make_job_runner draws the line in the same
+// place. A hint is advisory — "an implementation may ignore a hint" — so declining one is a liberty
+// the specification grants outright, and the tool runs on this host: that is the whole point of
+// --no-container, and it is what makes the 34 corpus documents carrying DockerRequirement in hints
+// runnable on a machine whose container engine cannot bind-mount.
+//
+// A requirement is not advisory. The document says the tool must run in that image, and a caller who
+// has forbidden containers has asked for something the document forbids; running it here anyway
+// would be answering a question nobody asked, on a filesystem the document never described.
+// cwltool raises UnsupportedRequirement — "--no-container, but this CommandLineTool has
+// DockerRequirement under 'requirements'" — which is its exit status 33, so [ErrUnsupportedFeature]
+// is both the matching verdict and the same status out of cmd/cwl-run.
+func (i *invocation) declineContainer(origin cwlcore.RequirementOrigin) error {
+	if origin == cwlcore.OriginRequirements {
+		return fmt.Errorf("%w: containers are disabled, but %s is declared under requirements",
+			ErrUnsupportedFeature, cwlcore.ClassDockerRequirement)
+	}
+
+	i.call.Log().Debug("containers are disabled; declining the DockerRequirement hint",
+		"step", i.call.StepID, "origin", origin)
+
+	return nil
+}
+
+// enterContainer resolves the DockerRequirement into the container this invocation runs in, and
+// moves the runtime context onto the paths the tool will see.
+func (i *invocation) enterContainer(declared *cwlcore.DockerRequirement, origin cwlcore.RequirementOrigin) error {
+	i.docker = declared
+	i.box = newContainer(declared, i.outdir, i.tmpdir, i.call.Containers)
+	i.absolute = origin == cwlcore.OriginRequirements
+
+	err := i.box.dirs()
+	if err != nil {
+		return err
+	}
+
+	i.call.Log().Debug("running in a container", "step", i.call.StepID,
+		"image", i.box.image, "outdir", i.box.toolOutdir, "origin", origin)
+
+	i.runtime.Outdir, i.runtime.Tmpdir = i.box.toolOutdir, containerTmpdir
+
+	return nil
+}
+
+// dockerRequirement returns the DockerRequirement in scope, if any, and where it was declared.
+//
+// A hint runs the container too, and that is not a liberty. "Hints are... advisory: an
+// implementation may ignore a hint" grants permission to *skip* what an engine cannot do; it does
+// not ask an engine that can honour a declaration to pretend it cannot. cwltool runs the container
+// for a hint, and the conformance suite depends on it — cat3-tool.cwl declares DockerRequirement in
+// hints and three tests read output produced inside the container it names. A caller who has asked
+// for no containers is a separate matter, and the one case where a hint is declined: see
+// [invocation.declineContainer].
+//
+// The origin is returned rather than discarded because one decision does turn on it, and only one:
+// an absolute `entryname` is legal under a requirement and not under a hint. See
+// [PathMap.AllowAbsoluteTargets].
+func dockerRequirement(
+	scope *cwlcore.RequirementScope,
+) (*cwlcore.DockerRequirement, cwlcore.RequirementOrigin, bool) {
+	if scope == nil {
+		return nil, cwlcore.OriginNone, false
+	}
+
+	requirement, found, origin := scope.GetRequirement(cwlcore.ClassDockerRequirement)
+	if !found {
+		return nil, cwlcore.OriginNone, false
+	}
+
+	typed, ok := requirement.(*cwlcore.DockerRequirement)
+
+	return typed, origin, ok
 }
 
 // makeDirs creates the invocation's output and scratch directories.
@@ -207,10 +287,15 @@ func (i *invocation) discardScratch() {
 // because a value it names must appear in the output directory under the name the document chose.
 // Only then is the input object rewritten, and every stage after this point — argv, redirections,
 // expressions, output collection — reads that rewritten object and nothing else.
-func (i *invocation) prepare() error {
-	i.mapper = NewPathMap(i.outdir, i.tmpdir)
+func (i *invocation) prepare(ctx context.Context) error {
+	err := i.acquireImage(ctx)
+	if err != nil {
+		return err
+	}
 
-	err := materializeLiterals(i.mapper, i.call.Inputs)
+	i.mapper = i.newMapper()
+
+	err = materializeLiterals(i.mapper, i.call.Inputs)
 	if err != nil {
 		return err
 	}
@@ -228,6 +313,31 @@ func (i *invocation) prepare() error {
 	i.inputs = i.mapper.RewriteInputs(i.call.Inputs)
 
 	return nil
+}
+
+// acquireImage makes the container image available, and does nothing at all when the tool runs on
+// this host.
+func (i *invocation) acquireImage(ctx context.Context) error {
+	if i.box == nil {
+		return nil
+	}
+
+	return i.box.acquire(ctx, i.docker)
+}
+
+// newMapper builds the path map this invocation plans with: the plain one when the tool runs here,
+// and the two-namespace one when it runs in a container.
+func (i *invocation) newMapper() *PathMap {
+	if i.box == nil {
+		return NewPathMap(i.outdir, i.tmpdir)
+	}
+
+	mapper := i.box.mapper()
+	if i.absolute {
+		mapper.AllowAbsoluteTargets()
+	}
+
+	return mapper
 }
 
 // materializeLiterals plans a home for every File or Directory in an input object that has no path
@@ -319,7 +429,35 @@ func (i *invocation) spec() (*ProcessSpec, error) {
 
 	spec := &ProcessSpec{Command: line, Dir: i.outdir, Env: env, Timeout: limit}
 
-	return spec, i.redirect(spec)
+	err = i.redirect(spec)
+	if err != nil {
+		return nil, err
+	}
+
+	return i.contain(spec)
+}
+
+// contain rewrites a resolved spec into the `docker run` invocation that runs the same argv inside a
+// container, and returns it untouched when no DockerRequirement is in scope.
+//
+// It is the last step deliberately. Everything before it resolved the argv, the environment, the
+// redirections and the time limit against the paths the *tool* sees, and none of that changes for
+// being wrapped — which is why there is no second executor here, only a different program to hand
+// the same finished spec to.
+func (i *invocation) contain(spec *ProcessSpec) (*ProcessSpec, error) {
+	if i.box == nil {
+		return spec, nil
+	}
+
+	network, err := ToolNetworkAccess(i.call.Requirements, i.inputs, i.eval, i.runtime)
+	if err != nil {
+		return nil, err
+	}
+
+	inner := *spec
+	inner.Env = withoutInheritedPath(spec.Env, i.call.Requirements)
+
+	return i.box.wrap(&inner, i.mapper.Plan(), network), nil
 }
 
 // redirect resolves the three standard-stream redirections onto a spec.
@@ -347,22 +485,26 @@ func (i *invocation) redirect(spec *ProcessSpec) error {
 // stdinPath resolves the file connected to the tool's standard input, or "" when nothing is.
 //
 // A relative path resolves against the output directory, which is where the tool runs and where
-// anything staged for it has been put.
+// anything staged for it has been put. Both halves of that are resolved in the *tool's* terms and
+// then mapped back, which is the only order that works under a container: the document writes
+// `stdin: $(inputs.x.path)` far more often than it writes a name, and that path is the one the tool
+// sees. The file itself is opened here, on this host, by [RunProcess].
 func (i *invocation) stdinPath() (string, error) {
+	seen, err := i.declaredStdin()
+	if err != nil || seen == "" {
+		return "", err
+	}
+
+	return i.mapper.hostPath(outAbsolutize(seen, i.runtime.Outdir)), nil
+}
+
+// declaredStdin resolves what the tool named as its standard input, as the tool sees it.
+func (i *invocation) declaredStdin() (string, error) {
 	if i.tool.Stdin == "" {
 		return i.shortcutStdin(), nil
 	}
 
-	name, err := i.eval.EvalString(string(i.tool.Stdin), i.evalContext())
-	if err != nil {
-		return "", err
-	}
-
-	if name == "" {
-		return "", nil
-	}
-
-	return outAbsolutize(name, i.outdir), nil
+	return i.eval.EvalString(string(i.tool.Stdin), i.evalContext())
 }
 
 // shortcutStdin resolves the `stdin` type shortcut, which stands in for a tool-level redirection the
@@ -430,7 +572,9 @@ func (i *invocation) captures(stream Stream) bool {
 // collect produces the invocation's output object, from cwl.output.json when the tool wrote one and
 // by output binding otherwise.
 func (i *invocation) collect(exitCode int) (map[string]any, error) {
-	outputs, err := LoadOutputJSON(i.tool, i.outdir, i.inputs)
+	view, inputs := i.outputView(), i.hostInputs()
+
+	outputs, err := LoadOutputJSON(view, i.outdir, inputs)
 	if err == nil {
 		return outputs, nil
 	}
@@ -439,7 +583,22 @@ func (i *invocation) collect(exitCode int) (map[string]any, error) {
 		return nil, err
 	}
 
-	return CollectOutputs(i.outputView(), i.outdir, exitCode, i.inputs, i.eval, i.runtime)
+	return CollectOutputs(view, i.outdir, exitCode, inputs, i.eval, i.runtime)
+}
+
+// hostInputs returns the input object output collection reads: this invocation's own, with every
+// File and Directory placed where *this host* has it.
+//
+// Every other stage reads the tool's view, because every other stage is describing what the tool
+// will do. Output collection is the one that goes back to a real filesystem — it globs the output
+// directory, measures what it finds, and checks where a symbolic link leads — and none of that can
+// be done with a path this process does not have. See [PathMap.hostView].
+func (i *invocation) hostInputs() map[string]any {
+	if i.box == nil {
+		return i.inputs
+	}
+
+	return i.mapper.hostView().RewriteInputs(i.inputs)
 }
 
 // evalContext builds the symbol environment this invocation's own expressions are evaluated against.
@@ -459,15 +618,26 @@ func (i *invocation) evalContext() *cwlcore.EvalContext {
 //     type an unresolved name, and a record output with no fields collects nothing.
 //   - Process.yml gives loadListing a three-step precedence — the binding's own setting, then a
 //     LoadListingRequirement, then no_listing — of which CollectOutputs can see only the first.
+//   - An InitialWorkDirRequirement is what tells output collection which host paths the invocation
+//     brought into its working directory, and a staged input is placed there as a symbolic link
+//     leading straight back out of it. Without the requirement in view, a tool naming a staged
+//     input as its own output has that output rejected for pointing outside the output directory.
 //
-// Resolving both into a per-invocation copy closes the gap without either side having to know about
-// the other, and never mutates the decoded document, which a scattered step's concurrent sub-jobs
-// share.
+// The third is carried differently from the other two, and has to be: CollectOutputs resolves it
+// from cwlcore.NewScope(tool) rather than from a field, so what closes the gap is putting the
+// inherited declaration into the copy's own requirements. A tool that declares one itself is left
+// alone — its own is already the one in scope, and appending a second would decide by list order
+// what the scope already decided by nesting.
+//
+// Resolving all three into a per-invocation copy closes the gap without either side having to know
+// about the other, and never mutates the decoded document, which a scattered step's concurrent
+// sub-jobs share.
 func (i *invocation) outputView() *cwlcore.CommandLineTool {
 	mode, _ := loadListingDefault(i.call.Requirements)
 
 	view := *i.tool
 	view.Outputs = slices.Clone(i.tool.Outputs)
+	view.Requirements = i.stagedRequirements()
 
 	for index := range view.Outputs {
 		param := &view.Outputs[index]
@@ -486,6 +656,23 @@ func (i *invocation) outputView() *cwlcore.CommandLineTool {
 	}
 
 	return &view
+}
+
+// stagedRequirements returns the requirement list the output view carries: the tool's own, with an
+// InitialWorkDirRequirement it inherited rather than declared appended so that
+// [cwlcore.NewScope](view) can find it.
+func (i *invocation) stagedRequirements() []cwlcore.ProcessRequirement {
+	inherited, found := initialWorkDir(i.call.Requirements)
+	if !found {
+		return i.tool.Requirements
+	}
+
+	_, own := initialWorkDir(cwlcore.NewScope(i.tool))
+	if own {
+		return i.tool.Requirements
+	}
+
+	return append(slices.Clone(i.tool.Requirements), inherited)
 }
 
 // relistBinding returns binding with mode filled in, unless it set `loadListing` itself — in which

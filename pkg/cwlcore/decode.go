@@ -1,9 +1,12 @@
 package cwlcore
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,17 +42,8 @@ const (
 	blankNodePrefix   = "_:"
 )
 
-// The reference the embedded CWL v1.2 schema is loaded through. The mount point
-// is a synthetic file URL so that the relative $import references between the
-// vendored documents resolve without touching the real filesystem.
-const (
-	schemaMountURL  = "file:///cwl-go/cwl-v1.2/"
-	schemaRootRef   = "schema/CommonWorkflowLanguage.yml"
-	schemaSourceURL = schemaMountURL + schemaRootRef
-)
-
-// Load parses src, validates it against the embedded CWL v1.2 schema, and
-// decodes it into a typed Process.
+// Load parses src, validates it against the embedded schema for the CWL version
+// it declares, upgrades it into v1.2 form, and decodes it into a typed Process.
 //
 // When the document holds several processes under $graph, Load returns the one
 // the specification's generic execution step 3 selects: the process whose id is
@@ -64,7 +58,15 @@ const (
 // Validation is permissive by default: a field the schema does not declare is an
 // advisory rather than a failure, because the loader has already done the strict
 // part of the job by resolving every link. Pass salad.Strict(true) to turn those
-// advisories into errors.
+// advisories into errors — which is what a runner should do, since CWL v1.0 and
+// v1.1 type a requirement's class as a plain string, and under permissive
+// validation a requirement whose fields do not typecheck simply matches some
+// other requirement record with an undeclared field.
+//
+// A document declaring v1.0 or v1.1 is validated against that version's own
+// schema and then rewritten forwards, so nothing this returns describes anything
+// but v1.2. A version there is no vendored schema for is refused with
+// ErrUnsupportedVersion. See DeclaredVersion and Upgrade.
 func Load(ctx context.Context, src []byte, baseURI string, opts ...salad.ValidateOption) (Process, error) {
 	doc, err := LoadDocument(ctx, src, baseURI, opts...)
 	if err != nil {
@@ -113,12 +115,19 @@ func decodeAndResolve(
 	return process, nil
 }
 
-// LoadDocument parses, resolves and validates src against the embedded CWL v1.2
-// schema, returning the resolved salad document without decoding it.
+// LoadDocument parses and resolves src, validates it against the embedded schema
+// for the CWL version it declares, and returns the resolved salad document
+// upgraded into v1.2 form, without decoding it.
 //
 // It is the seam for a caller that wants the resolved tree itself — to dump it,
 // to walk it, or to hand it to DecodeAll rather than Decode. Load is this
 // followed by Decode.
+//
+// The version the document declares is read off the unvalidated parse, because
+// nothing else can be: a v1.0 document is not required to satisfy the v1.2
+// schema, so validating first would report it as invalid when the truthful
+// answer is that it is a valid document of an earlier version. See
+// DeclaredVersion and Upgrade.
 func LoadDocument(
 	ctx context.Context,
 	src []byte,
@@ -130,27 +139,12 @@ func LoadDocument(
 		return nil, err
 	}
 
-	loaded, err := cwlSchema()
-	if err != nil {
-		return nil, err
-	}
-
 	parsed, err := salad.Parse(baseURI, src)
 	if err != nil {
 		return nil, err
 	}
 
-	doc, err := loaded.Loader.LoadNode(parsed, baseURI)
-	if err != nil {
-		return nil, err
-	}
-
-	err = loaded.Schema.Validate(doc.Root, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return doc, nil
+	return resolveDocument(parsed, baseURI, opts)
 }
 
 // LoadFileDocument is LoadDocument reading from a file or URL. A fragment
@@ -162,12 +156,97 @@ func LoadFileDocument(ctx context.Context, uri string, opts ...salad.ValidateOpt
 		return nil, err
 	}
 
-	loaded, err := cwlSchema()
+	url, src, err := fetchDocument(documentPart(uri))
 	if err != nil {
 		return nil, err
 	}
 
-	return loaded.LoadAndValidate(documentPart(uri), opts...)
+	parsed, err := salad.Parse(url, src)
+	if err != nil {
+		return nil, err
+	}
+
+	return resolveDocument(parsed, url, opts)
+}
+
+// resolveDocument carries one parsed document through the whole of the
+// version-aware pipeline: pick the schema for the version it declares, resolve
+// and validate it there, then rewrite the result into v1.2 form.
+//
+// The order is cwltool's, in resolve_and_validate_document: the declared version
+// selects the schema, the document is validated against that schema alone, and
+// only then is it upgraded. Validating the upgraded tree a second time against
+// v1.2 would be a stricter gate than the reference implementation applies, and a
+// wrong one — an upgrade is not required to produce a document that satisfies
+// the newer schema in every field, only one this implementation can execute with
+// the older document's meaning intact.
+func resolveDocument(parsed salad.Node, baseURI string, opts []salad.ValidateOption) (*salad.Document, error) {
+	version := DeclaredVersion(parsed)
+
+	loaded, err := schemaFor(version)
+	if err != nil {
+		return nil, err
+	}
+
+	doc, err := loaded.Loader.LoadNode(parsed, baseURI)
+	if err != nil {
+		return nil, err
+	}
+
+	invalid := loaded.Schema.Validate(doc.Root, opts...)
+	if invalid != nil {
+		return nil, invalidDocument(baseURI, version, invalid)
+	}
+
+	return Upgrade(doc, version), nil
+}
+
+// invalidDocument heads a failed validation with the document that failed and
+// the version it was judged against, so that a report never leaves the reader
+// wondering which schema said no.
+func invalidDocument(baseURI, version string, invalid error) error {
+	where := salad.SourceLine{File: baseURI}
+	heading := fmt.Sprintf("%s is not valid CWL %s, because", baseURI, cmp.Or(version, CWLVersionV12))
+
+	var nested *salad.Error
+	if errors.As(invalid, &nested) {
+		return salad.Group(where, heading, nested)
+	}
+
+	return salad.Errorf(where, "%s %s", heading, invalid)
+}
+
+// documentFetcher is how instance documents are read. It is shared for the life
+// of the process, and it is deliberately not one of the schema loaders' own
+// fetchers: those serve the embedded schema trees, and picking one of them here
+// would mean loading and flattening a schema before the document that decides
+// which schema is even needed had been read.
+var documentFetcher = sync.OnceValue(func() salad.Fetcher { return salad.NewDefaultFetcher() })
+
+// fetchDocument resolves a document reference and reads the bytes it names,
+// reporting the absolute URL it resolved to.
+//
+// It exists because the version has to be read before the document is resolved,
+// and reading it means holding the raw bytes. Fetching here rather than letting
+// salad.Loader.Load do it keeps the document parsed exactly once.
+//
+// The results are spelled with blank names rather than left bare, which is this
+// package's established way of satisfying gocritic's unnamedResult and
+// nonamedreturns at once. See Schema.
+func fetchDocument(ref string) (_ string, _ []byte, _ error) {
+	fetcher := documentFetcher()
+
+	url, err := fetcher.Normalize("", ref)
+	if err != nil {
+		return "", nil, salad.Errorf(salad.SourceLine{}, "cannot resolve document reference %q: %s", ref, err)
+	}
+
+	src, err := fetcher.FetchText(url)
+	if err != nil {
+		return url, nil, salad.Errorf(salad.SourceLine{File: url}, "cannot fetch %s: %s", url, err)
+	}
+
+	return url, src, nil
 }
 
 // LoadedSchema returns the embedded CWL v1.2 schema together with the loader and
@@ -179,7 +258,7 @@ func LoadFileDocument(ctx context.Context, uri string, opts ...salad.ValidateOpt
 // is loaded and flattened once and shared, so calling this is cheap after the
 // first time. Schema returns the same schema without the loader.
 func LoadedSchema() (*salad.LoadedSchema, error) {
-	return cwlSchema()
+	return cwlSchemaV12()
 }
 
 // documentPart strips the fragment identifier from a document reference, leaving
@@ -355,7 +434,7 @@ func DecodeAll(doc *salad.Document) (map[string]Process, error) {
 // identifiers. The function type is unchanged either way, and the assertion
 // below pins it.
 func Schema() (_ *salad.Schema, _ string) {
-	loaded, err := cwlSchema()
+	loaded, err := cwlSchemaV12()
 	if err != nil {
 		return nil, SchemaVersion()
 	}
@@ -366,23 +445,6 @@ func Schema() (_ *salad.Schema, _ string) {
 // Compile-time proof that Schema keeps its frozen signature, so that the blank
 // result names it carries cannot quietly become something else.
 var _ func() (*salad.Schema, string) = Schema
-
-// cwlSchema loads the embedded schema once. Flattening the CWL schema is not
-// cheap, and every Load, LoadFile and Schema call needs the same result, so it
-// is memoized for the life of the process.
-var cwlSchema = sync.OnceValues(loadEmbeddedSchema)
-
-// loadEmbeddedSchema loads and flattens the vendored CWL v1.2 schema out of the
-// embedded file system, without touching the filesystem or the network. Call
-// cwlSchema instead; this is separate only so that the cost can be benchmarked
-// without the memoization in the way.
-func loadEmbeddedSchema() (*salad.LoadedSchema, error) {
-	return salad.LoadSchema(
-		schemaSourceURL,
-		salad.WithFetcher(salad.NewFSFetcher(schemaFS, schemaMountURL)),
-		salad.WithBaseURL(schemaMountURL),
-	)
-}
 
 // graphNodes returns the process nodes of a document root and whether the root
 // was a graph.

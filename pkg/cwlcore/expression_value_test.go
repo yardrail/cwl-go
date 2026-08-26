@@ -14,7 +14,10 @@ const (
 	readsRoot = "reads"
 	readsExt  = ".bam"
 	indexName = "reads.bam.bai"
+	indexExt  = ".bai"
 	notesName = "notes.txt"
+	notesRoot = "notes"
+	notesExt  = ".txt"
 	auxName   = "aux"
 	selfName  = "self.txt"
 	innerKey  = "inner"
@@ -37,11 +40,11 @@ func testFile() *File {
 		Size:     NewOptInt(1024),
 		Contents: NewOptString(someText),
 		SecondaryFiles: []FileOrDirectory{
-			&File{Basename: indexName, Path: "/data/" + indexName},
+			&File{Basename: indexName, Path: "/data/" + indexName, Nameroot: readsName, Nameext: indexExt},
 			&Directory{
 				Basename: auxName,
 				Path:     "/data/" + auxName,
-				Listing:  []FileOrDirectory{&File{Basename: notesName}},
+				Listing:  []FileOrDirectory{&File{Basename: notesName, Nameroot: notesRoot, Nameext: notesExt}},
 			},
 		},
 	}
@@ -65,6 +68,8 @@ func testFileObject() map[string]any {
 			map[string]any{
 				keyClass:    ClassFile,
 				keyBasename: indexName,
+				keyNameroot: readsName,
+				keyNameext:  indexExt,
 				keyPath:     "/data/" + indexName,
 			},
 			map[string]any{
@@ -72,10 +77,26 @@ func testFileObject() map[string]any {
 				keyBasename: auxName,
 				keyPath:     "/data/" + auxName,
 				keyListing: []any{
-					map[string]any{keyClass: ClassFile, keyBasename: notesName},
+					map[string]any{
+						keyClass: ClassFile, keyBasename: notesName,
+						keyNameroot: notesRoot, keyNameext: notesExt,
+					},
 				},
 			},
 		},
+	}
+}
+
+// notesFile is a minimal but fully-named File, and notesObject is what it
+// renders as. The two are a pair so that the nesting cases below assert the
+// same object wherever the value is reached from.
+func notesFile() *File {
+	return &File{Basename: notesName, Nameroot: notesRoot, Nameext: notesExt}
+}
+
+func notesObject() map[string]any {
+	return map[string]any{
+		keyClass: ClassFile, keyBasename: notesName, keyNameroot: notesRoot, keyNameext: notesExt,
 	}
 }
 
@@ -94,14 +115,16 @@ func TestToExpressionValueFile(t *testing.T) {
 func TestToExpressionValueOmitsAbsentFields(t *testing.T) {
 	t.Parallel()
 
-	bare := ToExpressionValue(&File{Basename: readsName})
+	bare := ToExpressionValue(&File{Basename: readsName, Nameroot: readsRoot, Nameext: readsExt})
 
 	object, ok := bare.(map[string]any)
 	if !ok {
 		t.Fatalf("ToExpressionValue(File) = %#v, want an object", bare)
 	}
 
-	want := map[string]any{keyClass: ClassFile, keyBasename: readsName}
+	want := map[string]any{
+		keyClass: ClassFile, keyBasename: readsName, keyNameroot: readsRoot, keyNameext: readsExt,
+	}
 	if !reflect.DeepEqual(object, want) {
 		t.Errorf("a bare File rendered as %#v, want %#v", object, want)
 	}
@@ -110,6 +133,8 @@ func TestToExpressionValueOmitsAbsentFields(t *testing.T) {
 	// must put the key back.
 	zeroed := ToExpressionValue(&File{
 		Basename: readsName,
+		Nameroot: readsRoot,
+		Nameext:  readsExt,
 		Size:     NewOptInt(0),
 		Contents: NewOptString(""),
 	})
@@ -117,6 +142,8 @@ func TestToExpressionValueOmitsAbsentFields(t *testing.T) {
 	wantZeroed := map[string]any{
 		keyClass:    ClassFile,
 		keyBasename: readsName,
+		keyNameroot: readsRoot,
+		keyNameext:  readsExt,
 		keySize:     int64(0),
 		keyContents: "",
 	}
@@ -165,26 +192,26 @@ func TestToExpressionValueNesting(t *testing.T) {
 	}{
 		{
 			name:  "a value rather than a pointer",
-			value: File{Basename: notesName},
-			want:  map[string]any{keyClass: ClassFile, keyBasename: notesName},
+			value: File{Basename: notesName, Nameroot: notesRoot, Nameext: notesExt},
+			want:  notesObject(),
 		},
 		{
 			name:  "a union slice",
-			value: []FileOrDirectory{&File{Basename: notesName}, &Directory{Basename: auxName}},
+			value: []FileOrDirectory{notesFile(), &Directory{Basename: auxName}},
 			want: []any{
-				map[string]any{keyClass: ClassFile, keyBasename: notesName},
+				notesObject(),
 				map[string]any{keyClass: ClassDirectory, keyBasename: auxName},
 			},
 		},
 		{
 			name:  "inside a record",
-			value: map[string]any{innerKey: &File{Basename: notesName}},
-			want:  map[string]any{innerKey: map[string]any{keyClass: ClassFile, keyBasename: notesName}},
+			value: map[string]any{innerKey: notesFile()},
+			want:  map[string]any{innerKey: notesObject()},
 		},
 		{
 			name:  "inside a list",
-			value: []any{int64(1), &File{Basename: notesName}},
-			want:  []any{int64(1), map[string]any{keyClass: ClassFile, keyBasename: notesName}},
+			value: []any{int64(1), notesFile()},
+			want:  []any{int64(1), notesObject()},
 		},
 		{
 			name:  "a nil pointer becomes null",

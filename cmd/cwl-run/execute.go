@@ -15,6 +15,7 @@ import (
 	"github.com/yardrail/cwl-go/cmd/internal/cwlcli"
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 	"github.com/yardrail/cwl-go/pkg/cwlexec"
+	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
 // reportIndent nests a rendered error tree under the heading naming the
@@ -84,33 +85,32 @@ func execute(ctx context.Context, cfg *config, stdout, stderr io.Writer) error {
 // produce carries a document from a path on the command line to the output
 // object of a finished run.
 //
-// The order is load-bearing. The version check runs before the document is
-// validated, because a document written against an earlier CWL version is not
-// required to satisfy the v1.2 schema: validating first would report it as
-// invalid, which is a hard failure, when the truthful answer is that this
-// engine does not implement its version. See [declaredVersion].
+// Loading is strict, which is a deliberate choice and not the package default.
+// The reference implementation validates strictly unless asked not to
+// (cwltool's LoadingContext.strict is true), and for a runner it is the right
+// default for a concrete reason: CWL v1.0 and v1.1 type a requirement's class
+// as a plain string rather than as a single-symbol enum, so under permissive
+// validation a requirement whose fields do not typecheck simply matches some
+// other requirement record with an undeclared field. A document that used a
+// v1.2 feature under a v1.1 label would run instead of being rejected, which is
+// precisely the failure the version routing exists to catch.
+//
+// A version this engine has no schema for is reported through the cwl-runner
+// contract's unsupported status rather than as an invalid document. That check
+// now lives inside the loader, so it covers every document a run touches — the
+// tools a workflow's steps run included — and not merely the one named here.
 func produce(ctx context.Context, cfg *config, stderr io.Writer) (map[string]any, error) {
-	declared := declaredVersion(cfg.process)
-	if declared != "" && declared != cwlcore.CWLVersionV12 {
-		return nil, unsupportedVersion(cfg.process, declared)
+	process, err := cwlcore.LoadFile(ctx, cfg.process, salad.Strict(true))
+	if err != nil {
+		return nil, unsupportedVersion(cfg.process, err)
 	}
 
-	process, err := cwlcore.LoadFile(ctx, cfg.process)
+	err = checkCWLVersion(cfg.process, cmp.Or(declaredVersion(cfg.process), process.Base().CWLVersion))
 	if err != nil {
 		return nil, err
 	}
 
-	err = checkCWLVersion(cfg.process, cmp.Or(declared, process.Base().CWLVersion))
-	if err != nil {
-		return nil, err
-	}
-
-	err = checkRunVersions(process)
-	if err != nil {
-		return nil, err
-	}
-
-	inputs, err := jobOrder(ctx, cfg, process)
+	inputs, err := jobOrder(ctx, cfg, process, stderr)
 	if err != nil {
 		return nil, err
 	}
@@ -130,9 +130,16 @@ func produce(ctx context.Context, cfg *config, stderr io.Writer) (map[string]any
 // is still resolved, so one that is neither optional nor defaulted fails here,
 // naming the parameter, rather than surfacing later as a tool invoked with a
 // missing argument.
-func jobOrder(ctx context.Context, cfg *config, process cwlcore.Process) (map[string]any, error) {
+// The logger is threaded in because loading reports advisories of its own -- an undeclared job
+// key, most of all -- and they belong on the same stream, and under the same --quiet, as every
+// other diagnostic this command produces.
+func jobOrder(
+	ctx context.Context, cfg *config, process cwlcore.Process, stderr io.Writer,
+) (map[string]any, error) {
+	log := cwlexec.WithJobOrderLogger(cfg.logger(stderr))
+
 	if cfg.job != "" {
-		return cwlexec.LoadJobOrder(ctx, cfg.job, process)
+		return cwlexec.LoadJobOrder(ctx, cfg.job, process, log)
 	}
 
 	cwd, err := os.Getwd()
@@ -140,7 +147,7 @@ func jobOrder(ctx context.Context, cfg *config, process cwlcore.Process) (map[st
 		return nil, fmt.Errorf("resolving the working directory an empty job order resolves against: %w", err)
 	}
 
-	return cwlexec.ParseJobOrder(ctx, filepath.Join(cwd, emptyJobName), []byte("{}"), process)
+	return cwlexec.ParseJobOrder(ctx, filepath.Join(cwd, emptyJobName), []byte("{}"), process, log)
 }
 
 // runProcess executes the process and maps the run's status onto this tool's
@@ -156,10 +163,11 @@ func jobOrder(ctx context.Context, cfg *config, process cwlcore.Process) (map[st
 // [cwlexec.Config], and every setting resolved out here stops applying one
 // level down.
 //
-// It is passed even though the two settings this command line resolves today —
-// the logger and the output directory — reach a nested run anyway, because the
-// nested Config takes both from the invocation's own [cwlexec.StepCall]. This
-// is the seam that keeps that true for the settings that do not: the failure
+// It is passed even though the three settings this command line resolves today
+// — the logger, the output directory and the container policy — reach a nested
+// run anyway, because the nested Config takes all three from the invocation's
+// own [cwlexec.StepCall]. This is the seam that keeps that true for the
+// settings that do not: the failure
 // policy, the parallelism cap, the expression timeout, the resource budget, the
 // requirement policy, and a registry carrying anything other than the built-ins.
 // Leaving it out would work now and quietly stop working the first time a flag
@@ -215,7 +223,28 @@ func (c *config) execConfig(stderr io.Writer) (*cwlexec.Config, error) {
 		return nil, err
 	}
 
-	return &cwlexec.Config{Logger: c.logger(stderr), OutDir: outdir}, nil
+	return &cwlexec.Config{
+		Logger:     c.logger(stderr),
+		OutDir:     outdir,
+		Containers: c.containerPolicy(),
+	}, nil
+}
+
+// containerPolicy renders the four container opt-out flags as the policy the
+// engine reads.
+//
+// They are cwltool's, name for name, because a script that runs
+// `cwl-runner --no-container` should not have to know which engine is on the
+// path. What each one does is [cwlexec.ContainerPolicy]'s to say; all this
+// does is carry them, and the zero value — nothing on the command line — is
+// the behaviour of an engine that was asked nothing.
+func (c *config) containerPolicy() cwlexec.ContainerPolicy {
+	return cwlexec.ContainerPolicy{
+		Disabled:    c.noContainer,
+		NoMatchUser: c.noMatchUser,
+		NoReadOnly:  c.noReadOnly,
+		Keep:        c.leaveContainer,
+	}
 }
 
 // outputDir resolves -outdir to an absolute directory, creating it if it does

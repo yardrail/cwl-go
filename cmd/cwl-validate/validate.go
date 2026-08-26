@@ -69,10 +69,61 @@ func validateOne(ctx context.Context, ref string, cfg *config, stdout, stderr io
 	}
 
 	if !cfg.quiet {
-		fmt.Fprintf(stdout, "%s: valid %s\n", ref, process.Class())
+		reportValid(stdout, ref, process)
 	}
 
 	return nil
+}
+
+// reportValid writes the verdict for a document that validated.
+//
+// A document written against an earlier CWL version gets two extra lines,
+// because it passed two checks and a reader is entitled to see both. "As
+// declared" is schema validation against the version the document itself names
+// — the check that catches a document using syntax its declared version did not
+// have. "Upgraded to" is the rewrite into v1.2 form and the decode of the
+// result, which is what this implementation actually runs. Reporting only the
+// second would claim a v1.0 document is valid v1.2, which is not what was
+// tested; reporting only the first would leave unsaid whether it can be run.
+//
+// A v1.2 document keeps the single line it has always had: for it the two checks
+// are the same check.
+func reportValid(stdout io.Writer, ref string, process cwlcore.Process) {
+	fmt.Fprintf(stdout, "%s: valid %s\n", ref, process.Class())
+
+	declared := declaredVersion(ref)
+	if declared == "" || declared == cwlcore.CWLVersionV12 {
+		return
+	}
+
+	fmt.Fprintf(stdout, "%sas declared : %s  OK\n", reportIndent, declared)
+	fmt.Fprintf(stdout, "%supgraded to : %s  OK\n", reportIndent, cwlcore.CWLVersionV12)
+}
+
+// declaredVersion reads the cwlVersion of the document at ref off an unvalidated
+// parse, and reports the empty string when there is none to read.
+//
+// It is read from the raw document rather than from the loaded process because
+// by then it is gone: loading upgrades an older document into v1.2 form, and
+// stamping the new version over the old is the point of that step. The declared
+// version survives only in the file.
+//
+// Every failure is silent by design. This runs after the document has already
+// loaded cleanly, so there is nothing left for it to diagnose; the only way it
+// can fail is a file that changed underneath the run, and the answer to that is
+// to say nothing extra rather than to contradict the verdict just printed.
+func declaredVersion(ref string) string {
+	src, url, err := cwlcli.Fetch(ref)
+	if err != nil {
+		return ""
+	}
+
+	root, err := salad.Parse(url, src)
+	if err != nil {
+		return ""
+	}
+
+	return cwlcore.DeclaredVersion(root)
 }
 
 // checkRequirements applies the specification's rule that a requirement class

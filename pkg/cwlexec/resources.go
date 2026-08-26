@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
+	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
 // Errors reported while resolving and selecting an invocation's resource reservation.
@@ -240,7 +241,11 @@ func applyMaxDefaults(request *ResourceRequest) {
 	}
 }
 
-// asNumber widens the numeric shapes an expression can produce into a float64.
+// asNumber widens the numeric shapes an expression or a job order can produce into a float64.
+//
+// A [salad.Decimal] is one of them: a number a document wrote keeps its literal so that rendering
+// can reproduce it, and every arithmetic use of it — a resource request, a range check, a type
+// check — wants the float64 it rounds to.
 func asNumber(value any) (float64, bool) {
 	switch typed := value.(type) {
 	case int:
@@ -249,6 +254,8 @@ func asNumber(value any) (float64, bool) {
 		return float64(typed), true
 	case float64:
 		return typed, true
+	case salad.Decimal:
+		return typed.Float64(), true
 	default:
 		return 0, false
 	}

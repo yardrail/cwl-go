@@ -40,9 +40,15 @@ const (
 //
 // It replaces the reference implementation's runtime-context object, which accumulated some fifty
 // mutable fields covering everything from container images to provenance capture. The concerns that
-// belong to a handler — staging, containers, the environment a tool runs in — are deliberately
-// absent: a handler owns its own execution environment, and a scheduler that tried to configure one
-// would be configuring something it cannot see.
+// belong to a handler — staging, the argv, the environment a tool runs in — are deliberately absent:
+// a handler owns its own execution environment, and a scheduler that tried to configure one would be
+// configuring something it cannot see.
+//
+// Containers is the one field that looks like it belongs on the other side of that line, and it is
+// here because it is not a description of how to run a tool. It is a standing instruction about what
+// this engine may do at all, it has to reach every invocation of a run — a nested one included — and
+// Config is the only thing that reaches all of them. It travels on to each [StepCall], which is
+// where a handler reads it.
 //
 // The zero Config is usable. It runs with unbounded parallelism, no resource ceiling, the default
 // resource selector, the default logger and OnErrorStop.
@@ -71,6 +77,10 @@ type Config struct {
 
 	// OnError says what happens when a step fails; see [OnErrorStop].
 	OnError OnError
+
+	// Containers is the caller's software-container policy, passed on to each handler through
+	// [StepCall.Containers]. The zero value asks for nothing; see [ContainerPolicy].
+	Containers ContainerPolicy
 
 	// Resources is the machine capacity resource selection clamps to. The zero value declares no
 	// ceiling.

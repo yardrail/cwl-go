@@ -68,9 +68,9 @@ func toExpressionValue(value any) (any, bool) {
 	case FileOrDirectory:
 		return filesystemObject(typed), true
 	case File:
-		return fileObject(&typed), true
+		return filesystemObject(&typed), true
 	case Directory:
-		return directoryObject(&typed), true
+		return filesystemObject(&typed), true
 	case []FileOrDirectory:
 		return filesystemList(typed), true
 	case []any:
@@ -172,16 +172,17 @@ func filesystemList(entries []FileOrDirectory) []any {
 // OptString precisely because 0 and "" are ordinary values there — an empty
 // file, and an empty file literal — so emitting the zero for an absent field
 // would fabricate a measurement the runtime never made.
+//
+// The three name fields are the exception, and they travel as a group; see
+// [putNameFields].
 func fileObject(file *File) map[string]any {
 	object := make(map[string]any, fileFieldCount)
 	object[keyClass] = ClassFile
 
 	putNonEmpty(object, keyLocation, file.Location)
 	putNonEmpty(object, keyPath, file.Path)
-	putNonEmpty(object, keyBasename, file.Basename)
+	putNameFields(object, file)
 	putNonEmpty(object, keyDirname, file.Dirname)
-	putNonEmpty(object, keyNameroot, file.Nameroot)
-	putNonEmpty(object, keyNameext, file.Nameext)
 	putNonEmpty(object, keyChecksum, file.Checksum)
 	putNonEmpty(object, keyFormat, file.Format)
 
@@ -218,6 +219,35 @@ func directoryObject(dir *Directory) map[string]any {
 	}
 
 	return object
+}
+
+// putNameFields writes basename, nameroot and nameext together, or writes none
+// of them.
+//
+// nameext is the one string field of a File whose empty value means something:
+// it is the extension of a name that has none. Process.yml, nameroot: "The
+// basename root such that `nameroot + nameext == basename`, and `nameext` is
+// empty or begins with a period" — so for a file called README the identity
+// only holds if nameext is present and empty, and an expression writing
+// `$(self.nameroot).idx$(self.nameext)` needs it to substitute rather than
+// fail on a missing key.
+//
+// That is also what the reference implementation produces. cwltool's
+// normalizeFilesDirs (utils.py) does `nr, ne = os.path.splitext(d["basename"])`
+// and assigns both unconditionally; os.path.splitext("README") is
+// ("README", ""), and a Python dict stores the empty string as a present key.
+//
+// The group is gated on the basename because the other two are derived from it:
+// a File whose basename the runtime has not settled has no name to split, and
+// must not be given an empty one.
+func putNameFields(object map[string]any, file *File) {
+	if file.Basename == "" {
+		return
+	}
+
+	object[keyBasename] = file.Basename
+	object[keyNameroot] = file.Nameroot
+	object[keyNameext] = file.Nameext
 }
 
 // putNonEmpty records a field, omitting it when the runtime has not filled it

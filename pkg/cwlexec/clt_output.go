@@ -343,7 +343,7 @@ func (c *outputCollector) bound(target *outTarget) (any, error) {
 // once, where the run's output object is assembled; see [outFillListings] for why the difference
 // matters, and what goes wrong when a listing is frozen onto a value that is still in flight.
 func (c *outputCollector) publish(target *outTarget, value any) error {
-	err := checkValueType(outExpressionValue(value), target.typ)
+	err := checkValueType(cwlcore.ToExpressionValue(value), target.typ)
 	if err != nil {
 		return err
 	}
@@ -438,7 +438,7 @@ func (c *outputCollector) bindValue(target *outTarget,
 func (c *outputCollector) evalOutput(
 	expr cwlcore.Expression, globbed []cwlcore.FileOrDirectory,
 ) (any, error) {
-	self := outExpressionValue(outWiden(globbed))
+	self := cwlcore.ToExpressionValue(globbed)
 
 	evaluated, err := c.eval.Eval(string(expr), c.outputEvalContext(self))
 	if err != nil {

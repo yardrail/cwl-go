@@ -23,16 +23,16 @@ const (
 //
 // Every value that is not one of this package's own ordered shapes is rendered
 // by [cwlcore.EncodeJSON], which is the project's single definition of how a
-// CWL value becomes JSON text. That matters most for numbers. The standard
-// encoder switches a float to exponent notation at 1e21, so an integer literal
-// too large for an int64 — which pkg/salad widens to a float so it has
-// something to range-check — comes back as "1e+42"; reparsed, that is a float
-// and no longer equal to the integer the document wrote. cwlcore writes the
-// full digit run instead, with no trailing ".0", which is the only spelling
-// that reparses to the same value. The two also disagree below 1e-4 and on
-// whether a whole float keeps its ".0". A second encoder holding a second copy
-// of those rules is how they came to disagree in the first place, so there is
-// only the one.
+// CWL value becomes JSON text. That matters most for numbers. A number a
+// document wrote travels as a [salad.Decimal] carrying its own literal, and
+// cwlcore writes that literal back — which is what makes a forty-three-digit
+// integer come out as forty-three digits and a float written 1.23e-05 come out
+// as 0.0000123, both of which the standard encoder loses to a float64 long
+// before it formats anything. For the computed numbers that have no literal the
+// two still disagree: the standard encoder switches to exponent notation at
+// 1e21, cwlcore at 1e16, and they differ below 1e-4 and on whether a whole float
+// keeps its ".0". A second encoder holding a second copy of those rules is how
+// they came to disagree in the first place, so there is only the one.
 //
 // Two things survive that delegation. An [Object] keeps its insertion order
 // rather than being sorted, because a dump is written in the order a reader

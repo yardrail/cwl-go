@@ -555,27 +555,36 @@ func TestCommandLineToolOutputJSONBypassesBinding(t *testing.T) {
 	}
 }
 
-func TestCommandLineToolDockerRequirementIsUnsupported(t *testing.T) {
+func TestDockerRequirementFromHintUsesContainer(t *testing.T) {
 	t.Parallel()
 
-	call := execCall(t, execTool([]string{execTrue}))
-	call.Requirements = execScope(&cwlcore.DockerRequirement{DockerPull: "debian:stable"})
+	// "Hints are... advisory: an implementation may ignore a hint" licenses skipping what an
+	// engine cannot do, not declining what it can. cat3-tool.cwl declares its DockerRequirement
+	// in hints and three conformance tests read output produced inside the image it names.
+	hinted := execHintScope(&cwlcore.DockerRequirement{DockerPull: ctrImage})
 
-	if got := execFail(t, call, ErrUnsupportedFeature); got != StatusPermanentFail {
-		t.Errorf("status = %q, want a permanent failure", got)
+	declared, origin, found := dockerRequirement(hinted)
+	if !found || declared.DockerPull != ctrImage {
+		t.Fatalf("dockerRequirement = %v, %v; want the hinted image", declared, found)
 	}
-}
 
-func TestCommandLineToolDockerHintRuns(t *testing.T) {
-	t.Parallel()
-	execSkipUnless(t, execTrue)
+	// The origin is reported rather than discarded, because an absolute entryname turns on it.
+	if origin != cwlcore.OriginHints {
+		t.Errorf("origin = %q, want %q", origin, cwlcore.OriginHints)
+	}
 
-	// A hint is advisory: "an implementation may ignore a hint". Failing on one would make an
-	// ordinary document unrunnable on a host that has no container engine.
-	call := execCall(t, execTool([]string{execTrue}))
-	call.Requirements = execHintScope(&cwlcore.DockerRequirement{DockerPull: "debian:stable"})
+	required := execScope(&cwlcore.DockerRequirement{DockerPull: ctrImage})
+	if _, origin, _ := dockerRequirement(required); origin != cwlcore.OriginRequirements {
+		t.Errorf("origin = %q, want %q", origin, cwlcore.OriginRequirements)
+	}
 
-	execSucceed(t, call)
+	if _, _, found := dockerRequirement(nil); found {
+		t.Error("dockerRequirement found a requirement in a nil scope")
+	}
+
+	if _, _, found := dockerRequirement(execScope()); found {
+		t.Error("dockerRequirement found a requirement that was never declared")
+	}
 }
 
 func TestCommandLineToolToleratesDeclarativeRequirements(t *testing.T) {
@@ -592,4 +601,123 @@ func TestCommandLineToolToleratesDeclarativeRequirements(t *testing.T) {
 	)
 
 	execSucceed(t, call)
+}
+
+func TestInheritedInitialWorkDirReachesOutputCollection(t *testing.T) {
+	t.Parallel()
+
+	// CollectOutputs builds its requirement scope from the tool alone, so a declaration the tool
+	// *inherited* is invisible to it — and this is the one where that is a wrong answer rather
+	// than a missing one. A staged value is placed as a symbolic link to wherever it really
+	// lives, so a tool naming one as its own output produces a link leading straight out of the
+	// output directory, which is rejected unless the requirement that put it there is in view.
+	//
+	// The staged file is deliberately not an input: an input contributes a root of its own, and
+	// the gap would be hidden.
+	source := execSourceFile(t, execGreeting)
+	inherited := &cwlcore.InitialWorkDirRequirement{
+		Listing: stgEntries(cwlcore.NewInitialWorkDirFile(source)),
+	}
+
+	call := execCall(t, execTool([]string{execTrue}, execFileOut(execSourceName)))
+	call.Requirements = execInheritedScope(t, inherited)
+
+	execWantContent(t, execSucceed(t, call), execGreeting)
+}
+
+func TestToolsOwnInitialWorkDirWinsOverTheInherited(t *testing.T) {
+	t.Parallel()
+
+	// A tool that declares one already has it in the scope CollectOutputs builds, and appending
+	// the inherited one beside it would let list order decide what nesting already decided.
+	source := execSourceFile(t, execGreeting)
+
+	tool := execTool([]string{execTrue}, execFileOut(execSourceName))
+	tool.Requirements = []cwlcore.ProcessRequirement{&cwlcore.InitialWorkDirRequirement{
+		Listing: stgEntries(cwlcore.NewInitialWorkDirFile(source)),
+	}}
+
+	call := execCall(t, tool)
+	call.Requirements = cwlcore.NewScope(&cwlcore.Workflow{}).PushProcess(tool)
+
+	execWantContent(t, execSucceed(t, call), execGreeting)
+
+	if got := len(runInvocation(t, call).stagedRequirements()); got != 1 {
+		t.Errorf("requirements = %d, want the tool's own alone", got)
+	}
+}
+
+// runInvocation builds the invocation a call would run as, for a test that needs to look at a
+// decision the handler makes rather than at what it produced.
+func runInvocation(t *testing.T, call *StepCall) *invocation {
+	t.Helper()
+
+	run, err := newInvocation(call)
+	if err != nil {
+		t.Fatalf("newInvocation: %v", err)
+	}
+
+	return run
+}
+
+func TestCommandLineToolReportsContainerFailures(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		prepare func(*testing.T, *StepCall)
+		want    error
+		name    string
+	}{{
+		name: "a staging directory that cannot be created",
+		prepare: func(t *testing.T, call *StepCall) {
+			t.Helper()
+
+			err := os.MkdirAll(call.TmpDir, stageDirPerm)
+			if err != nil {
+				t.Fatalf("preparing the scratch directory: %v", err)
+			}
+
+			// The container's staging directory goes inside the scratch one, and a
+			// mount source has to exist before the engine is asked for it.
+			outWriteFile(t, call.TmpDir, containerStageName, execGreeting)
+
+			call.Requirements = execScope(&cwlcore.DockerRequirement{DockerPull: ctrImage})
+		},
+		// The operating system's own complaint, whichever it is: the point is that a
+		// mount source that cannot be created is reported here rather than by the engine.
+		want: nil,
+	}, {
+		name: "an image that cannot be acquired",
+		prepare: func(t *testing.T, call *StepCall) {
+			t.Helper()
+
+			call.Requirements = execScope(&cwlcore.DockerRequirement{DockerImageID: imgAbsent})
+		},
+		want: ErrContainerImage,
+	}, {
+		name: "a NetworkAccess expression that does not evaluate",
+		prepare: func(t *testing.T, call *StepCall) {
+			t.Helper()
+
+			call.Requirements = execScope(
+				&cwlcore.DockerRequirement{DockerPull: ctrImage},
+				&cwlcore.NetworkAccess{
+					NetworkAccess: cwlcore.NewExprBoolExpression(execMissingRef),
+				})
+		},
+		want: cwlcore.ErrExpressionEval,
+	}}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			call := execCall(t, execTool([]string{execTrue}))
+			testCase.prepare(t, call)
+
+			if got := execFail(t, call, testCase.want); got != StatusPermanentFail {
+				t.Errorf("status = %q, want a permanent failure", got)
+			}
+		})
+	}
 }

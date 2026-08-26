@@ -1,8 +1,11 @@
 package cwlexec
 
 import (
+	"encoding/json"
+	"math"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
@@ -27,12 +30,18 @@ func TestScalarTypesAccepted(t *testing.T) {
 		cwlcore.PrimitiveString: {typ: jobTypeString, src: "v: " + jobHello, want: jobHello},
 		cwlcore.PrimitiveInt:    {typ: jobTypeInt, src: jobSrcSeven, want: int64(7)},
 		"long":                  {typ: jobTypeLong, src: jobSrcSeven, want: int64(7)},
-		"float":                 {typ: jobTypeFloat, src: jobSrcOneAndAHalf, want: 1.5},
-		"double":                {typ: jobTypeDouble, src: jobSrcOneAndAHalf, want: 1.5},
-		"int widens":            {typ: jobTypeDouble, src: jobSrcSeven, want: float64(7)},
-		"boolean true":          {typ: jobTypeBoolean, src: "v: true", want: true},
-		"boolean false":         {typ: jobTypeBoolean, src: "v: false", want: false},
-		"null primitive":        {typ: jobTypeNull, src: "v: null", want: nil},
+		// A float or a double keeps the literal the job order wrote, because that is what the
+		// value is rendered from later; an integer bound to one keeps its integer spelling for
+		// the same reason, which is what "widens" now means.
+		"float":      {typ: jobTypeFloat, src: jobSrcOneAndAHalf, want: jobDecimal(t, "1.5")},
+		"double":     {typ: jobTypeDouble, src: jobSrcOneAndAHalf, want: jobDecimal(t, "1.5")},
+		"int widens": {typ: jobTypeDouble, src: jobSrcSeven, want: jobDecimal(t, "7")},
+		// A number with no literal behind it: goccy resolves ".inf" itself and hands over a
+		// float64, so there is nothing to render from but the value.
+		"a float with no literal": {typ: jobTypeDouble, src: "v: .inf", want: math.Inf(1)},
+		"boolean true":            {typ: jobTypeBoolean, src: "v: true", want: true},
+		"boolean false":           {typ: jobTypeBoolean, src: "v: false", want: false},
+		"null primitive":          {typ: jobTypeNull, src: "v: null", want: nil},
 		"nested null": {
 			typ:  cwlcore.NewArrayType(&cwlcore.ArraySchema{Items: jobTypeNull}),
 			src:  "v: [null]",
@@ -52,6 +61,70 @@ func TestScalarTypesAccepted(t *testing.T) {
 				t.Errorf("v = %#v, want %#v", values["v"], tc.want)
 			}
 		})
+	}
+}
+
+// TestBigIntegerFailsIntAndLong pins DECIDED-10 at the job-order boundary, on the
+// literal paramref_arguments_inputs declares as a double default.
+//
+// An integer too large for an int64 is out of int's and long's range by construction, so
+// both reject it; float and double accept it, which is the only reason such a value can
+// be written in a CWL document at all. float takes it because the check there is for
+// overflow and this magnitude, 1e42, is within single precision's range.
+func TestBigIntegerFailsIntAndLong(t *testing.T) {
+	t.Parallel()
+
+	src := "v: " + outBigInteger
+
+	for _, typ := range []cwlcore.TypeRef{jobTypeInt, jobTypeLong} {
+		t.Run(typ.String(), func(t *testing.T) {
+			t.Parallel()
+
+			jobWantMessage(t, jobMustFail(t, t.TempDir(), src, jobValueTool(typ)),
+				"expected "+typ.String()+", but found int")
+		})
+	}
+
+	for _, typ := range []cwlcore.TypeRef{jobTypeFloat, jobTypeDouble} {
+		t.Run(typ.String(), func(t *testing.T) {
+			t.Parallel()
+
+			values := jobMustParse(t, t.TempDir(), src, jobValueTool(typ))
+			if !reflect.DeepEqual(values["v"], jobDecimal(t, outBigInteger)) {
+				t.Errorf("v = %#v, want all %d digits", values["v"], len(outBigInteger))
+			}
+		})
+	}
+}
+
+// TestBigIntegerRoundTrips follows the 43-digit literal the whole way a conformance run
+// takes it: through the job order, through interpolation into an argument, and back out
+// of cwl.output.json into the output object. No step may spend it on a float64.
+func TestBigIntegerRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	values := jobMustParse(t, t.TempDir(), "v: "+outBigInteger, jobValueTool(jobTypeDouble))
+
+	rendered := cwlcore.EncodeJSON(values["v"])
+	if rendered != outBigInteger {
+		t.Fatalf("interpolated as %s, want %s", rendered, outBigInteger)
+	}
+
+	if strings.ContainsAny(rendered, ".eE") {
+		t.Fatalf("interpolated as %s; a point or an exponent reparses as a float", rendered)
+	}
+
+	// The hop back in: what the tool echoed into cwl.output.json is exactly the text
+	// above, and reading it must not narrow it either.
+	reread := jsonNumbers([]any{json.Number(rendered)})
+
+	list, ok := reread.([]any)
+	if !ok || len(list) != 1 {
+		t.Fatalf("reading it back gave %#v, want a one-element list", reread)
+	}
+
+	if !reflect.DeepEqual(list[0], jobDecimal(t, outBigInteger)) {
+		t.Errorf("read back as %#v, want all %d digits", list[0], len(outBigInteger))
 	}
 }
 
@@ -410,7 +483,7 @@ func TestDescribeType(t *testing.T) {
 func TestCapWriterStopsAtItsLimit(t *testing.T) {
 	t.Parallel()
 
-	writer := &joCapWriter{limit: 4}
+	writer := &outHeadWriter{limit: 4}
 
 	for _, chunk := range []string{"ab", "cd", "ef"} {
 		n, err := writer.Write([]byte(chunk))

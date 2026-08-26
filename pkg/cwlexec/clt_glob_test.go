@@ -365,7 +365,7 @@ func TestCollectOutputsLoadContentsOverTheLimit(t *testing.T) {
 
 	// One byte over 64 KiB. CWL v1.2 changed this from silent truncation to a fatal error, so
 	// 65537 bytes must fail rather than yield 65536 of them.
-	outWriteFile(t, dir, "big.txt", strings.Repeat("x", outContentLimit+1))
+	outWriteFile(t, dir, "big.txt", strings.Repeat("x", joMaxContentsBytes+1))
 
 	binding := outGlobBinding("big.txt")
 	binding.LoadContents = true
@@ -380,7 +380,7 @@ func TestCollectOutputsLoadContentsAtExactlyTheLimit(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	outWriteFile(t, dir, "exact.txt", strings.Repeat("x", outContentLimit))
+	outWriteFile(t, dir, "exact.txt", strings.Repeat("x", joMaxContentsBytes))
 
 	binding := outGlobBinding("exact.txt")
 	binding.LoadContents = true
@@ -394,7 +394,7 @@ func TestCollectOutputsLoadContentsAtExactlyTheLimit(t *testing.T) {
 	}
 
 	// "64 KiB or smaller" — exactly 64 KiB is inside the limit, not over it.
-	assertInt(t, "len(contents)", len(file.Contents.Value()), outContentLimit)
+	assertInt(t, "len(contents)", len(file.Contents.Value()), joMaxContentsBytes)
 }
 
 func TestCollectOutputsLoadContentsOnBinary(t *testing.T) {

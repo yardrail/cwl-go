@@ -35,6 +35,19 @@ const (
 	jobExtBai     = ".bai"
 )
 
+// jobDecimal is the value a job order carries for a number a document wrote: the literal itself,
+// not the float64 it rounds to.
+func jobDecimal(t *testing.T, text string) salad.Decimal {
+	t.Helper()
+
+	value, ok := salad.ParseDecimal(text)
+	if !ok {
+		t.Fatalf("ParseDecimal(%q) rejected a valid literal", text)
+	}
+
+	return value
+}
+
 // Shorthand for the CWLType symbols the job-order tests declare parameters with.
 var (
 	jobTypeString    = cwlcore.NewPrimitiveType(cwlcore.PrimitiveString)

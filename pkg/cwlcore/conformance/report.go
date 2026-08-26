@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yardrail/cwl-go/pkg/cwlcore"
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
@@ -19,8 +18,6 @@ const (
 	maxNamedPeers  = 6
 	maxShownTags   = 5
 	percentScale   = 100.0
-	// maxStaleVersions sizes the stale-version list; it is a slice capacity, nothing more.
-	maxStaleVersions = 4
 )
 
 // summary renders the headline counts: the number the sweep exists to produce.
@@ -36,28 +33,8 @@ func (s *sweep) summary() string {
 	fmt.Fprintf(&b, "  of which $graph documents with no entry point: %d\n", s.count(graphOnlyPass))
 
 	writeShouldFailNote(&b, s)
-	writeVersionNote(&b, s)
 
 	return b.String()
-}
-
-// writeVersionNote reports documents accepted despite declaring a CWL version other than
-// v1.2. See docResult.staleVersion for why that is worth a line of its own.
-func writeVersionNote(b *strings.Builder, s *sweep) {
-	stale := make([]string, 0, maxStaleVersions)
-
-	for _, r := range s.results {
-		if r.staleVersion() {
-			stale = append(stale, r.path+" ("+r.version+")")
-		}
-	}
-
-	fmt.Fprintf(b, "  accepted despite declaring a cwlVersion other than %s: %d\n",
-		cwlcore.CWLVersionV12, len(stale))
-
-	for _, name := range stale {
-		fmt.Fprintf(b, "      %s\n", name)
-	}
 }
 
 // writeShouldFailNote reports how the sweep treated the documents the manifest only ever

@@ -84,13 +84,19 @@ func TestLoadOutputJSONFillsAMissingPortWithNull(t *testing.T) {
 	}
 }
 
+// outBigInteger is the 43-digit literal paramref_arguments_inputs declares as a double default. It
+// travels out of the engine as an argument, is echoed into cwl.output.json by the tool, and comes
+// back through this file, which is the hop that used to spend it on a float64.
+const outBigInteger = "1000000000000000000000000000000000000000000"
+
 func TestLoadOutputJSONKeepsIntegersIntegral(t *testing.T) {
 	t.Parallel()
 
 	tool := execTool(nil, outTestParam(execOutID, outTypeString, nil))
 	outdir := t.TempDir()
 
-	outWriteFile(t, outdir, OutputJSONFile, `{"out": [3, 1.5, 1e999]}`)
+	outWriteFile(t, outdir, OutputJSONFile,
+		`{"out": [3, 1.5, `+outBigInteger+`, 1e999, 1e99999999]}`)
 
 	outputs, err := LoadOutputJSON(tool, outdir, nil)
 	if err != nil {
@@ -98,20 +104,34 @@ func TestLoadOutputJSONKeepsIntegersIntegral(t *testing.T) {
 	}
 
 	values, ok := outputs[outPort].([]any)
-	if !ok || len(values) != 3 {
-		t.Fatalf("output = %#v, want a three-element list", outputs[outPort])
+	if !ok || len(values) != 5 {
+		t.Fatalf("output = %#v, want a five-element list", outputs[outPort])
 	}
 
 	if values[0] != int64(3) {
 		t.Errorf("values[0] = %#v, want int64(3): an integer must not become a float", values[0])
 	}
 
-	if values[1] != 1.5 {
-		t.Errorf("values[1] = %#v, want 1.5", values[1])
+	// A number a tool wrote keeps the literal it wrote, so that rendering the output object
+	// reproduces it. That is the whole of what makes a forty-three-digit integer survive the trip
+	// out through cwl.output.json and back.
+	if values[1] != jobDecimal(t, "1.5") {
+		t.Errorf("values[1] = %#v, want the literal 1.5", values[1])
 	}
 
-	if values[2] != json.Number("1e999").String() {
-		t.Errorf("values[2] = %#v, want the unrepresentable number kept as text", values[2])
+	if values[2] != jobDecimal(t, outBigInteger) {
+		t.Errorf("values[2] = %#v, want all %d digits of %s", values[2], len(outBigInteger), outBigInteger)
+	}
+
+	// Past float64's range and still exact, because nothing here goes through a float64.
+	if values[3] != jobDecimal(t, "1e999") {
+		t.Errorf("values[3] = %#v, want the literal 1e999", values[3])
+	}
+
+	// The one magnitude no exact rendering is willing to expand: 1e99999999 would be a hundred
+	// megabytes of digits, so it stays the text the tool wrote.
+	if values[4] != json.Number("1e99999999").String() {
+		t.Errorf("values[4] = %#v, want the unrepresentable number kept as text", values[4])
 	}
 }
 

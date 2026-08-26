@@ -22,6 +22,9 @@ const (
 
 	// pmTestdir is the host directory the renaming rows place under a different basename.
 	pmTestdir = "/data/testdir"
+
+	// pmEscape is the absolute entryname the rows about leaving the working directory use.
+	pmEscape = "/etc/escape"
 )
 
 // pmMap returns an empty path map over the two notional directories.
@@ -74,7 +77,7 @@ func TestPathMapWritableStagingCopies(t *testing.T) {
 	}
 
 	pmWantPlan(t, mapper, []PathMapping{
-		{Resolved: pmHostPath, Target: pmStagedPath, Action: StageCopy},
+		{Resolved: pmHostPath, Target: pmStagedPath, Action: StageCopy, Writable: true},
 	})
 }
 
@@ -140,10 +143,10 @@ func TestPathMapStagingFailures(t *testing.T) {
 			want:  ErrStagePath,
 		},
 		{
-			name:  "an absolute name",
+			name:  "an absolute name with no DockerRequirement",
 			value: pmHostFile("/data/x"),
-			entry: "/etc/escape",
-			want:  ErrUnsupportedFeature,
+			entry: pmEscape,
+			want:  ErrStagePath,
 		},
 		{
 			name:  "a value that is neither a File nor a Directory",
@@ -519,6 +522,24 @@ func TestPathMapValueHelpers(t *testing.T) {
 func pmWantPlan(t *testing.T, mapper *PathMap, want []PathMapping) {
 	t.Helper()
 
+	filled := make([]PathMapping, 0, len(want))
+
+	for _, mapping := range want {
+		if mapping.Host == "" {
+			mapping.Host = mapping.Target
+		}
+
+		filled = append(filled, mapping)
+	}
+
+	pmWantExactPlan(t, mapper, filled)
+}
+
+// pmWantExactPlan requires the plan to be exactly want, with no field filled in for it. It is what
+// a container mapper's tables use, an empty Host being a meaningful value there.
+func pmWantExactPlan(t *testing.T, mapper *PathMap, want []PathMapping) {
+	t.Helper()
+
 	if plan := mapper.Plan(); !slices.Equal(plan, want) {
 		t.Errorf("plan = %+v, want %+v", plan, want)
 	}
@@ -644,7 +665,7 @@ func TestPathMapInplaceUpdateLinksAWritableEntry(t *testing.T) {
 	}
 
 	pmWantPlan(t, mapper, []PathMapping{
-		{Resolved: pmHostPath, Target: pmStagedPath, Action: StageLink},
-		{Resolved: "/data/d", Target: "/work/d", Action: StageLink},
+		{Resolved: pmHostPath, Target: pmStagedPath, Action: StageLink, Writable: true},
+		{Resolved: "/data/d", Target: "/work/d", Action: StageLink, Writable: true},
 	})
 }

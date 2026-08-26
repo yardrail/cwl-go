@@ -555,6 +555,7 @@ func (l *runLoop) newCall(job *runJob, step *plannedStep) (*StepCall, error) {
 		TmpDir:       dirs.TmpDir,
 		Eval:         step.eval,
 		Logger:       l.runner.cfg.Logger,
+		Containers:   l.runner.cfg.Containers,
 	}
 
 	if l.runner.registry.IsUnbudgeted(step.class) {

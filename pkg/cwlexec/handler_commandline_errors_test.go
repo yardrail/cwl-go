@@ -50,11 +50,11 @@ func TestCommandLineToolReportsPreparationFailures(t *testing.T) {
 			want: ErrStagePath,
 		},
 		{
-			name: "an absolute entryname",
+			name: "an absolute entryname with no DockerRequirement",
 			prepare: func(call *StepCall) {
 				call.Requirements = execScope(direntRequirement("/etc/escape", execGreeting))
 			},
-			want: ErrUnsupportedFeature,
+			want: ErrStagePath,
 		},
 		{
 			name: "an entry with no name to create it under",

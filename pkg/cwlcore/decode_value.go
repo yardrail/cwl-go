@@ -33,6 +33,11 @@ func (d *decoder) exprBool(m *salad.MapNode, key string) ExprBool {
 // exprLong decodes an `int | long | Expression` field. Both integer members land
 // on the same kind: an int64 covers the whole of both ranges, so keeping them
 // apart would propagate a distinction with no consumer.
+//
+// That is also why a [salad.DecimalScalar] falls through to the failure branch
+// rather than getting a member of its own. It is by definition outside both
+// ranges, the schema validator has already rejected it, and there is no wider
+// integer member for it to land on.
 func (d *decoder) exprLong(m *salad.MapNode, key string) ExprLong {
 	scalar, ok := d.unionScalar(m, key, "an integer or an expression")
 	if !ok {
@@ -55,6 +60,11 @@ func (d *decoder) exprLong(m *salad.MapNode, key string) ExprLong {
 
 // resourceValue decodes an `int | long | float | Expression` field, which is
 // every field of a ResourceRequirement.
+//
+// An integer too large for an int64 lands on the float member, which is the only
+// member of the union that can hold it and the one the schema validator accepted
+// it under. A resource request that large is not satisfiable anyway, so nothing
+// is lost by spending its precision here.
 func (d *decoder) resourceValue(m *salad.MapNode, key string) ResourceValue {
 	scalar, ok := d.unionScalar(m, key, "a number or an expression")
 	if !ok {
@@ -66,7 +76,7 @@ func (d *decoder) resourceValue(m *salad.MapNode, key string) ResourceValue {
 		number, _ := scalar.AsInt()
 
 		return NewResourceInt(number)
-	case salad.FloatScalar:
+	case salad.DecimalScalar, salad.FloatScalar:
 		number, _ := scalar.AsFloat()
 
 		return NewResourceFloat(number)

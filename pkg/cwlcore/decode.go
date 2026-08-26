@@ -435,11 +435,20 @@ func DecodeAll(doc *salad.Document) (map[string]Process, error) {
 // below pins it.
 func Schema() (_ *salad.Schema, _ string) {
 	loaded, err := cwlSchemaV12()
+
+	return schemaOrNil(loaded, err), SchemaVersion()
+}
+
+// schemaOrNil returns loaded's schema, or nil when loading it failed. It exists
+// so the failure branch of Schema — otherwise unreachable, since cwlSchemaV12 is
+// a [sync.OnceValues] closure over the real embedded schema — can be exercised
+// directly with a synthetic error.
+func schemaOrNil(loaded *salad.LoadedSchema, err error) *salad.Schema {
 	if err != nil {
-		return nil, SchemaVersion()
+		return nil
 	}
 
-	return loaded.Schema, SchemaVersion()
+	return loaded.Schema
 }
 
 // Compile-time proof that Schema keeps its frozen signature, so that the blank

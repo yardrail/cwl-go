@@ -192,6 +192,26 @@ func TestScanFragmentTerminates(t *testing.T) {
 
 // TestScanFragmentWalksWholeString exercises the loop the interpolator runs:
 // repeatedly scanning the remaining text must consume the whole input.
+// TestExprScannerStepDefaultCaseAdvances covers step's switch default, which no
+// real input reaches — every scanState value has its own case — by pushing an
+// invalid state onto the stack directly.
+func TestExprScannerStepDefaultCaseAdvances(t *testing.T) {
+	t.Parallel()
+
+	const invalidState scanState = 999
+
+	s := &exprScanner{src: "x", stack: []scanState{invalidState}}
+
+	window, done := s.step('x', 1)
+	if done {
+		t.Errorf("step() with an invalid state reported done, window = %+v", window)
+	}
+
+	if s.pos != 1 {
+		t.Errorf("pos = %d after step(), want 1", s.pos)
+	}
+}
+
 func TestScanFragmentWalksWholeString(t *testing.T) {
 	t.Parallel()
 

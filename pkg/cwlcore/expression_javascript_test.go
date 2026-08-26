@@ -1,12 +1,16 @@
 package cwlcore
 
 import (
+	"encoding/json"
 	"errors"
+	"math"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/dop251/goja"
 )
 
 // evalCase is one expression and the value it must evaluate to.
@@ -229,6 +233,10 @@ func TestEvalJavaScriptInvalidResults(t *testing.T) {
 		"$(nosuchvariable)",
 		"$(inputs.n.nope.deeper)",
 		"${ var a = {}; a.self = a; return a; }",
+		// A toJSON that itself returns undefined: JSON.stringify then
+		// returns undefined for a non-function value, which is jsKind's
+		// "result" fallback rather than its "function" case.
+		"${ return {toJSON: function(){ return undefined; }}; }",
 	}
 
 	evaluator := NewEvaluator(WithJS(nil))
@@ -383,4 +391,243 @@ func TestEvaluatorIsConcurrencySafe(t *testing.T) {
 	}
 
 	group.Wait()
+}
+
+// TestEvalJavaScriptRejectsAnUnencodableContext covers runJS's e.prepare error
+// branch and, inside it, setJSGlobals' jsonParse-error branch: NaN has no JSON
+// spelling, so EncodeJSON renders it as the literal token NaN, which the
+// sandbox's own JSON.parse then rejects while installing the parameter context.
+func TestEvalJavaScriptRejectsAnUnencodableContext(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewEvaluator(WithJS(nil)).Eval("$(1)", &EvalContext{Self: math.NaN()})
+	if !errors.Is(err, ErrExpressionEval) {
+		t.Fatalf("Eval with an unencodable context error = %v, want ErrExpressionEval", err)
+	}
+}
+
+// TestEvalJavaScriptRejectsAnUnparsableExpressionLib covers prepare's
+// expressionLib-compile-error branch.
+func TestEvalJavaScriptRejectsAnUnparsableExpressionLib(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewEvaluator(WithJS([]string{"function( {"})).Eval("$(1)", testContext())
+	if !errors.Is(err, ErrExpressionSyntax) {
+		t.Fatalf("Eval with an unparsable expressionLib error = %v, want ErrExpressionSyntax", err)
+	}
+}
+
+// TestRecoverPanicConvertsAPanicToAnError covers recoverPanic directly, since
+// there is no stable way to make goja itself panic on demand.
+func TestRecoverPanicConvertsAPanicToAnError(t *testing.T) {
+	t.Parallel()
+
+	_, err := recoverPanic(func() (goja.Value, error) {
+		panic("boom")
+	})
+	if !errors.Is(err, ErrExpressionEval) {
+		t.Fatalf("recoverPanic error = %v, want ErrExpressionEval", err)
+	}
+
+	if !strings.Contains(err.Error(), "boom") {
+		t.Errorf("error %q does not mention the panic value", err)
+	}
+}
+
+// TestRecoverPanicPassesThroughANormalResult is recoverPanic's non-panicking
+// path, pinned alongside the panic case so the two are read together.
+func TestRecoverPanicPassesThroughANormalResult(t *testing.T) {
+	t.Parallel()
+
+	want := goja.New().ToValue(1)
+
+	value, err := recoverPanic(func() (goja.Value, error) {
+		return want, nil
+	})
+	if err != nil || value != want {
+		t.Errorf("recoverPanic = %v, %v, want %v, nil", value, err, want)
+	}
+}
+
+// TestJsTimeoutDefaultsWhenUnset covers jsTimeout's own fallback, which
+// NewEvaluator and WithTimeout never leave reachable: both already resolve a
+// non-positive duration to DefaultEvalTimeout before it is stored.
+func TestJsTimeoutDefaultsWhenUnset(t *testing.T) {
+	t.Parallel()
+
+	e := &Evaluator{jsEnabled: true}
+	if got := e.jsTimeout(); got != DefaultEvalTimeout {
+		t.Errorf("jsTimeout() on a zero-timeout Evaluator = %s, want %s", got, DefaultEvalTimeout)
+	}
+}
+
+// TestConvertJSErrorFallsBackForAPlainError covers convertJSError's catch-all,
+// reached by an error that is neither a *goja.InterruptedError nor a
+// *goja.Exception.
+func TestConvertJSErrorFallsBackForAPlainError(t *testing.T) {
+	t.Parallel()
+
+	err := convertJSError(errSynthetic, time.Second)
+	if !errors.Is(err, ErrExpressionEval) {
+		t.Errorf("convertJSError = %v, want it to wrap ErrExpressionEval", err)
+	}
+
+	if !strings.Contains(err.Error(), errSynthetic.Error()) {
+		t.Errorf("error %q does not mention the original error", err)
+	}
+}
+
+// TestSetJSGlobalsBranches drives setJSGlobals directly against a hand-built
+// sandbox, covering the three failure branches ordinary evaluation cannot
+// reach: an unencodable context, a JSON.parse replaced with something that
+// does not return an object, and a global that cannot be assigned.
+func TestSetJSGlobalsBranches(t *testing.T) {
+	t.Parallel()
+
+	t.Run("an unencodable context", func(t *testing.T) {
+		t.Parallel()
+
+		err := setJSGlobals(goja.New(), &EvalContext{Self: math.NaN()})
+		if !errors.Is(err, ErrExpressionEval) {
+			t.Errorf("setJSGlobals = %v, want ErrExpressionEval", err)
+		}
+	})
+
+	t.Run("JSON.parse returns something that is not an object", func(t *testing.T) {
+		t.Parallel()
+
+		sandbox := goja.New()
+
+		_, err := sandbox.RunString(`JSON.parse = function () { return 42; };`)
+		if err != nil {
+			t.Fatalf("RunString: %v", err)
+		}
+
+		err = setJSGlobals(sandbox, &EvalContext{})
+		if !errors.Is(err, ErrExpressionEval) {
+			t.Errorf("setJSGlobals = %v, want ErrExpressionEval", err)
+		}
+	})
+
+	t.Run("a global cannot be assigned", func(t *testing.T) {
+		t.Parallel()
+
+		sandbox := goja.New()
+
+		_, err := sandbox.RunString(
+			`Object.defineProperty(this, "inputs", {value: 1, writable: false, configurable: false});`,
+		)
+		if err != nil {
+			t.Fatalf("RunString: %v", err)
+		}
+
+		err = setJSGlobals(sandbox, &EvalContext{})
+		if !errors.Is(err, ErrExpressionEval) {
+			t.Errorf("setJSGlobals = %v, want ErrExpressionEval", err)
+		}
+	})
+}
+
+// TestJsonTextPropagatesAJsonMethodError covers jsonText's own error branch,
+// reached when JSON.stringify is unavailable.
+func TestJsonTextPropagatesAJsonMethodError(t *testing.T) {
+	t.Parallel()
+
+	sandbox := goja.New()
+
+	_, err := sandbox.RunString(`JSON.stringify = undefined;`)
+	if err != nil {
+		t.Fatalf("RunString: %v", err)
+	}
+
+	_, err = jsonText(sandbox, sandbox.ToValue(1))
+	if !errors.Is(err, ErrExpressionEval) {
+		t.Errorf("jsonText = %v, want ErrExpressionEval", err)
+	}
+}
+
+// TestJsonMethodReportsAnUnavailableGlobal and
+// TestJsonMethodReportsAnUnavailableMethod cover jsonMethod's two failure
+// branches directly.
+func TestJsonMethodReportsAnUnavailableGlobal(t *testing.T) {
+	t.Parallel()
+
+	sandbox := goja.New()
+
+	err := sandbox.Set("JSON", goja.Undefined())
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	_, err = jsonMethod(sandbox, "parse")
+	if !errors.Is(err, ErrExpressionEval) {
+		t.Errorf("jsonMethod = %v, want ErrExpressionEval", err)
+	}
+}
+
+func TestJsonMethodReportsAnUnavailableMethod(t *testing.T) {
+	t.Parallel()
+
+	sandbox := goja.New()
+
+	_, err := sandbox.RunString(`JSON.parse = undefined;`)
+	if err != nil {
+		t.Fatalf("RunString: %v", err)
+	}
+
+	_, err = jsonMethod(sandbox, "parse")
+	if !errors.Is(err, ErrExpressionEval) {
+		t.Errorf("jsonMethod = %v, want ErrExpressionEval", err)
+	}
+}
+
+// TestJsonParsePropagatesAJsonMethodError and TestJsonParseReportsMalformedText
+// cover jsonParse's two failure branches.
+func TestJsonParsePropagatesAJsonMethodError(t *testing.T) {
+	t.Parallel()
+
+	sandbox := goja.New()
+
+	_, err := sandbox.RunString(`JSON.parse = undefined;`)
+	if err != nil {
+		t.Fatalf("RunString: %v", err)
+	}
+
+	_, err = jsonParse(sandbox, "{}")
+	if !errors.Is(err, ErrExpressionEval) {
+		t.Errorf("jsonParse = %v, want ErrExpressionEval", err)
+	}
+}
+
+func TestJsonParseReportsMalformedText(t *testing.T) {
+	t.Parallel()
+
+	_, err := jsonParse(goja.New(), "not valid json{")
+	if !errors.Is(err, ErrExpressionEval) {
+		t.Errorf("jsonParse = %v, want ErrExpressionEval", err)
+	}
+}
+
+// TestDecodeJSONTextReportsMalformedResult covers decodeJSONText's own error
+// branch directly.
+func TestDecodeJSONTextReportsMalformedResult(t *testing.T) {
+	t.Parallel()
+
+	_, err := decodeJSONText("not json")
+	if !errors.Is(err, ErrExpressionEval) {
+		t.Errorf("decodeJSONText = %v, want ErrExpressionEval", err)
+	}
+}
+
+// TestNumberValueFallsBackToStringForUnparsableNumbers covers numberValue's
+// final fallback, reached when a [json.Number] parses as neither an int64 nor a
+// float64.
+func TestNumberValueFallsBackToStringForUnparsableNumbers(t *testing.T) {
+	t.Parallel()
+
+	const text = "not-a-number"
+
+	if got := numberValue(json.Number(text)); got != text {
+		t.Errorf("numberValue(%q) = %#v, want the original text", text, got)
+	}
 }

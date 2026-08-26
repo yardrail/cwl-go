@@ -1,6 +1,7 @@
 package conformance
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,6 +16,10 @@ const (
 
 	keyBasename = "basename"
 	outputName  = "out"
+
+	// testValue is a placeholder scalar used where a test needs some value but not any
+	// particular one.
+	testValue = "value"
 )
 
 // mustNormalize puts a value through the JSON round trip the driver compares through, so
@@ -192,7 +197,7 @@ func TestCompareRejectsExtraKeys(t *testing.T) {
 	t.Run("an extra top-level key", func(t *testing.T) {
 		t.Parallel()
 
-		err := check(t, map[string]any{outputName: "ok"}, map[string]any{outputName: "ok", "surplus": "value"})
+		err := check(t, map[string]any{outputName: "ok"}, map[string]any{outputName: "ok", "surplus": testValue})
 		if err == nil {
 			t.Error("an unexpected top-level key was accepted")
 		}
@@ -299,6 +304,8 @@ func TestCompareNumbersAcrossTheIntFloatDivide(t *testing.T) {
 		{name: "an integer and a different one", expected: 42, actual: 43, match: false},
 		{name: "a boolean and one", expected: true, actual: 1, match: true},
 		{name: "a boolean and zero", expected: true, actual: 0, match: false},
+		{name: "false and zero", expected: false, actual: 0, match: true},
+		{name: "false and one", expected: false, actual: 1, match: false},
 		{name: "a fraction", expected: 0.5, actual: 0.5, match: true},
 		{name: "a string and a number", expected: "1", actual: 1, match: false},
 		{name: "a huge integer and itself", expected: 1e42, actual: 1e42, match: true},
@@ -313,6 +320,241 @@ func TestCompareNumbersAcrossTheIntFloatDivide(t *testing.T) {
 				t.Errorf("match = %v, want %v (%v)", err == nil, tt.match, err)
 			}
 		})
+	}
+}
+
+func TestCompareRejectsAMissingScalarField(t *testing.T) {
+	t.Parallel()
+
+	// A non-wildcard expectation is not met by a field the run never produced: the
+	// "expected something, got null" branch, distinct from the wildcard case in
+	// TestCompareAnyIsWildcard where an absent field always matches.
+	err := check(t, map[string]any{outputName: testValue}, make(map[string]any))
+	if err == nil {
+		t.Error("a missing field was accepted against a non-wildcard expectation")
+	}
+}
+
+func TestCompareObjectRejectsANonObjectActual(t *testing.T) {
+	t.Parallel()
+
+	err := check(t, map[string]any{outputName: testValue}, "a string")
+	if err == nil {
+		t.Error("a non-object actual was accepted against an object expectation")
+	}
+}
+
+func TestCompareDigestFailures(t *testing.T) {
+	t.Parallel()
+
+	t.Run("neither a path nor a location", func(t *testing.T) {
+		t.Parallel()
+
+		err := compareDigest(make(map[string]any), map[string]any{keyClass: classFile})
+		if err == nil {
+			t.Error("a File with no path or location was accepted")
+		}
+	})
+
+	t.Run("a path that does not exist", func(t *testing.T) {
+		t.Parallel()
+
+		actual := map[string]any{keyClass: classFile, keyPath: filepath.Join(t.TempDir(), "gone.txt")}
+
+		err := compareDigest(make(map[string]any), actual)
+		if err == nil {
+			t.Error("a File whose path does not exist was accepted")
+		}
+	})
+}
+
+func TestDigestPathFallsBackToLocation(t *testing.T) {
+	t.Parallel()
+
+	where, ok := digestPath(map[string]any{keyLocation: "x"})
+	if !ok || where != "x" {
+		t.Errorf("digestPath = %q, %v, want %q, true", where, ok, "x")
+	}
+}
+
+func TestDigestOfErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a path that does not exist", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := digestOf(filepath.Join(t.TempDir(), "gone.txt"))
+		if err == nil {
+			t.Error("digestOf accepted a path that does not exist")
+		}
+	})
+
+	t.Run("a directory", func(t *testing.T) {
+		t.Parallel()
+
+		// Reading an open directory fd fails with EISDIR on Linux, which is what
+		// exercises the errors.Join(copyErr, closeErr) branch.
+		_, err := digestOf(t.TempDir())
+		if err == nil {
+			t.Error("digestOf accepted a directory")
+		}
+	})
+}
+
+func TestCompareDirectoryRejectsANonDirectoryActual(t *testing.T) {
+	t.Parallel()
+
+	expected := map[string]any{keyClass: classDirectory}
+
+	tests := map[string]map[string]any{
+		"a File":          {keyClass: classFile},
+		"no class at all": {},
+	}
+
+	for name, actual := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			err := compareDirectory(expected, actual)
+			if err == nil {
+				t.Errorf("%s was accepted as a Directory", name)
+			}
+		})
+	}
+}
+
+func TestCompareListingRejectsNonListValues(t *testing.T) {
+	t.Parallel()
+
+	t.Run("an expected value that is not a list", func(t *testing.T) {
+		t.Parallel()
+
+		err := compareListing(make(map[string]any), make([]any, 0))
+		if err == nil {
+			t.Error("a non-list expected listing was accepted")
+		}
+	})
+
+	t.Run("an actual value that is not a list", func(t *testing.T) {
+		t.Parallel()
+
+		err := compareListing(make([]any, 0), "not a list")
+		if err == nil {
+			t.Error("a non-list actual listing was accepted")
+		}
+	})
+}
+
+func TestCompareLocationErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a reported location that is not a string", func(t *testing.T) {
+		t.Parallel()
+
+		expected := map[string]any{keyLocation: fixtureName}
+		actual := map[string]any{keyLocation: 123}
+
+		err := compareLocation(expected, actual)
+		if err == nil {
+			t.Error("a non-string reported location was accepted")
+		}
+	})
+
+	t.Run("an expected location that does not exist on disk", func(t *testing.T) {
+		t.Parallel()
+
+		expected := map[string]any{keyLocation: fixtureName}
+		actual := map[string]any{keyLocation: filepath.Join(t.TempDir(), fixtureName)}
+
+		err := compareLocation(expected, actual)
+		if err == nil {
+			t.Error("a location that does not exist on disk was accepted")
+		}
+	})
+}
+
+func TestCompareLocationTrimsATrailingSlashFromADirectory(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	expected := map[string]any{keyLocation: filepath.Base(dir)}
+	actual := map[string]any{keyClass: classDirectory, keyLocation: dir + "/"}
+
+	err := compareLocation(expected, actual)
+	if err != nil {
+		t.Fatalf("compareLocation: %v", err)
+	}
+
+	if actual[keyLocation] != dir {
+		t.Errorf("actual[keyLocation] = %q, want the trailing slash trimmed to %q", actual[keyLocation], dir)
+	}
+}
+
+func TestCheckSuffixMatchesALocationWithNoSeparatorAtAll(t *testing.T) {
+	t.Parallel()
+
+	err := checkSuffix(fixtureName, fixtureName)
+	if err != nil {
+		t.Errorf("checkSuffix rejected an exact match with no separator: %v", err)
+	}
+}
+
+func TestLocationKeyCopiesLocationIntoPath(t *testing.T) {
+	t.Parallel()
+
+	expected := map[string]any{keyPath: "wanted.txt"}
+	actual := map[string]any{keyLocation: "reported.txt"}
+
+	key := locationKey(expected, actual)
+	if key != keyPath {
+		t.Errorf("locationKey = %q, want %q", key, keyPath)
+	}
+
+	if actual[keyPath] != "reported.txt" {
+		t.Errorf(`actual[keyPath] = %v, want "reported.txt"`, actual[keyPath])
+	}
+}
+
+func TestCheckSuffixRejectsANonStringExpectedLocation(t *testing.T) {
+	t.Parallel()
+
+	err := checkSuffix(123, "/tmp/out.txt")
+	if err == nil {
+		t.Error("a non-string expected location was accepted")
+	}
+}
+
+func TestCheckExistsErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a location that does not exist", func(t *testing.T) {
+		t.Parallel()
+
+		err := checkExists(filepath.Join(t.TempDir(), "gone.txt"), classFile)
+		if err == nil {
+			t.Error("a location that does not exist was accepted")
+		}
+	})
+
+	t.Run("a class mismatch", func(t *testing.T) {
+		t.Parallel()
+
+		path := writeFile(t, fixtureText)
+
+		err := checkExists(path, classDirectory)
+		if err == nil {
+			t.Error("a File reported as a Directory was accepted")
+		}
+	})
+}
+
+func TestCompareContentsRejectsAnActualWithNoPath(t *testing.T) {
+	t.Parallel()
+
+	err := compareContents(fixtureText, map[string]any{keyClass: classFile, keyLocation: fixtureName})
+	if !errors.Is(err, errMismatch) {
+		t.Errorf("compareContents = %v, want it to wrap errMismatch", err)
 	}
 }
 

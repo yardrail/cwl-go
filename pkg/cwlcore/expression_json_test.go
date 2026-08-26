@@ -147,6 +147,7 @@ func TestEncodeJSON(t *testing.T) {
 		{name: "a typed map", value: map[string]string{"k": "v"}, want: `{"k": "v"}`},
 
 		{name: "escapes", value: "a\"b\\c\nd\te", want: `"a\"b\\c\nd\te"`},
+		{name: "carriage return, backspace and form feed", value: "a\rb\bc\fd", want: `"a\rb\bc\fd"`},
 		{name: "a control character", value: "\x01", want: `"\u0001"`},
 		{name: "non ascii passes through", value: "héllo", want: `"héllo"`},
 
@@ -246,6 +247,23 @@ func TestEncodeJSONNumbers(t *testing.T) {
 				t.Errorf("EncodeJSON(%#v) = %s, want %s", tc.value, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestEncodeJSONFallsBackForUnrecognizedValues covers appendJSONOther's final
+// fallback: a value that is neither a recognized number, list nor map kind is
+// rendered as its Go string form rather than aborting the encoding.
+func TestEncodeJSONFallsBackForUnrecognizedValues(t *testing.T) {
+	t.Parallel()
+
+	type opaque struct{ X int }
+
+	if got, want := EncodeJSON(opaque{X: 1}), `"{1}"`; got != want {
+		t.Errorf("EncodeJSON(struct) = %s, want %s", got, want)
+	}
+
+	if got, want := EncodeJSON(complex(1, 2)), `"(1+2i)"`; got != want {
+		t.Errorf("EncodeJSON(complex) = %s, want %s", got, want)
 	}
 }
 

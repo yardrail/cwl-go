@@ -291,6 +291,8 @@ func (d Decimal) BigInt() (*big.Int, bool) {
 
 	value, ok := new(big.Int).SetString(digits, decimalBase)
 	if !ok {
+		// Unreachable: integralDigits always returns either "0" or a run of
+		// ASCII digit characters, which SetString(_, 10) never rejects.
 		return nil, false
 	}
 

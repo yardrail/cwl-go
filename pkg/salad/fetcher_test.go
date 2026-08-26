@@ -1,6 +1,7 @@
 package salad
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -136,6 +137,10 @@ func TestFSFetcher(t *testing.T) {
 		t.Error("Exists must follow the mounted file system")
 	}
 
+	if fetcher.Exists("file:///elsewhere/doc.yml") {
+		t.Error("Exists must report false for a URL outside the mount point")
+	}
+
 	_, err = fetcher.FetchText("file:///elsewhere/doc.yml")
 	if err == nil {
 		t.Error("a URL outside the mount point must be an error")
@@ -263,6 +268,10 @@ func TestMaxAgeParsing(t *testing.T) {
 		{name: "no-cache means revalidate", control: "no-cache", want: 0},
 		{name: "a malformed lifetime means revalidate", control: "max-age=soon", want: 0},
 		{name: "no directive means the default", control: "", want: int(defaultFreshness.Seconds())},
+		{
+			name: "a directive with no max-age prefix is skipped", control: "public",
+			want: int(defaultFreshness.Seconds()),
+		},
 	}
 
 	for _, tc := range cases {
@@ -288,6 +297,92 @@ func writeAll(t *testing.T, w http.ResponseWriter, body string) {
 	_, err := w.Write([]byte(body))
 	if err != nil {
 		t.Errorf("writing the response: %v", err)
+	}
+}
+
+func TestDefaultFetcherRejectsAMalformedURL(t *testing.T) {
+	t.Parallel()
+
+	fetcher := NewDefaultFetcher(WithCacheDir(""))
+
+	_, err := fetcher.FetchText("%zz")
+	if err == nil {
+		t.Error("FetchText must reject a URL that fails url.Parse")
+	}
+
+	if fetcher.Exists("%zz") {
+		t.Error("Exists must reject a URL that fails url.Parse")
+	}
+}
+
+func TestDefaultFetcherExistsOverHTTP(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/missing.yml" {
+			http.Error(w, "gone", http.StatusNotFound)
+
+			return
+		}
+
+		writeAll(t, w, docBody)
+	}))
+	defer server.Close()
+
+	fetcher := NewDefaultFetcher(WithCacheDir(""), WithHTTPClient(server.Client()))
+
+	if !fetcher.Exists(server.URL + "/doc.yml") {
+		t.Error("Exists must report true for a 200 response")
+	}
+
+	if fetcher.Exists(server.URL + "/missing.yml") {
+		t.Error("Exists must report false for a non-200 response")
+	}
+}
+
+func TestCleanURLRejectsAMalformedURL(t *testing.T) {
+	t.Parallel()
+
+	_, err := cleanURL("%zz")
+	if err == nil {
+		t.Error("cleanURL must reject a URL that fails url.Parse")
+	}
+}
+
+// errAbsUnavailable stands in for the [os.Getwd] failure [filepath.Abs] would
+// report if the process's working directory had been removed out from under
+// it.
+var errAbsUnavailable = errors.New("simulated: working directory unavailable")
+
+// TestNormalizeURLAndPathToURLReportAbsFailure reaches pathToURLAbs's
+// [filepath.Abs] error branch by passing a stub resolver directly, rather
+// than by mutating the process's actual working directory (process-wide
+// state) or a package-level variable shared with other callers. The stub is
+// local to this call, so the test runs in parallel like any other.
+func TestNormalizeURLAndPathToURLReportAbsFailure(t *testing.T) {
+	t.Parallel()
+
+	failingAbs := func(string) (string, error) {
+		return "", errAbsUnavailable
+	}
+
+	_, pathErr := pathToURLAbs(failingAbs, "relative")
+	if pathErr == nil {
+		t.Error("pathToURLAbs must report the filepath.Abs failure")
+	}
+
+	_, normErr := normalizeURLAbs(failingAbs, "relative-base", "d.yml")
+	if normErr == nil {
+		t.Error("normalizeURLAbs must report the pathToURLAbs failure on its base argument")
+	}
+}
+
+func TestUserCacheDirReportsAbsence(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+
+	if got := userCacheDir(); got != "" {
+		t.Errorf("userCacheDir() = %q, want empty when neither XDG_CACHE_HOME nor HOME is set", got)
 	}
 }
 

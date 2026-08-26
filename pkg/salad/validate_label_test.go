@@ -198,6 +198,165 @@ func TestValidateRejectsAnEmptyUnion(t *testing.T) {
 	}
 }
 
+// TestValidateDiagSuppressesAWarningWhileProbingAUnion reaches diag's
+// v.quiet branch: a union with more than one alternative forces the second
+// alternative to be probed (quiet), and a matching record with an unknown
+// field would only ever produce a warning (not strict), so the warning is
+// dropped silently rather than built and then discarded.
+func TestValidateDiagSuppressesAWarningWhileProbingAUnion(t *testing.T) {
+	t.Parallel()
+
+	withExtra := record(typeInner, field("count", Primitive(PrimitiveInt)))
+	s := singleFieldSchema(union(Primitive(PrimitiveBoolean), withExtra))
+
+	err := s.Validate(mustParse(t, testFile, "v:\n  count: 1\n  extra: 1\n"))
+	if err != nil {
+		t.Fatalf("the record alternative should match, tolerating the unknown field: %v", err)
+	}
+}
+
+// TestValidateCheckMapQuietBranch reaches checkMap's v.quiet short-circuit: a
+// map type with an invalid entry, probed as one alternative of a union with
+// more than one member.
+func TestValidateCheckMapQuietBranch(t *testing.T) {
+	t.Parallel()
+
+	s := singleFieldSchema(union(Primitive(PrimitiveBoolean), &MapType{Values: Primitive(PrimitiveInt)}))
+
+	err := s.Validate(mustParse(t, testFile, "v: {a: x}\n"))
+	if err == nil {
+		t.Fatal("a map with an invalid entry satisfies neither union member")
+	}
+}
+
+// TestMustRecordOnAnUndefinedName covers mustRecord's own Type() lookup
+// failure directly: every caller in this package only ever passes a name
+// straight out of Schema.Names(), which always resolves, so this branch is
+// only reachable by calling mustRecord with a name the schema does not
+// define at all.
+func TestMustRecordOnAnUndefinedName(t *testing.T) {
+	t.Parallel()
+
+	s := NewSchema([]Type{rootRecord(typeDoc, field("v", Primitive(PrimitiveString)))})
+
+	if _, ok := mustRecord(s, "Nope"); ok {
+		t.Error("mustRecord must report false for a name the schema does not define")
+	}
+}
+
+// TestMustRecordSkipsANonRecordType reaches identifierKeys' type-assertion
+// guard: a schema whose Names() includes a top-level enum alongside records
+// must not panic walking it for identifier fields.
+func TestMustRecordSkipsANonRecordType(t *testing.T) {
+	t.Parallel()
+
+	id := field("id", optional(Primitive(PrimitiveString)))
+	id.JSONLDPred = &TermDef{ID: jsonldID, Type: jsonldID}
+
+	enum := &EnumType{Name: typeInner, Symbols: []string{typeInner + "/a"}}
+	s := NewSchema([]Type{rootRecord(typeDoc, id), enum})
+
+	err := s.Validate(mustParse(t, testFile, "id: main\n"))
+	if err != nil {
+		t.Fatalf("a schema with a non-record type alongside records must still validate: %v", err)
+	}
+}
+
+// TestCheckLinkIgnoresAMappingValue reaches checkLink's default arm: a link
+// field whose value is a mapping (neither a scalar nor a sequence) is left
+// alone rather than checked as a link.
+func TestCheckLinkIgnoresAMappingValue(t *testing.T) {
+	t.Parallel()
+
+	id := field("id", optional(Primitive(PrimitiveString)))
+	id.JSONLDPred = &TermDef{ID: jsonldID, Type: jsonldID}
+
+	src := field(keySource, optional(record(typeInner, field("nested", Primitive(PrimitiveString)))))
+	src.JSONLDPred = sourcePred()
+
+	s := NewSchema([]Type{rootRecord(typeDoc, id, src)})
+
+	err := s.Validate(mustParse(t, testFile, "id: main\nsource:\n  nested: x\n"), Strict(true))
+	if err != nil {
+		t.Fatalf("a mapping-valued link field must be traversed, not checked as a link: %v", err)
+	}
+}
+
+// TestCheckLinkTargetIgnoresAnEmptyString reaches checkLinkTarget's early
+// return: an empty-string link value is never checked.
+func TestCheckLinkTargetIgnoresAnEmptyString(t *testing.T) {
+	t.Parallel()
+
+	err := linkSchema(sourcePred()).Validate(mustParse(t, testFile, "id: main\nsource: \"\"\n"), Strict(true))
+	if err != nil {
+		t.Errorf("an empty-string link value must not be checked, got %v", err)
+	}
+}
+
+// TestCheckAlternativesRejectsAnEmptyList white-box calls checkAlternatives
+// directly with no candidates at all, which only ever happens defensively:
+// every real caller supplies at least one alternative.
+func TestCheckAlternativesRejectsAnEmptyList(t *testing.T) {
+	t.Parallel()
+
+	v := newValidator(NewSchema(nil), nil)
+
+	err := v.checkAlternatives(nil, NewStringNode(SourceLine{}, "x"), "header")
+	if err == nil {
+		t.Fatal("checkAlternatives with no candidates must fail")
+	}
+}
+
+// TestCheckAlternativesQuietAfterExhaustingANestedUnion reaches the "if
+// v.quiet { return errNoMatch }" branch of checkAlternatives: a union nested
+// inside another union, probed while the outer union is itself being probed,
+// so the inner union's own checkAlternatives call runs with v.quiet already
+// true when every one of its candidates has failed.
+func TestCheckAlternativesQuietAfterExhaustingANestedUnion(t *testing.T) {
+	t.Parallel()
+
+	inner := union(Primitive(PrimitiveString), Primitive(PrimitiveBoolean))
+	s := singleFieldSchema(union(Primitive(PrimitiveInt), inner))
+
+	err := s.Validate(mustParse(t, testFile, "v: {}\n"))
+	if err == nil {
+		t.Fatal("a mapping satisfies none of int, string or boolean")
+	}
+}
+
+// TestChildrenOfOfABareShortName reaches childrenOf's own short-name
+// early-return: a record whose Name already IS its own short form (no "#" or
+// "/" at all) so shortName(r.Name) == r.Name and the merge with
+// v.subtypes[short] would be redundant.
+func TestChildrenOfOfABareShortName(t *testing.T) {
+	t.Parallel()
+
+	process := abstractRecord("Process", field("id", optional(Primitive(PrimitiveString))))
+	tool := extending(record("Tool", field("baseCommand", Primitive(PrimitiveString))), "Process")
+
+	s := NewSchema([]Type{rootRecord(typeInner, field(keyRun, process)), process, tool})
+
+	err := s.Validate(mustParse(t, testFile, "run:\n  baseCommand: echo\n"), Strict(true))
+	if err != nil {
+		t.Fatalf("a subtype of a bare-short-named abstract base should still satisfy it: %v", err)
+	}
+}
+
+// TestTypeLabelOfAnAnonymousRecordOrEnum reaches typeLabelAt's defensive
+// default arm: an anonymous (unnamed) record or enum is neither an
+// ArrayType, MapType nor UnionType, so it falls all the way through.
+func TestTypeLabelOfAnAnonymousRecordOrEnum(t *testing.T) {
+	t.Parallel()
+
+	if got := typeLabel(&RecordType{}); got != nameUnknown {
+		t.Errorf("typeLabel(anonymous record) = %q, want %q", got, nameUnknown)
+	}
+
+	if got := typeLabel(&EnumType{}); got != nameUnknown {
+		t.Errorf("typeLabel(anonymous enum) = %q, want %q", got, nameUnknown)
+	}
+}
+
 func TestValidateReportsWarningsOnlyAlongsideRealErrors(t *testing.T) {
 	t.Parallel()
 

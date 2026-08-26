@@ -248,6 +248,10 @@ func (f *flattener) checkOverride(s *Schema, b *typeBuilder, ov fieldOverride) *
 
 	sub, err := b.buildType(nodeOrNil(ov.own, keyType))
 	if err != nil {
+		// Unreachable in practice: ov.own is the exact field node that already
+		// went into the overriding record's built Fields, so b.build(flat) in
+		// flattenSchema already failed before checkNarrowing (and so
+		// checkOverride) ever runs, if this type did not resolve.
 		return err
 	}
 

@@ -160,6 +160,45 @@ func TestValidateAbstractRecordExplainsEverySubtype(t *testing.T) {
 	)
 }
 
+// TestChildrenOfMatchesASubtypeDeclaredByShortName covers childrenOf's merge
+// branch: the base's Name is a fully-qualified IRI, but the subtype declares
+// extends using the base's short name, so indexExtends only ever registers it
+// under that short name and childrenOf has to look it up there too.
+func TestChildrenOfMatchesASubtypeDeclaredByShortName(t *testing.T) {
+	t.Parallel()
+
+	process := abstractRecord(typeProcess, field("id", optional(Primitive(PrimitiveString))))
+
+	// extending sets Extends to exactly what is passed, so "Process" here is the
+	// base's short name rather than its full IRI.
+	tool := extending(record(typeDoc, field("baseCommand", Primitive(PrimitiveString))), "Process")
+
+	s := NewSchema([]Type{rootRecord(typeInner, field(keyRun, process)), process, tool})
+
+	err := s.Validate(mustParse(t, testFile, "run:\n  baseCommand: echo\n"), Strict(true))
+	if err != nil {
+		t.Fatalf("a subtype declared by the base's short name should still satisfy it: %v", err)
+	}
+}
+
+// TestEnsureSubtypeIndexSkipsANonRecordType covers ensureSubtypeIndex's
+// type-assertion guard: a schema whose Names() includes a top-level enum
+// alongside abstract records must not panic building the subtype index.
+func TestEnsureSubtypeIndexSkipsANonRecordType(t *testing.T) {
+	t.Parallel()
+
+	process := abstractRecord(typeProcess, field("id", optional(Primitive(PrimitiveString))))
+	tool := extending(record(typeDoc, field("baseCommand", Primitive(PrimitiveString))), typeProcess)
+	enum := &EnumType{Name: typeColour, Symbols: []string{typeColour + "/red"}}
+
+	s := NewSchema([]Type{rootRecord(typeInner, field(keyRun, process)), process, tool, enum})
+
+	err := s.Validate(mustParse(t, testFile, "run:\n  baseCommand: echo\n"), Strict(true))
+	if err != nil {
+		t.Fatalf("a non-record type alongside abstract records must not break subtype indexing: %v", err)
+	}
+}
+
 func TestValidateAbstractRecordWithoutSubtypes(t *testing.T) {
 	t.Parallel()
 

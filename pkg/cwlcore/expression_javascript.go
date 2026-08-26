@@ -149,6 +149,21 @@ func (e *Evaluator) run(sandbox *goja.Runtime, program *goja.Program) (goja.Valu
 
 // runGuarded runs one program, turning an engine panic into an ordinary error.
 func runGuarded(sandbox *goja.Runtime, program *goja.Program) (goja.Value, error) {
+	return recoverPanic(func() (goja.Value, error) {
+		return sandbox.RunProgram(program)
+	})
+}
+
+// recoverPanic runs fn, converting a panic into an ordinary ErrExpressionEval
+// rather than letting it unwind the caller's stack.
+//
+// It is separated out from runGuarded so that the panic-to-error conversion can
+// be tested directly, with a func that panics on demand — there is no stable way
+// to make goja itself panic. The named return lives on an inner closure rather
+// than on this function's own signature, matching how the rest of this package
+// satisfies nonamedreturns without giving up defer's only way to overwrite a
+// result.
+func recoverPanic(fn func() (goja.Value, error)) (goja.Value, error) {
 	var value goja.Value
 
 	err := func() (err error) {
@@ -160,15 +175,12 @@ func runGuarded(sandbox *goja.Runtime, program *goja.Program) (goja.Value, error
 
 		var runErr error
 
-		value, runErr = sandbox.RunProgram(program)
+		value, runErr = fn()
 
 		return runErr
 	}()
-	if err != nil {
-		return nil, err
-	}
 
-	return value, nil
+	return value, err
 }
 
 // jsTimeout is the configured limit, or the default when none was set.

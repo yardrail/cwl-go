@@ -1,9 +1,13 @@
 package conformance
 
 import (
+	"context"
 	"errors"
+	"math"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	conf "github.com/yardrail/cwl-go/pkg/cwlcore/conformance"
@@ -238,5 +242,120 @@ func TestSuiteCountsPartitionTheManifest(t *testing.T) {
 
 	if !slices.Equal(sets[outcomeSkip], []string{"c"}) {
 		t.Errorf("skips = %v, want [c]", sets[outcomeSkip])
+	}
+}
+
+// TestRunEntryReportsAnUnallocatableOutputDirectory points TMPDIR at a directory that does
+// not exist, so [os.MkdirTemp] fails and runEntry reports the allocation failure rather than
+// running anything.
+//
+// This test does not run in parallel: t.Setenv forbids it, and TMPDIR is read by every
+// [os.MkdirTemp]("", ...) call in the process for as long as it is set.
+func TestRunEntryReportsAnUnallocatableOutputDirectory(t *testing.T) {
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "does-not-exist"))
+
+	entry := &conf.Entry{ID: "unallocatable", Tool: "tests/echo.cwl"}
+
+	got := runEntry(t.Context(), "root-is-never-consulted", entry)
+	if got.outcome != outcomeFail {
+		t.Fatalf("outcome = %q, want %q", got.outcome, outcomeFail)
+	}
+
+	if !strings.Contains(got.reason, "allocating an output directory") {
+		t.Errorf("reason = %q, want it to name the allocation failure", got.reason)
+	}
+}
+
+// TestWithCleanupReportsARemovalFailure makes the output directory's parent unwritable, so
+// [os.RemoveAll] cannot unlink it, and asserts the removal failure is folded into the result
+// rather than lost.
+func TestWithCleanupReportsARemovalFailure(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+
+	err := os.Mkdir(sub, 0o700)
+	if err != nil {
+		t.Fatalf("creating the fixture directory: %v", err)
+	}
+
+	err = os.Chmod(dir, 0o500)
+	if err != nil {
+		t.Fatalf("removing write permission: %v", err)
+	}
+
+	// Restored before t.TempDir()'s own cleanup runs, so it can still remove dir:
+	// t.Cleanup functions run in LIFO order, and this one is registered after
+	// TempDir's.
+	t.Cleanup(func() {
+		err := os.Chmod(dir, 0o700)
+		if err != nil {
+			t.Errorf("restoring write permission: %v", err)
+		}
+	})
+
+	got := withCleanup(result{id: "x", outcome: outcomePass}, sub)
+	if got.reason == "" {
+		t.Error("a removal failure was not recorded")
+	}
+}
+
+// TestJudgeReportsATimeout asserts a run that ran out of time is a plain failure, checked
+// ahead of should_fail: a run that never finished has not demonstrated the failure a
+// should_fail entry expects.
+func TestJudgeReportsATimeout(t *testing.T) {
+	t.Parallel()
+
+	entry := &conf.Entry{ID: "slow", ShouldFail: true, Tags: []string{requiredTag}}
+
+	got := judge(entry, produced{}, context.DeadlineExceeded)
+	if got.outcome != outcomeFail {
+		t.Errorf("outcome = %q, want %q", got.outcome, outcomeFail)
+	}
+
+	if got.reason != "the run timed out" {
+		t.Errorf("reason = %q, want %q", got.reason, "the run timed out")
+	}
+}
+
+// TestCompareOutputsReportsUnrenderableSides exercises normalize's failure on each side of
+// compareOutputs in turn: cwlcore.EncodeJSON writes a NaN as a bare, unparseable token,
+// which normalize's [json.Decoder] then rejects.
+func TestCompareOutputsReportsUnrenderableSides(t *testing.T) {
+	t.Parallel()
+
+	t.Run("the expected side", func(t *testing.T) {
+		t.Parallel()
+
+		err := compareOutputs(map[string]any{outputName: math.NaN()}, nil)
+		if err == nil {
+			t.Error("an unrenderable expected object was accepted")
+		}
+	})
+
+	t.Run("the actual side", func(t *testing.T) {
+		t.Parallel()
+
+		err := compareOutputs(nil, map[string]any{outputName: math.NaN()})
+		if err == nil {
+			t.Error("an unrenderable produced object was accepted")
+		}
+	})
+}
+
+// TestRunProtectedRecoversFromAPanic supplies a run step that panics, standing in for a bug
+// elsewhere in the engine that a subprocess boundary would otherwise have turned into a
+// non-zero exit status.
+func TestRunProtectedRecoversFromAPanic(t *testing.T) {
+	t.Parallel()
+
+	panics := func(context.Context, *invocation) (map[string]any, error) {
+		panic("boom")
+	}
+
+	got := runProtectedWith(t.Context(), &invocation{}, panics)
+	if !errors.Is(got.err, errRun) {
+		t.Errorf("runProtectedWith.err = %v, want it to wrap errRun", got.err)
 	}
 }

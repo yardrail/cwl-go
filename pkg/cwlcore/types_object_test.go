@@ -30,6 +30,17 @@ func TestFileAndDirectoryClass(t *testing.T) {
 	}
 }
 
+// TestIsFileOrDirectoryMarkerMethod calls the sealed-interface marker method
+// directly on both implementations, matching the allProcesses()-style
+// completeness convention: an empty body, never invoked by production code.
+func TestIsFileOrDirectoryMarkerMethod(t *testing.T) {
+	t.Parallel()
+
+	for _, obj := range []FileOrDirectory{&File{}, &Directory{}} {
+		obj.isFileOrDirectory()
+	}
+}
+
 func TestFileAndDirectoryAreRecursive(t *testing.T) {
 	t.Parallel()
 

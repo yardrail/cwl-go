@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/goccy/go-yaml/ast"
 )
 
 func TestParseSourceLines(t *testing.T) {
@@ -92,6 +94,8 @@ func TestParseScalarKinds(t *testing.T) {
 		{name: "an octal integer keeps goccy's value", src: "v: 0o17", want: int64(15)},
 		{name: "a separated integer keeps goccy's value", src: "v: 1_0", want: int64(10)},
 		{name: "a separated float keeps goccy's value", src: "v: 1_0.5", want: 10.5},
+		{name: "a negative hexadecimal integer is typed int64 by goccy", src: "v: -0x1f", want: int64(-31)},
+		{name: "a negative separated integer is typed int64 by goccy", src: "v: -1_0", want: int64(-10)},
 	}
 
 	for _, tc := range tests {
@@ -447,6 +451,245 @@ func TestParseSyntaxErrorCarriesPosition(t *testing.T) {
 
 	if strings.Contains(se.Error(), "\n") {
 		t.Errorf("Error() spans several lines: %q", se.Error())
+	}
+}
+
+// litFYML is the file name the nil-node location tests share.
+const litFYML = "f.yml"
+
+func TestTokenLocOnANilToken(t *testing.T) {
+	t.Parallel()
+
+	got := tokenLoc(litFYML, nil)
+	if got.File != litFYML || !got.Start.IsZero() {
+		t.Errorf("tokenLoc(nil) = %+v, want a zero position in f.yml", got)
+	}
+}
+
+func TestNodeLocOnANilASTNode(t *testing.T) {
+	t.Parallel()
+
+	c := &yamlConverter{file: litFYML}
+
+	got := c.nodeLoc(nil)
+	if got.File != litFYML || !got.Start.IsZero() {
+		t.Errorf("nodeLoc(nil) = %+v, want a zero position in f.yml", got)
+	}
+}
+
+func TestScalarTextOnANilNode(t *testing.T) {
+	t.Parallel()
+
+	if got := scalarText(nil); got != "" {
+		t.Errorf("scalarText(nil) = %q, want \"\"", got)
+	}
+}
+
+func TestLiteralTextOnANilValue(t *testing.T) {
+	t.Parallel()
+
+	if got := literalText(&ast.LiteralNode{}); got != "" {
+		t.Errorf("literalText on a LiteralNode with no Value = %q, want \"\"", got)
+	}
+}
+
+func TestIntegerNodeFallbackOnAMalformedValue(t *testing.T) {
+	t.Parallel()
+
+	loc := SourceLine{File: "t.yml"}
+
+	got := integerNode(loc, &ast.IntegerNode{BaseNode: &ast.BaseNode{}, Value: "not-a-number"})
+	if got.Kind() != StringScalar {
+		t.Fatalf("integerNode with a malformed Value = kind %v, want StringScalar", got.Kind())
+	}
+}
+
+// TestMapKeyRejectsANonScalarKey white-box calls mapKey directly with an
+// *ast.InfinityNode, one of the few ast.MapKeyNode implementations mapKey's
+// switch has no case for; goccy's parser never lets a Schema Salad document
+// reach this default arm through Parse, since none of the AST node kinds it
+// does not name are things a document key can be spelled as.
+func TestMapKeyRejectsANonScalarKey(t *testing.T) {
+	t.Parallel()
+
+	c := &yamlConverter{file: testFile}
+
+	_, err := c.mapKey(&ast.InfinityNode{BaseNode: &ast.BaseNode{}, Value: 1})
+	if err == nil {
+		t.Fatal("an unrecognized MapKeyNode kind must be an error")
+	}
+
+	if !strings.Contains(err.Error(), "mapping keys must be scalars") {
+		t.Errorf("error = %v, want it to explain that keys must be scalars", err)
+	}
+}
+
+// TestMapKeyAcceptsALiteralBlockKey white-box calls mapKey directly with a
+// *ast.LiteralNode. goccy always wraps an explicit "? key" in a
+// *ast.MappingKeyNode this converter does not unwrap, so a bare LiteralNode
+// key is not reachable through Parse itself.
+func TestMapKeyAcceptsALiteralBlockKey(t *testing.T) {
+	t.Parallel()
+
+	c := &yamlConverter{file: testFile}
+
+	const foldedText = "a\nb\n"
+
+	key, err := c.mapKey(&ast.LiteralNode{
+		BaseNode: &ast.BaseNode{},
+		Value:    &ast.StringNode{BaseNode: &ast.BaseNode{}, Value: foldedText},
+	})
+	if err != nil {
+		t.Fatalf("mapKey on a literal node: %v", err)
+	}
+
+	if key != foldedText {
+		t.Errorf("mapKey(literal) = %q, want the literal's folded text", key)
+	}
+}
+
+// TestNodeUnwrapsADocumentNode white-box calls node directly with an
+// *ast.DocumentNode, which Parse's own entry point never hands it (it always
+// passes file.Docs[0].Body, already unwrapped), but which node's switch
+// tolerates for whatever AST shape it might be handed elsewhere.
+func TestNodeUnwrapsADocumentNode(t *testing.T) {
+	t.Parallel()
+
+	c := &yamlConverter{file: testFile}
+
+	inner := &ast.StringNode{BaseNode: &ast.BaseNode{}, Value: "hi"}
+	doc := &ast.DocumentNode{BaseNode: &ast.BaseNode{}, Body: inner}
+
+	got, err := c.node(doc)
+	if err != nil {
+		t.Fatalf("node(DocumentNode): %v", err)
+	}
+
+	if s, ok := AsString(got); !ok || s != "hi" {
+		t.Errorf("node(DocumentNode) = %v, want the unwrapped body converted", got)
+	}
+}
+
+// TestNodeHandlesASingleKeyMappingValueNode white-box calls node directly
+// with a bare *ast.MappingValueNode, the shape a single-key mapping might
+// take without the *ast.MappingNode wrapper node's other case expects.
+func TestNodeHandlesASingleKeyMappingValueNode(t *testing.T) {
+	t.Parallel()
+
+	c := &yamlConverter{file: testFile}
+
+	key := &ast.StringNode{BaseNode: &ast.BaseNode{}, Value: "a"}
+	value := &ast.StringNode{BaseNode: &ast.BaseNode{}, Value: "1"}
+	mv := &ast.MappingValueNode{BaseNode: &ast.BaseNode{}, Key: key, Value: value}
+
+	got, err := c.node(mv)
+	if err != nil {
+		t.Fatalf("node(MappingValueNode): %v", err)
+	}
+
+	m := mustMap(t, got)
+	if s, ok := AsString(mustGet(t, m, "a")); !ok || s != "1" {
+		t.Errorf("node(MappingValueNode) = %v, want a one-entry mapping {a: 1}", m)
+	}
+}
+
+// TestSpecialRejectsAnUnsupportedNodeKind white-box calls node directly with
+// an *ast.MergeKeyNode used as a value rather than a mapping key — a shape no
+// document Parse can produce (a "<<" key is only ever handled specially as a
+// map key, never converted as an ordinary value), but which exercises the
+// final fallback of node/indirect/scalar/numeric/special's dispatch chain.
+func TestSpecialRejectsAnUnsupportedNodeKind(t *testing.T) {
+	t.Parallel()
+
+	c := &yamlConverter{file: testFile}
+
+	_, err := c.node(&ast.MergeKeyNode{BaseNode: &ast.BaseNode{}})
+	if err == nil {
+		t.Fatal("an unrecognized AST node kind must be an error")
+	}
+
+	if !strings.Contains(err.Error(), "unsupported YAML node") {
+		t.Errorf("error = %v, want it to name the unsupported node", err)
+	}
+}
+
+// TestEntryPropagatesAMapKeyError reaches entry's own mapKey error branch
+// through a real Parse call: ".inf" as a mapping key parses to a genuine
+// *ast.InfinityNode key, one of the ast.MapKeyNode kinds mapKey's switch has
+// no case for.
+func TestEntryPropagatesAMapKeyError(t *testing.T) {
+	t.Parallel()
+
+	_, err := Parse(testFile, []byte(".inf: value\n"))
+	if err == nil {
+		t.Fatal(".inf used as a mapping key must be an error")
+	}
+
+	if !strings.Contains(err.Error(), "mapping keys must be scalars") {
+		t.Errorf("error = %v, want it to explain that keys must be scalars", err)
+	}
+}
+
+func TestMergeSourcesReportsAFailingSingleSource(t *testing.T) {
+	t.Parallel()
+
+	_, err := Parse("merge.yml", []byte("derived:\n  <<: *missing\n"))
+	if err == nil {
+		t.Fatal("a single merge source that fails to convert must be an error")
+	}
+
+	if !strings.Contains(err.Error(), "undefined YAML anchor") {
+		t.Errorf("error = %v, want it to name the undefined anchor", err)
+	}
+}
+
+func TestMergeSourcesReportsAFailingSequenceItem(t *testing.T) {
+	t.Parallel()
+
+	_, err := Parse("merge.yml", []byte("derived:\n  <<: [*missing]\n"))
+	if err == nil {
+		t.Fatal("a sequence-form merge source that fails to convert must be an error")
+	}
+
+	if !strings.Contains(err.Error(), "undefined YAML anchor") {
+		t.Errorf("error = %v, want it to name the undefined anchor", err)
+	}
+}
+
+func TestSequenceReportsAFailingItem(t *testing.T) {
+	t.Parallel()
+
+	_, err := Parse(testFile, []byte("[*missing]"))
+	if err == nil {
+		t.Fatal("a sequence item that fails to convert must be an error")
+	}
+
+	if !strings.Contains(err.Error(), "undefined YAML anchor") {
+		t.Errorf("error = %v, want it to name the undefined anchor", err)
+	}
+}
+
+func TestAliasRejectsARecursiveAnchor(t *testing.T) {
+	t.Parallel()
+
+	_, err := Parse(testFile, []byte("a: &x\n  b: *x\n"))
+	if err == nil {
+		t.Fatal("a self-referential anchor must be an error")
+	}
+
+	if !strings.Contains(err.Error(), "recursive YAML anchor") {
+		t.Errorf("error = %v, want it to name the recursive anchor", err)
+	}
+}
+
+func TestTaggedFallsBackForANonScalarValue(t *testing.T) {
+	t.Parallel()
+
+	m := mustMap(t, mustParse(t, testFile, "v: !custom {a: 1}\n"))
+
+	inner := mustMap(t, mustGet(t, m, "v"))
+	if got, ok := AsScalar(mustGet(t, inner, "a")); !ok || got.String() != "1" {
+		t.Errorf("a custom tag on a mapping did not fall back to converting it plainly, got %v", inner)
 	}
 }
 

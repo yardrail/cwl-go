@@ -338,6 +338,27 @@ func TestStepRunIsRef(t *testing.T) {
 	}
 }
 
+// TestSealedMarkerMethods calls the unexported isProcess, isParameter and
+// isRequirement methods directly on every concrete implementation. They are
+// sealed-interface markers with empty bodies that production code never
+// invokes — a type switch is exhaustive by construction once they compile —
+// so this is the only way to exercise them at all.
+func TestSealedMarkerMethods(t *testing.T) {
+	t.Parallel()
+
+	for _, p := range allProcesses() {
+		p.isProcess()
+	}
+
+	for _, r := range allRequirements() {
+		r.isRequirement()
+	}
+
+	for _, param := range allParameters() {
+		param.isParameter()
+	}
+}
+
 func TestEnumSymbolSpellings(t *testing.T) {
 	t.Parallel()
 

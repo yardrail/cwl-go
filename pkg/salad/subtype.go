@@ -112,6 +112,10 @@ func (c *subtypeCheck) compareDeclared(sub, super Type) bool {
 
 		return ok && c.recordNarrows(r, sup)
 	default:
+		// Unreachable: the sealed Type interface has six implementations, and
+		// compare() already peels off UnionType and Any before compareKinds
+		// hands *EnumType/*RecordType down to compareDeclared, which handles
+		// both explicitly above; compareKinds itself handles the rest.
 		return false
 	}
 }

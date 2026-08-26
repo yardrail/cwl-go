@@ -272,6 +272,8 @@ func (v *validator) check(t Type, n Node) *Error {
 	case *RecordType:
 		return v.checkRecord(tt, n)
 	default:
+		// Unreachable: the switch above already names all six implementations
+		// of the sealed Type interface, and t == nil is handled earlier.
 		return v.fail(nodeLoc(n), "the schema uses an unsupported type %T", t)
 	}
 }

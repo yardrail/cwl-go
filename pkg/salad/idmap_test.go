@@ -33,6 +33,17 @@ func resolveIdmap(t *testing.T, body string) (*Document, error) {
 	return loader.LoadNode(mustParse(t, testFile, body), "http://example.com/doc")
 }
 
+func TestMustEntryOnAMissingKey(t *testing.T) {
+	t.Parallel()
+
+	m := NewMapNode(SourceLine{}, entries("a", "1"))
+
+	got := mustEntry(m, "missing")
+	if !IsNull(got) {
+		t.Errorf("mustEntry on a missing key = %v, want the null scalar", got)
+	}
+}
+
 func TestIdentifierMapExpansion(t *testing.T) {
 	t.Parallel()
 

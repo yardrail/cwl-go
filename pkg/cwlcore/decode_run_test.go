@@ -16,6 +16,11 @@ import (
 // wrote it, and the only way to tell that apart from resolving against the
 // process's working directory is to make the two disagree.
 
+// stepErrorTestRef stands in for a step's run reference in tests that check
+// stepError's message shape, kept distinct from the "tool.cwl" spelling other
+// tests in this package already use so as not to multiply that literal.
+const stepErrorTestRef = "referenced.cwl"
+
 // runsPath locates a fixture under testdata/decode/runs.
 func runsPath(name string) string {
 	return filepath.Join("testdata", "decode", "runs", name)
@@ -473,6 +478,141 @@ func assertUnresolvableRun(t *testing.T, fixture string, mentions []string) {
 			t.Errorf("error does not mention %q:\n%s", want, tree)
 		}
 	}
+}
+
+// TestProcessIndexIgnoresProcessesWithNoID covers processIndex.record's guard
+// against an empty identifier, which decoding never produces (decode.go always
+// assigns a blank node id) but which a caller driving the index directly might.
+func TestProcessIndexIgnoresProcessesWithNoID(t *testing.T) {
+	t.Parallel()
+
+	procs := []Process{&CommandLineTool{}}
+
+	// Must not panic, and the anonymous process must not be indexed under
+	// either spelling.
+	linkLocalRuns(procs)
+
+	idx := newProcessIndex(procs)
+	if len(idx.byID) != 0 || len(idx.byFragment) != 0 {
+		t.Errorf("newProcessIndex indexed a process with no id: byID=%v byFragment=%v", idx.byID, idx.byFragment)
+	}
+}
+
+// TestStepErrorWrapsAPlainError covers stepError's fallback for an error that
+// is not itself a *salad.Error.
+func TestStepErrorWrapsAPlainError(t *testing.T) {
+	t.Parallel()
+
+	step := &WorkflowStep{ID: "s1", Run: StepRun{Ref: stepErrorTestRef}}
+
+	err := stepError(step, errSynthetic)
+	if err == nil {
+		t.Fatal("stepError returned nil")
+	}
+
+	for _, want := range []string{errSynthetic.Error(), "s1", stepErrorTestRef} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// TestRunTargetOfDefaultsToTheWritingDocument covers runTargetOf's fallback
+// when a reference carries no document part of its own: it resolves against
+// the document that wrote it.
+func TestRunTargetOfDefaultsToTheWritingDocument(t *testing.T) {
+	t.Parallel()
+
+	target, err := runTargetOf("file:///a.cwl", "#")
+	if err != nil {
+		t.Fatalf("runTargetOf: %v", err)
+	}
+
+	if target.uri != "file:///a.cwl" {
+		t.Errorf("uri = %q, want %q", target.uri, "file:///a.cwl")
+	}
+
+	if target.fragment != "" {
+		t.Errorf("fragment = %q, want empty", target.fragment)
+	}
+}
+
+// TestRunTargetOfPropagatesANormalizeError covers runTargetOf's error branch:
+// with no base and no document part in the reference, Normalize is asked to
+// resolve the empty reference and refuses.
+func TestRunTargetOfPropagatesANormalizeError(t *testing.T) {
+	t.Parallel()
+
+	_, err := runTargetOf("", "#")
+	if err == nil {
+		t.Fatal(`runTargetOf("", "#") succeeded, want an error`)
+	}
+}
+
+// TestLinkStepSkipsAStepWithNoRunReference covers linkStep's guard for a step
+// that names nothing at all, which the schema makes unreachable through
+// decoding (run: is required) but which a hand-built step can still exercise.
+func TestLinkStepSkipsAStepWithNoRunReference(t *testing.T) {
+	t.Parallel()
+
+	e := &externalRuns{cache: make(map[string]Process), linked: make(map[Process]bool)}
+	step := &WorkflowStep{ID: "empty"}
+
+	err := e.linkStep(t.Context(), step, "base.cwl")
+	if err != nil {
+		t.Fatalf("linkStep = %v, want nil", err)
+	}
+
+	if step.Run.Process != nil {
+		t.Error("linkStep populated Run.Process for a step with no run reference")
+	}
+}
+
+// TestLoadTargetPropagatesARunTargetError covers loadTarget's propagation of a
+// runTargetOf failure.
+func TestLoadTargetPropagatesARunTargetError(t *testing.T) {
+	t.Parallel()
+
+	e := &externalRuns{cache: make(map[string]Process), linked: make(map[Process]bool)}
+
+	_, err := e.loadTarget(t.Context(), "", "#")
+	if err == nil {
+		t.Fatal("loadTarget succeeded, want an error")
+	}
+}
+
+// TestLoadReportsAMissingFragmentInAnExternalDocument covers load's
+// decodeTarget-error branch: the referenced document fetches and validates
+// fine, but does not declare the identifier the reference names — distinct from
+// missing.cwl (the document itself does not exist) and broken.cwl (the document
+// is not CWL at all).
+func TestLoadReportsAMissingFragmentInAnExternalDocument(t *testing.T) {
+	t.Parallel()
+
+	assertUnresolvableRun(t, "missing_fragment.cwl", []string{"no-such-id"})
+}
+
+// TestLoadPropagatesALinkErrorFromAChainedDocument covers load's other error
+// branch: e.link failing after LoadFileDocument and decodeTarget already
+// succeeded for the target load itself resolved.
+//
+// It takes three documents to reach, because a document's own run: reference
+// only has to name a file that *exists* to load successfully — pkg/salad checks
+// existence, not the referenced document's own validity — so any document one
+// level up from a broken one loads and decodes fine, and the failure only
+// surfaces once this package's own e.link recurses into it:
+//
+//	top_chain.cwl -> chain_missing.cwl -> missing.cwl -> absent-tool.cwl (absent)
+//
+// Loading top_chain.cwl resolves chain_missing.cwl through exactly this
+// function: LoadFileDocument and decodeTarget both succeed for it (missing.cwl
+// exists, so chain_missing.cwl's own link check is satisfied), and only the
+// recursive e.link call — following chain_missing.cwl's own step into
+// missing.cwl, which fails to load on its own account — fails.
+func TestLoadPropagatesALinkErrorFromAChainedDocument(t *testing.T) {
+	t.Parallel()
+
+	assertUnresolvableRun(t, "top_chain.cwl", []string{"absent-tool.cwl", keyRun})
 }
 
 func TestLoadReportsARunReferenceToAnUndeclaredObject(t *testing.T) {

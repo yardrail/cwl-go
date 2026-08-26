@@ -85,6 +85,42 @@ func TestTypeDSLRejectsBracketsInTheMiddle(t *testing.T) {
 	}
 }
 
+func TestTypeDSLRejectsAMalformedMemberInAList(t *testing.T) {
+	t.Parallel()
+
+	loader := NewLoader(WithContext(schemaContext(t, dslSchema)), WithSkipLinkCheck(true))
+
+	_, err := loader.LoadNode(mustParse(t, testFile, `extype: ["foo[bar", string]`), "http://example.com/doc")
+	if err == nil {
+		t.Fatal("a malformed member inside a type-DSL list must be an error")
+	}
+}
+
+func TestExpandTypeNameBareShorthands(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct{ name, in, want string }{
+		{name: "a bare question mark", in: "?", want: `"?"`},
+		{name: "bare brackets", in: "[]", want: `"[]"`},
+		{name: "bare brackets and a question mark", in: "[]?", want: `"[]?"`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := expandTypeName(tc.in, SourceLine{})
+			if err != nil {
+				t.Fatalf("expandTypeName(%q): %v", tc.in, err)
+			}
+
+			if !nodeEqual(got, mustParse(t, testFile, tc.want)) {
+				t.Errorf("expandTypeName(%q) = %s, want %s", tc.in, canonicalKey(got), tc.want)
+			}
+		})
+	}
+}
+
 func TestSecondaryFilesDSLExpansion(t *testing.T) {
 	t.Parallel()
 

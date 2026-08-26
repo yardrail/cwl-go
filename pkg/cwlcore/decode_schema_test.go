@@ -48,6 +48,26 @@ var processClasses = []string{
 	ClassOperation,
 }
 
+// TestSchemaOrNil exercises Schema's failure branch directly, since
+// cwlSchemaV12 loading the real embedded schema can only fail if the snapshot
+// is corrupt.
+func TestSchemaOrNil(t *testing.T) {
+	t.Parallel()
+
+	if got := schemaOrNil(nil, errSynthetic); got != nil {
+		t.Errorf("schemaOrNil with an error = %v, want nil", got)
+	}
+
+	loaded, err := cwlSchemaV12()
+	if err != nil {
+		t.Fatalf("cwlSchemaV12: %v", err)
+	}
+
+	if got := schemaOrNil(loaded, nil); got != loaded.Schema {
+		t.Errorf("schemaOrNil(loaded, nil) = %v, want %v", got, loaded.Schema)
+	}
+}
+
 func TestLoadFromBytes(t *testing.T) {
 	t.Parallel()
 
@@ -127,6 +147,20 @@ func TestLoadFileSelectsMainFromAGraph(t *testing.T) {
 
 	if got := process.Class(); got != ClassWorkflow {
 		t.Errorf("Class() = %q, want %q", got, ClassWorkflow)
+	}
+}
+
+// TestLoadRejectsUnsupportedVersion covers resolveDocument's own propagation of
+// schemaFor's failure, through the public entry point rather than by calling
+// schemaFor directly.
+func TestLoadRejectsUnsupportedVersion(t *testing.T) {
+	t.Parallel()
+
+	const src = "cwlVersion: draft-3\nclass: CommandLineTool\ninputs: []\noutputs: []\n"
+
+	_, err := Load(t.Context(), []byte(src), "bad.cwl")
+	if !errors.Is(err, ErrUnsupportedVersion) {
+		t.Fatalf("Load with cwlVersion draft-3 = %v, want ErrUnsupportedVersion", err)
 	}
 }
 

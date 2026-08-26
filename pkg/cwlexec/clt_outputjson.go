@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 	"github.com/yardrail/cwl-go/pkg/salad"
@@ -52,8 +53,13 @@ var ErrOutputJSON = errors.New("cwl.output.json is not a usable output object")
 // an output object is not one of those. A tool listing ten thousand results writes a megabyte here
 // legitimately.
 func LoadOutputJSON(
-	tool *cwlcore.CommandLineTool, outdir string, inputs map[string]any,
+	tool *cwlcore.CommandLineTool, outdir string, inputs map[string]any, opts ...OutputJSONOption,
 ) (map[string]any, error) {
+	settings := outputJSONSettings{revmap: nil}
+	for _, opt := range opts {
+		opt(&settings)
+	}
+
 	path := filepath.Join(outdir, OutputJSONFile)
 
 	data, err := os.ReadFile(filepath.Clean(path))
@@ -66,7 +72,103 @@ func LoadOutputJSON(
 		return nil, err
 	}
 
+	if settings.revmap != nil {
+		revmapObject(object, settings.revmap)
+	}
+
 	return bindOutputJSON(newOutputCollector(tool, outdir, inputs), object)
+}
+
+// OutputJSONOption adjusts how [LoadOutputJSON] reads the file.
+type OutputJSONOption func(*outputJSONSettings)
+
+// outputJSONSettings is what the options set.
+type outputJSONSettings struct {
+	revmap func(string) string
+}
+
+// WithHostPaths reads the file as one written in a namespace other than this host's, mapping every
+// path in it back with revmap before anything goes looking for the file it names.
+//
+// It is what a contained invocation needs. `$(runtime.outdir)` inside a container is the container's
+// output directory, so a tool that writes `{"foo": {"path": "$(runtime.outdir)/foo"}}` names a path
+// this process does not have — conformance tests docker_json_output_path and
+// docker_json_output_location are that document with the two spellings, one giving `path` and the
+// other a file:// URI in `location`. This is cwltool's revmap_file, which it applies for the same
+// reason and at the same point.
+func WithHostPaths(revmap func(string) string) OutputJSONOption {
+	return func(settings *outputJSONSettings) { settings.revmap = revmap }
+}
+
+// revmapPaths rewrites every `path` and `location` in a decoded output object, leaving the rest of
+// it alone. It descends through arrays and nested objects, so a secondaryFiles entry is mapped as
+// its File is.
+func revmapPaths(value any, revmap func(string) string) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		revmapObject(typed, revmap)
+
+		return typed
+	case []any:
+		for index, inner := range typed {
+			typed[index] = revmapPaths(inner, revmap)
+		}
+
+		return typed
+	default:
+		return value
+	}
+}
+
+// revmapObject rewrites one object in place, which is the shape the top of an output object always
+// has and the reason it is separate: the caller there has a map already and wants it back.
+func revmapObject(object map[string]any, revmap func(string) string) {
+	for key, inner := range object {
+		switch key {
+		case outKeyPath:
+			object[key] = revmapPath(inner, revmap)
+		case outKeyLocation:
+			object[key] = revmapLocation(inner, revmap)
+		default:
+			object[key] = revmapPaths(inner, revmap)
+		}
+	}
+}
+
+// revmapPath maps a `path`, which is a local path or nothing this function can act on. A relative
+// one is left alone: it resolves against the output directory, which the collector already reads as
+// this host's.
+func revmapPath(value any, revmap func(string) string) any {
+	text, ok := value.(string)
+	if !ok || !filepath.IsAbs(text) {
+		return value
+	}
+
+	return revmap(text)
+}
+
+// fileScheme prefixes the one URI scheme a location may carry a local path in.
+const fileScheme = "file://"
+
+// revmapLocation maps a `location`, which may be written either as a local path or as the file://
+// URI of one. A location under any other scheme names something that is not on a filesystem at all,
+// so there is nothing to map.
+func revmapLocation(value any, revmap func(string) string) any {
+	text, ok := value.(string)
+	if !ok {
+		return value
+	}
+
+	rest, isFileURI := strings.CutPrefix(text, fileScheme)
+	if !isFileURI {
+		return revmapPath(value, revmap)
+	}
+
+	if !filepath.IsAbs(rest) {
+		return value
+	}
+
+	return fileScheme + revmap(rest)
 }
 
 // decodeOutputJSON parses the file into the object it must hold.

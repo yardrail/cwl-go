@@ -107,6 +107,23 @@ func (m *PathMap) hostPath(target string) string {
 	return filepath.Join(m.hostStaging, outsideName, target)
 }
 
+// hostOutputPath maps a path a tool named in its own output object back to this host's filesystem.
+//
+// It differs from [PathMap.hostPath] in what it does with a path the map does not span, and the
+// difference matters because the two are asked different questions. hostPath is asked where a
+// placement this map *planned* must be written, so a target outside both directories is an absolute
+// `entryname` and belongs under the staging directory. Here the path was chosen by the tool rather
+// than planned, and one outside both directories is simply a path this map has nothing to say
+// about — relocating it under .outside would invent a host path for it. It is returned unchanged
+// and left to [outputCollector.checkPublishable], which is what decides whether a tool may name it.
+func (m *PathMap) hostOutputPath(target string) string {
+	if !m.contained || m.outside(target) {
+		return target
+	}
+
+	return m.hostPath(target)
+}
+
 // outside reports whether a path the tool sees falls in neither of the two directories this map
 // plans into, which without a container nothing can and with one only an absolute `entryname` can.
 func (m *PathMap) outside(target string) bool {

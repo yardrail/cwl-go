@@ -396,6 +396,14 @@ func (i *invocation) execute(ctx context.Context) (Result, error) {
 		return PermanentFail(fmt.Errorf("%s: %w", describe(i.call), err))
 	}
 
+	// The container is gone by here, and with it the mounts that stood in for the links a
+	// contained invocation could not stage. Restoring them before anything reads the directory
+	// is what makes output collection see the same filesystem either way.
+	err = i.mapper.Relink()
+	if err != nil {
+		return PermanentFail(fmt.Errorf("%s: %w", describe(i.call), err))
+	}
+
 	status := ClassifyExit(i.tool, code)
 	if status != StatusSuccess {
 		return Result{Status: status}, fmt.Errorf("%s: %w: %d", describe(i.call), ErrToolExit, code)
@@ -574,7 +582,9 @@ func (i *invocation) captures(stream Stream) bool {
 func (i *invocation) collect(exitCode int) (map[string]any, error) {
 	view, inputs := i.outputView(), i.hostInputs()
 
-	outputs, err := LoadOutputJSON(view, i.outdir, inputs)
+	// The remap is passed unconditionally because it is the identity without a container, where
+	// the tool wrote its output object in this host's own namespace to begin with.
+	outputs, err := LoadOutputJSON(view, i.outdir, inputs, WithHostPaths(i.mapper.hostOutputPath))
 	if err == nil {
 		return outputs, nil
 	}

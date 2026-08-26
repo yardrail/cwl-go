@@ -32,11 +32,19 @@ func ctrPulled() *cwlcore.DockerRequirement {
 	return &cwlcore.DockerRequirement{DockerPull: ctrImage}
 }
 
+// ctrWriteTool is the tool the two "the container really wrote this" rows run: a shell one-liner
+// that puts execGreeting into execOutName. It is shared so that
+// TestContainerScriptIsOneShellCommand pins the script both of them depend on.
+func ctrWriteTool() *cwlcore.CommandLineTool {
+	// execWriteScript rather than an interpolation of execGreeting: the greeting ends in the
+	// newline `echo` itself supplies, and a newline inside a -c argument starts a second command.
+	return execScript(execWriteScript, execFileOut(execOutName))
+}
+
 func TestToolRunsInContainer(t *testing.T) {
 	t.Parallel()
 
-	tool := execScript("echo -n "+execGreeting+" > "+execOutName, execFileOut(execOutName))
-	outputs := execSucceed(t, ctrRunCall(t, tool, ctrPulled()))
+	outputs := execSucceed(t, ctrRunCall(t, ctrWriteTool(), ctrPulled()))
 
 	execWantContent(t, outputs, execGreeting)
 
@@ -54,8 +62,7 @@ func TestContainerOutputsAreNotRootOwned(t *testing.T) {
 	// The concrete reason --user exists. The image's user is root, and a file root wrote into a
 	// bind mount is owned by root on this host: this process could neither read it back nor
 	// remove the directory it is in.
-	tool := execScript("echo -n "+execGreeting+" > "+execOutName, execFileOut(execOutName))
-	file := execOutFile(t, execSucceed(t, ctrRunCall(t, tool, ctrPulled())))
+	file := execOutFile(t, execSucceed(t, ctrRunCall(t, ctrWriteTool(), ctrPulled())))
 
 	info, err := os.Stat(file.Path)
 	if err != nil {

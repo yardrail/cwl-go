@@ -89,7 +89,14 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          # Pinned, not "latest". This project runs every linter golangci-lint
+          # has and bans //nolint, so a floating version can turn the build red
+          # with no change to the code -- as it did: a release after this one
+          # renamed exhaustruct to exhaustruct_v5, which silently stopped
+          # matching the disable list below and switched the linter back on.
+          # Upgrading is a deliberate PR that reconciles .golangci.yml with the
+          # new names, not something that happens to a Tuesday.
+          version: v2.12.2
           args: --max-same-issues 50
 
       - run: golangci-lint config verify

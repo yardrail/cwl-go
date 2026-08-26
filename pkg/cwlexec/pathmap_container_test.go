@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
@@ -211,14 +212,214 @@ func TestContainerPathMapWritesOnTheHost(t *testing.T) {
 		t.Errorf("Apply wrote to %s, which is a path only the tool has", pmcToolWork)
 	}
 
-	// ...and the staged link resolves here, which is what lets output collection follow it and
-	// what makes the bind mount an override rather than a repair.
-	if got := execRead(t, filepath.Join(work, pmName)); got != execGreeting {
-		t.Errorf("%s holds %q, want the source's contents", pmName, got)
-	}
-
+	// ...the literal was materialized in full, because nothing else will place it...
 	if got := execRead(t, filepath.Join(stage, "lit.txt")); got != execGreeting {
 		t.Errorf("the literal holds %q, want %q", got, execGreeting)
+	}
+
+	// ...and the staged input is an empty mount point rather than the link a host invocation
+	// would have placed. A link here would be followed by the engine rather than mounted over;
+	// see [PathMap.placeLink].
+	info, err := os.Lstat(filepath.Join(work, pmName))
+	if err != nil {
+		t.Fatalf("lstat the mount point: %v", err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 || info.Size() != 0 {
+		t.Errorf("%s is %v of %d bytes, want an empty mount point", pmName, info.Mode(), info.Size())
+	}
+}
+
+// TestContainerPathMapRelinksAfterTheMountIsGone pins the other end of that deferral: once the tool
+// has exited the mount no longer stands in for the link, so the link is placed after all and output
+// collection reads the source's bytes through it rather than the mount point's none.
+func TestContainerPathMapRelinksAfterTheMountIsGone(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	work := filepath.Join(base, "out")
+	source := outWriteFile(t, base, execSourceName, execGreeting)
+
+	mapper := NewContainerPathMap(work, filepath.Join(base, "stg"), pmcToolWork, pmcToolStage)
+
+	err := mapper.Stage(pmHostFile(source), pmName, false)
+	if err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+
+	err = mapper.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	err = mapper.Relink()
+	if err != nil {
+		t.Fatalf("Relink: %v", err)
+	}
+
+	staged := filepath.Join(work, pmName)
+	if got := execRead(t, staged); got != execGreeting {
+		t.Errorf("after Relink %s holds %q, want the source's contents", pmName, got)
+	}
+
+	dest, err := os.Readlink(staged)
+	if err != nil {
+		t.Fatalf("readlink: %v", err)
+	}
+
+	if dest != source {
+		t.Errorf("after Relink %s links to %q, want %q", pmName, dest, source)
+	}
+}
+
+// TestMountPointMatchesTheKindOfTheSource pins the constraint a mount point exists under: a
+// directory can only be mounted onto a directory and a file only onto a file, so what is created to
+// be mounted over has to be the same kind as the bytes that will land there.
+func TestMountPointMatchesTheKindOfTheSource(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	tree := filepath.Join(base, "tree")
+
+	err := os.Mkdir(tree, stageDirPerm)
+	if err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+
+	// want is the type bits the mount point must carry: none for a regular file, ModeDir for a
+	// directory. A bind mount insists on the two matching.
+	cases := []struct {
+		name   string
+		source string
+		want   os.FileMode
+	}{
+		{name: "a file", source: outWriteFile(t, base, execSourceName, execGreeting), want: 0},
+		{name: "a directory", source: tree, want: os.ModeDir},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			pmWantMountPoint(t, testCase.source, testCase.want)
+		})
+	}
+}
+
+// pmWantMountPoint creates a mount point for source and asserts it is of the kind that can be
+// mounted over: a directory for a directory, and an empty regular file for a file.
+func pmWantMountPoint(t *testing.T, source string, want os.FileMode) {
+	t.Helper()
+
+	onto := filepath.Join(t.TempDir(), "onto")
+
+	err := mountPoint(source, onto)
+	if err != nil {
+		t.Fatalf("mountPoint: %v", err)
+	}
+
+	info, err := os.Lstat(onto)
+	if err != nil {
+		t.Fatalf("lstat: %v", err)
+	}
+
+	if info.Mode()&os.ModeType != want {
+		t.Fatalf("mount point is %v, want type bits %v", info.Mode(), want)
+	}
+
+	// A directory's size is its own bookkeeping, so emptiness is only a claim about a file.
+	if want == 0 && info.Size() != 0 {
+		t.Errorf("mount point is %d bytes, want an empty one", info.Size())
+	}
+}
+
+// TestMountPointRefusesWhatItCannotCreate pins the two ways there is no mount point to make.
+func TestMountPointRefusesWhatItCannotCreate(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	source := outWriteFile(t, base, execSourceName, execGreeting)
+	onto := filepath.Join(base, "onto")
+
+	err := mountPoint(source, onto)
+	if err != nil {
+		t.Fatalf("mountPoint: %v", err)
+	}
+
+	// A source that is not there has no kind to match, so there is nothing to create.
+	err = mountPoint(filepath.Join(base, "absent"), filepath.Join(base, "onto-absent"))
+	if err == nil {
+		t.Error("mountPoint from a missing source succeeded, want an error")
+	}
+
+	// And a mount point is never created over something already in the way: Apply clears the
+	// path first, so anything still there is a collision rather than a leftover.
+	err = mountPoint(source, onto)
+	if err == nil {
+		t.Error("mountPoint over an existing path succeeded, want an error")
+	}
+}
+
+// TestPathMapRelinkReportsWhereItFailed pins the diagnostic. Relink runs after the tool has already
+// succeeded, so the path it could not restore is the only clue to what output collection is about
+// to miss.
+func TestPathMapRelinkReportsWhereItFailed(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	work := filepath.Join(base, "out")
+	source := outWriteFile(t, base, execSourceName, execGreeting)
+
+	mapper := NewContainerPathMap(work, filepath.Join(base, "stg"), pmcToolWork, pmcToolStage)
+
+	err := mapper.Stage(pmHostFile(source), pmName, false)
+	if err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+
+	err = mapper.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	err = os.RemoveAll(work)
+	if err != nil {
+		t.Fatalf("RemoveAll: %v", err)
+	}
+
+	err = mapper.Relink()
+	if err == nil || !strings.Contains(err.Error(), pmName) {
+		t.Errorf("Relink with its directory gone = %v, want an error naming %q", err, pmName)
+	}
+}
+
+// TestPathMapRelinkIsAHostNoop pins the other half: without a container [PathMap.Apply] placed the
+// link itself, so there is nothing deferred and nothing to restore.
+func TestPathMapRelinkIsAHostNoop(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	work := filepath.Join(base, "out")
+	source := outWriteFile(t, base, execSourceName, execGreeting)
+
+	mapper := NewPathMap(work, filepath.Join(base, "stg"))
+
+	err := mapper.Stage(pmHostFile(source), pmName, false)
+	if err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+
+	err = mapper.Apply()
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	err = mapper.Relink()
+	if err != nil {
+		t.Fatalf("Relink: %v", err)
+	}
+
+	if got := execRead(t, filepath.Join(work, pmName)); got != execGreeting {
+		t.Errorf("%s holds %q, want the source's contents", pmName, got)
 	}
 }
 
@@ -233,7 +434,7 @@ func TestContainerPathMapResolvesAToolPathBackToTheHost(t *testing.T) {
 		pmcToolWork:                pmWork,
 		pmcToolWork + "/" + pmName: pmWork + "/" + pmName,
 		pmcToolStage + "/lit.txt":  pmStage + "/lit.txt",
-		"/etc/passwd":              filepath.Join(pmStage, outsideName, "etc", "passwd"),
+		outEscapePath:              filepath.Join(pmStage, outsideName, "etc", "passwd"),
 	}
 
 	for target, want := range cases {

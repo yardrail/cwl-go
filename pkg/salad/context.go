@@ -118,7 +118,8 @@ func BuildContext(schemaDoc Node, metadata *MapNode) (*Context, error) {
 	c.addNamespaces(metadata)
 	c.addSchemas(metadata)
 
-	if err := c.addTypeTree(schemaDoc); err != nil {
+	err := c.addTypeTree(schemaDoc)
+	if err != nil {
 		return nil, err
 	}
 

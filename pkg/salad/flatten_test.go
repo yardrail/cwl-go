@@ -9,6 +9,10 @@ import (
 // testSchemaMount is where an inline schema fixture is mounted for loading.
 const testSchemaMount = "file:///test-schema/"
 
+// testSchemaFile is the entry-point filename an inline schema fixture is
+// loaded from, under testSchemaMount.
+const testSchemaFile = "schema.yml"
+
 // testSchemaBase is the base URI the inline schema fixtures declare, so that the
 // names they define are predictable.
 const testSchemaBase = "http://example.com/test#"
@@ -29,14 +33,14 @@ const (
 func resolveSchema(t *testing.T, src string, skipLinks bool) (Node, *Context) {
 	t.Helper()
 
-	fsys := fstest.MapFS{"schema.yml": &fstest.MapFile{Data: []byte(src)}}
+	fsys := fstest.MapFS{testSchemaFile: &fstest.MapFile{Data: []byte(src)}}
 	loader := NewLoader(
 		WithFetcher(NewFSFetcher(fsys, testSchemaMount)),
 		WithContext(saladBootstrapContext()),
 		WithSkipLinkCheck(skipLinks),
 	)
 
-	doc, err := loader.Load(testSchemaMount + "schema.yml")
+	doc, err := loader.Load(testSchemaMount + testSchemaFile)
 	if err != nil {
 		t.Fatalf("loading the schema fixture: %v", err)
 	}

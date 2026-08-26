@@ -42,7 +42,8 @@ func (c *Context) addTypeTree(n Node) *Error {
 	switch v := n.(type) {
 	case *SeqNode:
 		for _, item := range v.Items() {
-			if err := c.addTypeTree(item); err != nil {
+			err := c.addTypeTree(item)
+			if err != nil {
 				return err
 			}
 		}
@@ -62,13 +63,15 @@ func (c *Context) addTypeMap(m *MapNode) *Error {
 	}
 
 	if isTypeDefinition(m) {
-		if err := c.registerType(m); err != nil {
+		err := c.registerType(m)
+		if err != nil {
 			return err
 		}
 	}
 
 	for _, val := range m.All() {
-		if err := c.addTypeTree(val); err != nil {
+		err := c.addTypeTree(val)
+		if err != nil {
 			return err
 		}
 	}
@@ -79,7 +82,8 @@ func (c *Context) addTypeMap(m *MapNode) *Error {
 // registerType adds one type definition's own name, symbols and fields to the
 // context. Nested definitions are left to the surrounding tree walk.
 func (c *Context) registerType(m *MapNode) *Error {
-	if err := c.registerTypeName(m); err != nil {
+	err := c.registerTypeName(m)
+	if err != nil {
 		return err
 	}
 

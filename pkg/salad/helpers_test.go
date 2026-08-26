@@ -8,6 +8,7 @@ const (
 	testFile    = "a.yml"
 	typeTool    = "Tool"
 	fieldInputs = "inputs"
+	litGreen    = "green"
 )
 
 // entries builds MapNode contents from alternating key/value strings.

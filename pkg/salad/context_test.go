@@ -301,6 +301,197 @@ func TestBuildContextDetectsPredicateCollisions(t *testing.T) {
 	}
 }
 
+func TestNilContextTermHelpers(t *testing.T) {
+	t.Parallel()
+
+	var c *Context
+
+	if got := c.termOf("anything"); got != emptyTerm {
+		t.Errorf("termOf on a nil context = %v, want emptyTerm", got)
+	}
+
+	if got := c.identifierFields(); got != nil {
+		t.Errorf("identifierFields on a nil context = %v, want nil", got)
+	}
+
+	if c.hasVocabTerm("anything") {
+		t.Error("hasVocabTerm on a nil context must report false")
+	}
+
+	if _, ok := c.vocabTermFor("http://example.com/x"); ok {
+		t.Error("vocabTermFor on a nil context must report false")
+	}
+}
+
+func TestAddSchemasReadsAList(t *testing.T) {
+	t.Parallel()
+
+	const src = `
+$schemas:
+  - http://example.com/one.xml
+  - http://example.com/two.xml
+$graph: []
+`
+
+	ctx := schemaContext(t, src)
+
+	want := []string{"http://example.com/one.xml", "http://example.com/two.xml"}
+	if got := ctx.Schemas(); !reflect.DeepEqual(got, want) {
+		t.Errorf("Schemas() = %v, want %v", got, want)
+	}
+}
+
+func TestAddSchemasReadsABareString(t *testing.T) {
+	t.Parallel()
+
+	const src = `
+$schemas: http://example.com/onto.xml
+$graph: []
+`
+
+	ctx := schemaContext(t, src)
+
+	want := []string{"http://example.com/onto.xml"}
+	if got := ctx.Schemas(); !reflect.DeepEqual(got, want) {
+		t.Errorf("Schemas() = %v, want %v", got, want)
+	}
+}
+
+func TestRegisterSymbolsSkipsWhatIsNotUsable(t *testing.T) {
+	t.Parallel()
+
+	const src = `
+$graph:
+  - name: NoSymbols
+    type: enum
+  - name: MixedSymbols
+    type: enum
+    symbols: [red, 3, green]
+`
+
+	ctx := schemaContext(t, src)
+
+	vocab := ctx.Vocab()
+	for _, want := range []string{testRed, litGreen} {
+		if _, ok := vocab[want]; !ok {
+			t.Errorf("vocab is missing %q: %v", want, vocab)
+		}
+	}
+}
+
+func TestRegisterFieldListSkipsNonMappingItems(t *testing.T) {
+	t.Parallel()
+
+	const src = `
+$graph:
+  - name: Thing
+    type: record
+    fields:
+      - name: v
+        type: string
+      - just a string
+`
+
+	ctx := schemaContext(t, src)
+
+	if _, ok := ctx.Term("v"); !ok {
+		t.Error("the well-formed field must still be registered")
+	}
+}
+
+func TestRegisterFieldMapShorthandAndOwnName(t *testing.T) {
+	t.Parallel()
+
+	const src = `
+$graph:
+  - name: Thing
+    type: record
+    fields:
+      shorthand: string
+      keyed:
+        name: renamed
+        type: string
+`
+
+	ctx := schemaContext(t, src)
+
+	if _, ok := ctx.Term("shorthand"); !ok {
+		t.Error("a shorthand field entry (bare type string) must still be registered")
+	}
+
+	if _, ok := ctx.Term("renamed"); !ok {
+		t.Error("a field's own name must override the identifier map key")
+	}
+}
+
+func TestRegisterFieldEmptyShortNameIsSkipped(t *testing.T) {
+	t.Parallel()
+
+	const src = `
+$graph:
+  - name: Thing
+    type: record
+    fields:
+      - name: "#"
+        type: string
+`
+
+	// registerField must not panic and must not register a term for the empty
+	// short name.
+	ctx := schemaContext(t, src)
+
+	if _, ok := ctx.Term(""); ok {
+		t.Error("a field whose short name is empty must not be registered")
+	}
+}
+
+func TestTermForRejectsANonStringNonMapPredicate(t *testing.T) {
+	t.Parallel()
+
+	const src = `
+$graph:
+  - name: Thing
+    type: record
+    fields:
+      - name: v
+        type: string
+        jsonldPredicate: 5
+`
+
+	ctx := schemaContext(t, src)
+
+	term, ok := ctx.Term("v")
+	if !ok {
+		t.Fatal("the field must still be registered")
+	}
+
+	if term.IsIdentifier || term.Type != "" {
+		t.Errorf("a non-string, non-map jsonldPredicate must be ignored, got %+v", term)
+	}
+}
+
+func TestApplyPredicateFlagNoconvert(t *testing.T) {
+	t.Parallel()
+
+	const src = `
+$graph:
+  - name: Thing
+    type: record
+    fields:
+      - name: v
+        type: string
+        jsonldPredicate:
+          noconvert: true
+`
+
+	ctx := schemaContext(t, src)
+
+	term, ok := ctx.Term("v")
+	if !ok || !term.Noconvert {
+		t.Errorf("term = %+v, ok = %v; want Noconvert true", term, ok)
+	}
+}
+
 func TestBootstrapContextReadsTheMetaschema(t *testing.T) {
 	t.Parallel()
 

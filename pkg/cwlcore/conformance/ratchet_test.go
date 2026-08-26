@@ -1,6 +1,10 @@
 package conformance
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -121,7 +125,7 @@ func TestObservedTrimsTheCorpusPathOutOfHeadlines(t *testing.T) {
 	t.Parallel()
 
 	s := &sweep{
-		tag:     "v1.2.1",
+		tag:     testCorpusTag,
 		root:    "/var/cache/cwl-v1.2-v1.2.1",
 		results: []docResult{{path: testDoc}},
 	}
@@ -131,6 +135,71 @@ func TestObservedTrimsTheCorpusPathOutOfHeadlines(t *testing.T) {
 
 	if strings.Contains(got.Clusters[0].Headline, "/var/cache") {
 		t.Errorf("committed headline still carries the cache path: %q", got.Clusters[0].Headline)
+	}
+}
+
+func TestReadRatchetFromMissingFile(t *testing.T) {
+	t.Parallel()
+
+	_, err := readRatchetFrom(filepath.Join(t.TempDir(), "does-not-exist.json"))
+	if !errors.Is(err, errRatchetMissing) {
+		t.Errorf("readRatchetFrom(missing) error = %v, want errRatchetMissing", err)
+	}
+}
+
+func TestReadRatchetFromMalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ratchet.json")
+
+	err := os.WriteFile(path, []byte("{not json"), 0o600)
+	if err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+
+	_, err = readRatchetFrom(path)
+	if err == nil {
+		t.Fatal("readRatchetFrom(malformed) returned no error")
+	}
+
+	if errors.Is(err, errRatchetMissing) {
+		t.Errorf("readRatchetFrom(malformed) error = %v, want a JSON error, not errRatchetMissing", err)
+	}
+}
+
+func TestWriteRatchetToRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ratchet.json")
+	want := record("v1.2.1", 10, 8, "a.cwl", "b.cwl")
+
+	err := writeRatchetTo(path, want)
+	if err != nil {
+		t.Fatalf("writeRatchetTo: %v", err)
+	}
+
+	got, err := readRatchetFrom(path)
+	if err != nil {
+		t.Fatalf("readRatchetFrom: %v", err)
+	}
+
+	if got.CorpusTag != want.CorpusTag || got.Documents != want.Documents || got.Passing != want.Passing {
+		t.Errorf("round-tripped ratchet = %+v, want %+v", got, want)
+	}
+
+	if !slices.Equal(got.KnownFailures, want.KnownFailures) {
+		t.Errorf("KnownFailures = %v, want %v", got.KnownFailures, want.KnownFailures)
+	}
+}
+
+func TestWriteRatchetToFailsWhenTheDirectoryDoesNotExist(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "no-such-dir", "ratchet.json")
+
+	err := writeRatchetTo(path, record("v1.2.1", 1, 1))
+	if err == nil {
+		t.Fatal("writeRatchetTo into a missing directory returned no error")
 	}
 }
 

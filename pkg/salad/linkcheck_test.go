@@ -263,6 +263,74 @@ func writeLinkDoc(t *testing.T, link string) string {
 	return path
 }
 
+// vocabLinkSchema declares a @vocab field alongside the usual @id fields, so
+// that isKnown's vocab-term branch can be exercised: a @vocab field's value
+// that matches a declared vocabulary term (the record's own type name) is
+// known without ever being indexed as an object identifier.
+const vocabLinkSchema = `
+$graph:
+  - name: Thing
+    type: record
+    documentRoot: true
+    fields:
+      - name: id
+        type: string
+        jsonldPredicate: "@id"
+      - name: kind
+        type: string
+        jsonldPredicate:
+          _type: "@vocab"
+`
+
+func TestIsKnownAcceptsAVocabFieldMatchingADeclaredTerm(t *testing.T) {
+	t.Parallel()
+
+	loader := NewLoader(
+		WithFetcher(newMemFetcher(map[string]string{docSimple: "id: root\nkind: Thing\n"})),
+		WithContext(schemaContext(t, vocabLinkSchema)),
+	)
+
+	_, err := loader.Load(docSimple)
+	if err != nil {
+		t.Errorf("a @vocab field naming a declared vocabulary term must resolve, got %v", err)
+	}
+}
+
+func TestSearchScopesReportsAMalformedBase(t *testing.T) {
+	t.Parallel()
+
+	loader := NewLoader(WithContext(schemaContext(t, refFieldSchema)))
+	r := loader.newResolver()
+
+	_, err := r.searchScopes("ref", &TermDef{RefScope: 1}, "target", SourceLine{}, scope{base: "%zz"})
+	if err == nil {
+		t.Error("searchScopes must report a base that fails url.Parse")
+	}
+}
+
+func TestWithFragmentDefaultsAnEmptyPathToSlash(t *testing.T) {
+	t.Parallel()
+
+	// A $base with no path and no fragment, searched from the root object
+	// itself (which declares no identifier of its own, so its link-check scope
+	// is the bare $base), reaches withFragment's fallback that defaults Path to
+	// "/".
+	doc, err := loadChecked(t, `
+$base: http://example.com
+ref: target
+extra:
+  id: target
+`)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	got, _ := AsString(mustGet(t, mustMap(t, doc.Root), "ref"))
+	if got != "http://example.com/#target" {
+		t.Errorf("ref = %q, want the path defaulted to \"/\"", got)
+	}
+}
+
 func TestLinkTargetsOnTheFileSystem(t *testing.T) {
 	t.Parallel()
 

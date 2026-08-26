@@ -3,6 +3,8 @@ package cwlcore
 import (
 	"strings"
 	"testing"
+
+	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
 // The declaration names the schemadef fixture and the type-name tests reach for
@@ -265,6 +267,68 @@ func TestResolveSchemaDefLeavesAnUndeclaredNestedNameAlone(t *testing.T) {
 	field := resolved.Record().Fields[0].Type
 	assertEqual(t, "field Kind()", field.Kind(), TypeKindNamed)
 	assertEqual(t, "field Name()", field.Name(), "undeclared_type")
+}
+
+// TestSchemaDefTypesIgnoresARequirementOfTheWrongType covers schemaDefTypes'
+// type-assertion guard: GetRequirement can report found=true for a
+// SchemaDefRequirement class without the declaration actually being a
+// *SchemaDefRequirement, if something else claimed the class first — a
+// RawRequirement spoofing it, say — and that must not panic.
+func TestSchemaDefTypesIgnoresARequirementOfTheWrongType(t *testing.T) {
+	t.Parallel()
+
+	scope := NewScope(tool(reqs(&RawRequirement{ClassIRI: ClassSchemaDefRequirement}), nil))
+
+	resolved, ok := ResolveSchemaDef(scope, coordinateType)
+	if ok {
+		t.Errorf("ResolveSchemaDef found %s through a spoofed requirement, want false", resolved.Kind())
+	}
+}
+
+// TestSchemaDefLookupSkipsNonMappingEntries covers schemaDefResolver.lookup's
+// AsMap guard: a Types entry that is not a mapping is skipped rather than
+// stopping the search for a real declaration alongside it.
+func TestSchemaDefLookupSkipsNonMappingEntries(t *testing.T) {
+	t.Parallel()
+
+	declared := schemaDefTypes(schemaDefScope(t))
+	if len(declared) == 0 {
+		t.Fatal("the schemadef fixture declares no types")
+	}
+
+	spoofed := NewScope(tool(reqs(&SchemaDefRequirement{
+		Types: []salad.Node{salad.NewStringNode(salad.SourceLine{}, "oops"), declared[0]},
+	}), nil))
+
+	resolved, ok := ResolveSchemaDef(spoofed, coordinateType)
+	if !ok {
+		t.Fatal("ResolveSchemaDef did not find the declaration past the bogus entry")
+	}
+
+	if resolved.Kind() != TypeKindRecord {
+		t.Errorf("resolved to %s, want a record", resolved.Kind())
+	}
+}
+
+// TestResolveTypeRefLeavesANilArrayOrRecordUnchanged covers
+// schemaDefResolver.substituteArray and substituteRecord's nil-schema guards.
+// NewArrayType(nil) and NewRecordType(nil) produce a TypeRef whose Array() or
+// Record() accessor returns a typed nil, which substitution must return
+// unchanged rather than dereferencing.
+func TestResolveTypeRefLeavesANilArrayOrRecordUnchanged(t *testing.T) {
+	t.Parallel()
+
+	scope := schemaDefScope(t)
+
+	array := NewArrayType(nil)
+	if got := ResolveTypeRef(scope, array); got.Kind() != TypeKindArray || got.Array() != nil {
+		t.Errorf("ResolveTypeRef(nil array) = %v, want an unchanged nil-schema array", got)
+	}
+
+	record := NewRecordType(nil)
+	if got := ResolveTypeRef(scope, record); got.Kind() != TypeKindRecord || got.Record() != nil {
+		t.Errorf("ResolveTypeRef(nil record) = %v, want an unchanged nil-schema record", got)
+	}
 }
 
 func TestResolveTypeRefOnParameterTypes(t *testing.T) {

@@ -414,6 +414,33 @@ func TestDecimalMarshalsAsANumber(t *testing.T) {
 	}
 }
 
+// TestDecimalFloat64OnMalformedDigits reaches the defensive branch in Float64
+// that ParseDecimal can never produce: a Decimal built directly (same package,
+// unexported fields) whose digits are not actually digits, so scientific()
+// yields text [strconv.ParseFloat] rejects with a syntax error rather than a
+// range error.
+func TestDecimalFloat64OnMalformedDigits(t *testing.T) {
+	t.Parallel()
+
+	d := Decimal{digits: "abc"}
+	if got := d.Float64(); got != 0 {
+		t.Errorf("Float64() on malformed digits = %v, want 0", got)
+	}
+}
+
+// TestDecimalBigIntNegates pins BigInt's sign handling for a negative integral
+// value, which ParseDecimal("-42") produces.
+func TestDecimalBigIntNegates(t *testing.T) {
+	t.Parallel()
+
+	value := mustDecimal(t, "-42")
+
+	got, ok := value.BigInt()
+	if !ok || got.Int64() != -42 {
+		t.Errorf("BigInt() = %v, %v; want -42, true", got, ok)
+	}
+}
+
 // TestDecimalScalarStringsItsDigits pins the two diagnostic spellings apart. An
 // integer too large for an int64 is quoted in full, because that is what the
 // document wrote and it is as long as the document made it; a float is quoted

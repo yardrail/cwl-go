@@ -39,12 +39,20 @@ var errNoCorpus = errors.New("no unpacked cwl-v1.2 corpus")
 // findCorpus locates an already-unpacked corpus: an explicit CWL_CONFORMANCE_CORPUS
 // checkout, or the cache entry for the tag the vendored schema was cut from.
 func findCorpus() (string, error) {
+	return findCorpusWith(cwlcore.SchemaVersion)
+}
+
+// findCorpusWith is [findCorpus], taking the schema-version lookup as a parameter so a test
+// can supply one that reports no version -- [cwlcore.SchemaVersion] itself always reads a
+// non-empty embedded schema/VERSION file, so the "no version to pin one to" branch below is
+// otherwise unreachable.
+func findCorpusWith(schemaVersion func() string) (string, error) {
 	explicit := strings.TrimSpace(os.Getenv(envCorpus))
 	if explicit != "" {
 		return checkedCorpus(explicit, envCorpus+" names it")
 	}
 
-	tag := cwlcore.SchemaVersion()
+	tag := schemaVersion()
 	if tag == "" {
 		return "", fmt.Errorf("%w: the vendored schema declares no version to pin one to", errNoCorpus)
 	}

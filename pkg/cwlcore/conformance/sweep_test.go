@@ -9,6 +9,86 @@ import (
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
+// The testdata/loadone fixture documents, named so goconst does not see their literals
+// repeated across this file's tests.
+const (
+	fixtureValidDoc   = "valid.cwl"
+	fixtureInvalidDoc = "invalid.cwl"
+	fixtureGraphDoc   = "graph.cwl"
+)
+
+// loadOneFixtureCorpus is the small local corpus loadOne and run are exercised against,
+// rather than the real cwl-v1.2 corpus, so these tests run without CWL_CONFORMANCE=1 and
+// without any network access.
+var loadOneFixtureCorpus = &corpus{root: "testdata/loadone", tag: testFixtureTag}
+
+func TestLoadOneValidToolLoadsCleanly(t *testing.T) {
+	t.Parallel()
+
+	got := loadOne(t.Context(), loadOneFixtureCorpus, fixtureValidDoc, manifest{})
+	if !got.ok() {
+		t.Errorf("loadOne(%s) = %+v, want ok", fixtureValidDoc, got)
+	}
+
+	if got.graphOnly {
+		t.Errorf("loadOne(%s) reported graphOnly, want false", fixtureValidDoc)
+	}
+}
+
+func TestLoadOneDocumentMissingClassFailsToLoad(t *testing.T) {
+	t.Parallel()
+
+	got := loadOne(t.Context(), loadOneFixtureCorpus, fixtureInvalidDoc, manifest{})
+	if got.ok() {
+		t.Errorf("loadOne(%s) reported ok, want a load error", fixtureInvalidDoc)
+	}
+
+	if got.graphOnly {
+		t.Errorf("loadOne(%s) reported graphOnly, want false", fixtureInvalidDoc)
+	}
+}
+
+func TestLoadOneGraphWithNoMainRetriesAsWholeGraphDecode(t *testing.T) {
+	t.Parallel()
+
+	got := loadOne(t.Context(), loadOneFixtureCorpus, fixtureGraphDoc, manifest{})
+	if !got.ok() {
+		t.Errorf("loadOne(%s) = %+v, want ok (recovered via decodeWholeGraph)", fixtureGraphDoc, got)
+	}
+
+	if !got.graphOnly {
+		t.Errorf("loadOne(%s) did not report graphOnly", fixtureGraphDoc)
+	}
+}
+
+// TestRunTalliesAndReportsFailures runs the same local fixture corpus through run(), which
+// exercises the worker pool and the tally alongside sweep.failures/failingPaths.
+func TestRunTalliesAndReportsFailures(t *testing.T) {
+	t.Parallel()
+
+	docs := []string{fixtureValidDoc, fixtureInvalidDoc, fixtureGraphDoc}
+
+	s := run(t.Context(), loadOneFixtureCorpus, docs, manifest{})
+
+	if s.tag != testFixtureTag || s.root != loadOneFixtureCorpus.root {
+		t.Errorf("run() sweep = %+v, want tag/root taken from the corpus", s)
+	}
+
+	if s.passed != 2 || s.failed != 1 {
+		t.Errorf("run() passed=%d failed=%d, want passed=2 failed=1", s.passed, s.failed)
+	}
+
+	failures := s.failures()
+	if len(failures) != 1 || failures[0].path != fixtureInvalidDoc {
+		t.Errorf("failures() = %+v, want just %s", failures, fixtureInvalidDoc)
+	}
+
+	paths := s.failingPaths()
+	if len(paths) != 1 || paths[0] != fixtureInvalidDoc {
+		t.Errorf("failingPaths() = %v, want [%s]", paths, fixtureInvalidDoc)
+	}
+}
+
 // TestStage0Sweep loads every *.cwl document in the pinned cwl-v1.2 corpus through
 // pkg/salad and pkg/cwlcore and holds the pass count to the committed ratchet.
 //

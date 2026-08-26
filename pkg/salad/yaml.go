@@ -61,6 +61,9 @@ func Parse(name string, src []byte) (Node, error) {
 	}
 
 	if len(file.Docs) == 0 {
+		// Defensive: goccy's parser.ParseBytes has always returned at least
+		// one *ast.DocumentNode for every input tried against it, empty byte
+		// slices included, so this has no known way to be driven to true.
 		return NewNullNode(SourceLine{File: name}), nil
 	}
 
@@ -81,11 +84,16 @@ func parseError(name string, err error) *Error {
 		return &Error{Msg: syntax.Message, Loc: tokenLoc(name, syntax.Token)}
 	}
 
+	// Verified dead against goccy v1.19.2: a duplicate mapping key is always
+	// reported as a *yaml.SyntaxError, caught above, never as this distinct
+	// error type. Kept for whichever goccy version does use it.
 	var dup *yaml.DuplicateKeyError
 	if errors.As(err, &dup) {
 		return &Error{Msg: dup.Message, Loc: tokenLoc(name, dup.Token)}
 	}
 
+	// Unreachable alongside it, for the same reason: every parser.ParseBytes
+	// failure this package has been able to produce is a *yaml.SyntaxError.
 	return &Error{Msg: err.Error(), Loc: SourceLine{File: name}}
 }
 

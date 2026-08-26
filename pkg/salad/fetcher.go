@@ -207,6 +207,15 @@ func (f *FSFetcher) path(u string) (string, bool) {
 // identifies the document. A reference with no scheme is a filesystem path when
 // there is no base to resolve it against.
 func normalizeURL(base, ref string) (string, error) {
+	return normalizeURLAbs(filepath.Abs, base, ref)
+}
+
+// normalizeURLAbs is normalizeURL with the [filepath.Abs] call taken as a
+// parameter, so a test can make pathToURLAbs's otherwise-unreachable failure
+// path (os.Getwd erroring) deterministic by passing a stub — without
+// mutating the process's actual working directory or any state shared with
+// other callers.
+func normalizeURLAbs(abs func(string) (string, error), base, ref string) (string, error) {
 	if ref == "" {
 		return "", errEmptyReference
 	}
@@ -216,10 +225,10 @@ func normalizeURL(base, ref string) (string, error) {
 	}
 
 	if base == "" {
-		return pathToURL(ref)
+		return pathToURLAbs(abs, ref)
 	}
 
-	baseURL, err := pathToURL(base)
+	baseURL, err := pathToURLAbs(abs, base)
 	if err != nil {
 		return "", err
 	}
@@ -227,19 +236,20 @@ func normalizeURL(base, ref string) (string, error) {
 	return cleanURL(resolveReference(baseURL, ref))
 }
 
-// pathToURL turns a filesystem path into an absolute file:// URL, passing
-// through anything that is already a URL.
-func pathToURL(p string) (string, error) {
+// pathToURLAbs turns a filesystem path into an absolute file:// URL, passing
+// through anything that is already a URL. The [filepath.Abs] call is taken
+// as a parameter; see [normalizeURLAbs].
+func pathToURLAbs(abs func(string) (string, error), p string) (string, error) {
 	if hasScheme(p) {
 		return cleanURL(p)
 	}
 
-	abs, err := filepath.Abs(p)
+	resolved, err := abs(p)
 	if err != nil {
 		return "", err
 	}
 
-	u := url.URL{Scheme: schemeFile, Path: filepath.ToSlash(abs)}
+	u := url.URL{Scheme: schemeFile, Path: filepath.ToSlash(resolved)}
 
 	return u.String(), nil
 }

@@ -87,7 +87,7 @@ func sharedCorpus(ctx context.Context, tag, cacheDir string) (*corpus, error) {
 	defer corpusOnce.Unlock()
 
 	if !corpusOnce.done {
-		corpusOnce.found, corpusOnce.err = openCorpus(ctx, tag, cacheDir)
+		corpusOnce.found, corpusOnce.err = openCorpus(ctx, codeloadBase, tag, cacheDir)
 		corpusOnce.done = true
 	}
 
@@ -100,7 +100,11 @@ func sharedCorpus(ctx context.Context, tag, cacheDir string) (*corpus, error) {
 // The three sources, in order: an explicit CWL_CONFORMANCE_CORPUS checkout, a previously
 // unpacked copy in the cache, and finally GitHub. A network error is returned as-is so
 // the caller can decide to skip rather than fail.
-func openCorpus(ctx context.Context, tag, cacheDir string) (*corpus, error) {
+//
+// base is the tarball endpoint's base URL, with the tag appended to form the download
+// URL. It is a parameter rather than always codeloadBase so tests can point the download
+// path at an [net/http/httptest.Server] instead of the real network.
+func openCorpus(ctx context.Context, base, tag, cacheDir string) (*corpus, error) {
 	explicit := strings.TrimSpace(os.Getenv(envCorpus))
 	if explicit != "" {
 		if !hasManifest(explicit) {
@@ -115,7 +119,7 @@ func openCorpus(ctx context.Context, tag, cacheDir string) (*corpus, error) {
 		return &corpus{root: dest, tag: tag}, nil
 	}
 
-	err := downloadCorpus(ctx, tag, dest)
+	err := downloadCorpus(ctx, base, tag, dest)
 	if err != nil {
 		return nil, err
 	}
@@ -174,13 +178,13 @@ func hasManifest(dir string) bool {
 	return info.Mode().IsRegular()
 }
 
-// downloadCorpus fetches the tag's source tarball and unpacks it into dest.
+// downloadCorpus fetches the tag's source tarball from base+tag and unpacks it into dest.
 //
 // Unpacking goes to a sibling temporary directory that is renamed into place only once
 // it is complete, so an interrupted run never leaves a half-populated cache entry that
 // the next run would mistake for a good one.
-func downloadCorpus(ctx context.Context, tag, dest string) error {
-	archive, err := fetchTarball(ctx, codeloadBase+tag)
+func downloadCorpus(ctx context.Context, base, tag, dest string) error {
+	archive, err := fetchTarball(ctx, base+tag)
 	if err != nil {
 		return err
 	}

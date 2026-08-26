@@ -50,9 +50,15 @@ type ratchet struct {
 
 // readRatchet loads the committed record.
 func readRatchet() (*ratchet, error) {
-	raw, err := os.ReadFile(ratchetPath)
+	return readRatchetFrom(ratchetPath)
+}
+
+// readRatchetFrom loads the record at path. It is the body of readRatchet, taken as a
+// parameter so tests can point it at a fixture instead of the committed record.
+func readRatchetFrom(path string) (*ratchet, error) {
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", errRatchetMissing, ratchetPath)
+		return nil, fmt.Errorf("%w: %s", errRatchetMissing, path)
 	}
 
 	var r ratchet
@@ -67,12 +73,19 @@ func readRatchet() (*ratchet, error) {
 
 // writeRatchet rewrites the committed record from an observed sweep.
 func writeRatchet(r *ratchet) error {
+	return writeRatchetTo(ratchetPath, r)
+}
+
+// writeRatchetTo rewrites the record at path from an observed sweep. It is the body of
+// writeRatchet, taken as a parameter so tests can point it at a temp file instead of the
+// committed record.
+func writeRatchetTo(path string, r *ratchet) error {
 	raw, err := json.MarshalIndent(r, "", jsonIndent)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(ratchetPath, append(raw, '\n'), filePerm)
+	return os.WriteFile(path, append(raw, '\n'), filePerm)
 }
 
 // observed builds the record this sweep would commit.

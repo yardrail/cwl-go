@@ -505,7 +505,148 @@ $graph:
 		short = append(short, shortName(sym))
 	}
 
-	assertOrder(t, "MoreEnum symbols", short, []string{"red", "green", "blue"})
+	assertOrder(t, "MoreEnum symbols", short, []string{"red", litGreen, "blue"})
+}
+
+func TestFlattenDropsExtendsOnANonRecordNonEnumDefinition(t *testing.T) {
+	t.Parallel()
+
+	// A documentation section may declare extends, but the flattener's expand
+	// only handles record and enum kinds; anything else is returned unchanged,
+	// and the type builder drops it since it is not a type at all.
+	s, err := flattenUnlinked(t, `
+$base: "`+testSchemaBase+`"
+$graph:
+- name: Note
+  type: documentation
+  extends: Nowhere
+  doc: "hello"
+`)
+	if err != nil {
+		t.Fatalf("Flatten failed: %v", err)
+	}
+
+	if len(s.Names()) != 0 {
+		t.Errorf("a documentation section entered the name table: %v", s.Names())
+	}
+}
+
+func TestFlattenReportsAnUnresolvedOwnFieldMapOnARecordWithExtends(t *testing.T) {
+	t.Parallel()
+
+	base := NewMapNode(SourceLine{}, []MapEntry{
+		{Key: keyName, Value: NewStringNode(SourceLine{}, testSchemaBase+"Base")},
+		{Key: keyType, Value: NewStringNode(SourceLine{}, kindRecord)},
+		{Key: keyFields, Value: NewSeqNode(SourceLine{}, nil)},
+	})
+
+	// The own fields entry is an identifier map, which is only ever expanded to
+	// a sequence by the loader; built by hand, it reaches the flattener
+	// unresolved.
+	ownFields := NewMapNode(SourceLine{}, entries("v", "string"))
+	derived := NewMapNode(SourceLine{}, []MapEntry{
+		{Key: keyName, Value: NewStringNode(SourceLine{}, testSchemaBase+"Derived")},
+		{Key: keyType, Value: NewStringNode(SourceLine{}, kindRecord)},
+		{Key: keyExtends, Value: NewStringNode(SourceLine{}, testSchemaBase+"Base")},
+		{Key: keyFields, Value: ownFields},
+	})
+
+	_, err := Flatten(NewSeqNode(SourceLine{}, []Node{base, derived}), saladBootstrapContext())
+	assertErrorContains(t, err, "must be resolved before it is flattened")
+}
+
+func TestFlattenEnumExtendsReportsAnUndefinedBase(t *testing.T) {
+	t.Parallel()
+
+	_, err := flattenUnlinked(t, `
+$base: "`+testSchemaBase+`"
+$graph:
+- name: E
+  type: enum
+  extends: `+testSchemaBase+`Absent
+  symbols: [a]
+`)
+
+	assertErrorContains(t, err, "which the schema does not define")
+}
+
+func TestFlattenAppendSymbolsSkipsABaseWithNoSymbolsField(t *testing.T) {
+	t.Parallel()
+
+	s := mustFlatten(t, `
+$base: "`+testSchemaBase+`"
+$graph:
+- name: BaseEnum
+  type: enum
+- name: MoreEnum
+  type: enum
+  extends: BaseEnum
+  symbols: [green, blue]
+`)
+
+	more, ok := s.Type(testSchemaBase + "MoreEnum")
+	if !ok {
+		t.Fatal("the schema defines no MoreEnum")
+	}
+
+	e, ok := more.(*EnumType)
+	if !ok {
+		t.Fatalf("MoreEnum is a %T, want an enum", more)
+	}
+
+	short := make([]string, 0, len(e.Symbols))
+	for _, sym := range e.Symbols {
+		short = append(short, shortName(sym))
+	}
+
+	assertOrder(t, "MoreEnum symbols", short, []string{litGreen, "blue"})
+}
+
+func TestFieldDefinitionsRejectsANonMappingItem(t *testing.T) {
+	t.Parallel()
+
+	_, err := flattenUnlinked(t, "$graph:\n- name: R\n  type: record\n  fields: [1, 2]\n")
+	assertErrorContains(t, err, "a field definition must be a mapping")
+}
+
+// TestFlattenCheckOverrideReportsAnUndefinedSpecializedType covers checkOverride's
+// buildType failure on the inherited side: specialize rewrites the type an
+// overridden field inherits into a name the schema does not define, which is
+// only discovered when the narrowing check builds that type — the base record's
+// own build already succeeded against the un-substituted type.
+//
+// The buildType failure on the *own* side (checkOverride's second call) is not
+// reachable through the normal flatten pipeline: an override's own field is
+// part of the record's built Fields, so flattenSchema's b.build(flat) call
+// already fails first if that type does not resolve, and checkNarrowing never
+// runs.
+func TestFlattenCheckOverrideReportsAnUndefinedSpecializedType(t *testing.T) {
+	t.Parallel()
+
+	_, err := flattenUnlinked(t, `
+$base: "`+testSchemaBase+`"
+$graph:
+- name: Item
+  type: record
+  fields:
+    - name: v
+      type: string
+- name: Holder
+  type: record
+  fields:
+    - name: item
+      type: Item
+- name: SpecialHolder
+  type: record
+  extends: `+testSchemaBase+`Holder
+  specialize:
+    `+testSchemaBase+`Item: NotDefined
+  fields:
+    - name: item
+      type: Item
+`)
+
+	assertErrorContains(t, err, `the type "NotDefined" is not defined`)
 }
 
 func TestFlattenReportsExtendsCycle(t *testing.T) {

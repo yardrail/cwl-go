@@ -302,6 +302,10 @@ func TestFromExpressionValueRoundTrip(t *testing.T) {
 			value: &File{Basename: readsName, SecondaryFiles: make([]FileOrDirectory, 0)},
 		},
 		{name: "a record around a File", value: map[string]any{innerKey: &File{Basename: notesName}}},
+		{
+			name:  "a bare top-level list",
+			value: []any{testFile(), &Directory{Basename: auxName, Path: "/data/" + auxName}},
+		},
 	}
 
 	for _, tc := range cases {
@@ -361,6 +365,15 @@ func TestFromExpressionValueErrors(t *testing.T) {
 		{
 			name:  "a bad value nested in a list",
 			value: []any{map[string]any{keyClass: ClassFile, keySize: notAnInt}},
+		},
+		{
+			name: "a secondary file whose own fields do not typecheck",
+			value: map[string]any{
+				keyClass: ClassFile,
+				keySecondaryFiles: []any{
+					map[string]any{keyClass: ClassFile, keyBasename: notesName, keySize: notAnInt},
+				},
+			},
 		},
 	}
 
@@ -592,5 +605,16 @@ func TestFromExpressionValueIntegerShapes(t *testing.T) {
 	_, err := FromExpressionValue(map[string]any{keyClass: ClassFile, keySize: 1e18})
 	if !errors.Is(err, ErrExpressionEval) {
 		t.Errorf("an inexact size gave %v, want ErrExpressionEval", err)
+	}
+}
+
+// TestFilesystemObjectOfANilInterfaceIsNil covers filesystemObject's type-switch
+// default, reached only when the FileOrDirectory interface value itself is nil
+// rather than holding a nil *File or *Directory.
+func TestFilesystemObjectOfANilInterfaceIsNil(t *testing.T) {
+	t.Parallel()
+
+	if got := filesystemObject(nil); got != nil {
+		t.Errorf("filesystemObject(nil) = %#v, want nil", got)
 	}
 }

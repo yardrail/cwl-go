@@ -8,6 +8,10 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
+// tagScatter is a stand-in feature tag, named so goconst does not see the literal
+// repeated across this package's tests.
+const tagScatter = "scatter"
+
 func TestNormalizeErasesDocumentSpecificDetail(t *testing.T) {
 	t.Parallel()
 
@@ -119,8 +123,8 @@ func TestClusterFailuresRanksByDocumentCount(t *testing.T) {
 
 	failures := []docResult{
 		{path: "one.cwl", err: rare},
-		{path: "two.cwl", err: common("x"), entry: &manifestEntry{tags: []string{"scatter"}}},
-		{path: "three.cwl", err: common("y"), entry: &manifestEntry{tags: []string{"scatter"}}},
+		{path: "two.cwl", err: common("x"), entry: &manifestEntry{tags: []string{tagScatter}}},
+		{path: "three.cwl", err: common("y"), entry: &manifestEntry{tags: []string{tagScatter}}},
 		{path: "four.cwl", err: common("z")},
 	}
 
@@ -134,12 +138,31 @@ func TestClusterFailuresRanksByDocumentCount(t *testing.T) {
 		t.Errorf("largest cluster has %d members, want 3", clusters[0].size())
 	}
 
-	if clusters[0].tags["scatter"] != 2 {
-		t.Errorf("scatter tag counted %d times, want 2", clusters[0].tags["scatter"])
+	if clusters[0].tags[tagScatter] != 2 {
+		t.Errorf("scatter tag counted %d times, want 2", clusters[0].tags[tagScatter])
 	}
 
 	if clusters[0].representative().path != "two.cwl" {
 		t.Errorf("representative = %q, want the first member in corpus order", clusters[0].representative().path)
+	}
+}
+
+func TestSignatureFallsBackForAnErrorTreeWithNoLeaves(t *testing.T) {
+	t.Parallel()
+
+	// A zero-value *salad.Error has no Msg and no Children, so se.Leaves() is empty and
+	// signature must fall back to se.Error() rather than indexing into an empty slice.
+	se := &salad.Error{}
+
+	sig := signature(se)
+
+	want := se.Error()
+	if sig.headline != want {
+		t.Errorf("headline = %q, want the se.Error() fallback %q", sig.headline, want)
+	}
+
+	if sig.key != normalize(want) {
+		t.Errorf("key = %q, want normalize(%q)", sig.key, want)
 	}
 }
 

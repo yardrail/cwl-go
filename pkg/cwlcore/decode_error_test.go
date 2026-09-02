@@ -16,6 +16,12 @@ import (
 // and the contract there is that a shape the model cannot represent produces a
 // located error rather than a silently wrong value.
 
+// errSynthetic stands in for a plain error a white-box test hands directly to
+// an unexported function under test, where the point under test is how the
+// function classifies or wraps an error that is not itself a *salad.Error —
+// never something a caller is meant to act on.
+var errSynthetic = errors.New("synthetic test failure")
+
 func TestDecodeMalformedFields(t *testing.T) {
 	t.Parallel()
 
@@ -292,6 +298,64 @@ func TestDecodeNodeRejectsNothing(t *testing.T) {
 	}
 }
 
+// TestDecodeNodeReportsCollectedErrors covers DecodeNode's own errOr path when
+// d.process returned a non-nil process alongside errors the decoder collected
+// rather than aborted on — the same src TestDecodeCollectsSeveralErrors feeds
+// through Decode, fed through DecodeNode instead.
+func TestDecodeNodeReportsCollectedErrors(t *testing.T) {
+	t.Parallel()
+
+	const src = `class: CommandLineTool
+cwlVersion: v1.2
+baseCommand: 3
+inputs: []
+outputs:
+  - id: bad
+    type: File
+    streamable: "yes"
+`
+
+	root := parseDoc(t, "bad.cwl", src).Root
+
+	_, err := DecodeNode(root)
+	if err == nil {
+		t.Fatal("DecodeNode succeeded, want the collected errors")
+	}
+
+	var decoded *salad.Error
+	if !errors.As(err, &decoded) {
+		t.Fatalf("error %v is not a *salad.Error", err)
+	}
+
+	if got := len(decoded.Leaves()); got < 2 {
+		t.Errorf("collected %d errors, want both of them:\n%s", got, decoded.Pretty())
+	}
+}
+
+// TestSelectFragmentSkipsNonMappingEntries is selectFragment's own analogue of
+// selectMain's already-covered skip-non-map branch: a $graph entry that is not
+// even a mapping must not stop the search for the identifier a fragment names.
+//
+// This calls selectFragment directly rather than through decodeFragment,
+// because decodeFragment goes on to decode every node in the graph — including
+// the malformed one — which would fail regardless of whether selection itself
+// skipped it correctly.
+func TestSelectFragmentSkipsNonMappingEntries(t *testing.T) {
+	t.Parallel()
+
+	good := parseDoc(t, "bad.cwl", "id: \"#good\"\nclass: Operation\ninputs: []\noutputs: []\n").Root
+	nodes := []salad.Node{salad.NewIntNode(salad.SourceLine{}, 7), good}
+
+	selected, err := selectFragment(nodes, "good", "bad.cwl")
+	if err != nil {
+		t.Fatalf("selectFragment: %v", err)
+	}
+
+	if selected != good {
+		t.Error("selectFragment did not find the mapping entry past the bogus one")
+	}
+}
+
 func TestDecodeAllReportsABrokenGraphEntry(t *testing.T) {
 	t.Parallel()
 
@@ -404,5 +468,49 @@ func TestLoadFileRejectsAMissingDocument(t *testing.T) {
 	_, err := LoadFile(t.Context(), "testdata/decode/no-such-file.cwl")
 	if err == nil {
 		t.Error("LoadFile succeeded on a missing document, want an error")
+	}
+}
+
+// TestLoadFileRejectsUnparseableSource covers LoadFileDocument's own
+// salad.Parse error branch, distinct from Load's own
+// (TestLoadRejectsUnparseableSource, decode_test.go): LoadFileDocument parses
+// the bytes it fetched itself, after its own fragment resolution and fetch have
+// already succeeded.
+func TestLoadFileRejectsUnparseableSource(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadFile(t.Context(), fixturePath("unparseable.cwl"))
+	if err == nil {
+		t.Error("LoadFile succeeded on unparseable YAML, want an error")
+	}
+}
+
+// TestInvalidDocumentFallsBackForANonSaladError covers invalidDocument's
+// fallback branch: a validation failure that is not itself a *salad.Error still
+// has to be headed with the document and version it failed against.
+func TestInvalidDocumentFallsBackForANonSaladError(t *testing.T) {
+	t.Parallel()
+
+	err := invalidDocument("file.cwl", CWLVersionV12, errSynthetic)
+	if err == nil {
+		t.Fatal("invalidDocument returned nil")
+	}
+
+	for _, want := range []string{errSynthetic.Error(), "file.cwl", CWLVersionV12} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// TestLoadFileReportsAnUnresolvableDocumentReference covers fetchDocument's
+// Normalize-failure branch: a fragment with no document part at all resolves to
+// the empty reference, which the fetcher refuses outright.
+func TestLoadFileReportsAnUnresolvableDocumentReference(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadFile(t.Context(), "#main")
+	if err == nil {
+		t.Fatal("LoadFile(#main) succeeded, want an error resolving the empty document reference")
 	}
 }

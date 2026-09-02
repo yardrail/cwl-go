@@ -354,3 +354,18 @@ func TestSchemaNilIsSafe(t *testing.T) {
 		t.Error("a nil Schema should be empty")
 	}
 }
+
+// TestIsTypeMarkers calls the sealed-interface marker method directly on one
+// constructed value of each of the six concrete Type implementations. isType
+// is never called anywhere in the package; it exists only to seal the Type
+// interface, so this is the only way to reach it at all.
+func TestIsTypeMarkers(t *testing.T) {
+	t.Parallel()
+
+	(&PrimitiveType{}).isType()
+	(&ArrayType{}).isType()
+	(&MapType{}).isType()
+	(&UnionType{}).isType()
+	(&EnumType{}).isType()
+	(&RecordType{}).isType()
+}

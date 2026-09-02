@@ -16,7 +16,7 @@ func TestNormalizeRejectsAValueWithNoJSONSpelling(t *testing.T) {
 	// string readable and is not parseable JSON. cwl-run refuses to write such an
 	// object at all, so a run that produced one fails there; here it surfaces as a
 	// value the comparison cannot read, which is the same verdict.
-	_, err := normalize(map[string]any{"out": math.NaN()})
+	_, err := normalize(map[string]any{outputName: math.NaN()})
 	if err == nil {
 		t.Error("a NaN was accepted as a comparable value")
 	}
@@ -86,6 +86,11 @@ func TestEqualScalarComparesByValueNotRepresentation(t *testing.T) {
 			want: false,
 		},
 		{name: "a number and a map", a: json.Number("1"), b: make(map[string]any), want: false},
+		// Neither side is a number, so this reaches comparableEqual with a plain
+		// string on the left -- the only way to exercise the guard against b's
+		// dynamic type without a's own guard short-circuiting first.
+		{name: "a string and a map", a: "x", b: make(map[string]any), want: false},
+		{name: "a string and a slice", a: "x", b: make([]any, 0), want: false},
 		{name: "two maps", a: make(map[string]any), b: make(map[string]any), want: false},
 		{name: "two slices", a: make([]any, 0), b: make([]any, 0), want: false},
 		{name: "two nulls", a: nil, b: nil, want: true},
@@ -101,6 +106,26 @@ func TestEqualScalarComparesByValueNotRepresentation(t *testing.T) {
 				t.Errorf("equalScalar(%v, %v) = %v, want %v", tt.a, tt.b, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestEqualIntegerAndFloatRejectsInfinity exercises the exact == nil branch:
+// [strconv.ParseFloat]("Inf", 64) succeeds, but [big.Rat.SetFloat64] answers nil for an
+// infinity, which is neither equal nor unequal to any integer in the ordinary sense --
+// just not equal here.
+func TestEqualIntegerAndFloatRejectsInfinity(t *testing.T) {
+	t.Parallel()
+
+	// "Inf" carries no digits, so integerLiteral rejects it and equalNumber routes the
+	// comparison through equalIntegerAndFloat.
+	got := equalNumber(json.Number("1"), json.Number("Inf"))
+	if got {
+		t.Error("an integer was accepted as equal to an infinity")
+	}
+
+	got = equalIntegerAndFloat(big.NewInt(1), json.Number("Inf"))
+	if got {
+		t.Error("equalIntegerAndFloat accepted an infinity")
 	}
 }
 

@@ -46,6 +46,18 @@ func (v *validator) checkAlternatives(alts []Type, n Node, header string) *Error
 
 // explainAlternatives re-runs every candidate verbosely, after they have all
 // been probed and rejected, to collect the per-candidate explanation.
+//
+// Both "e == nil" below and the "len(children) == 0" fallback that follows
+// exist for a rerun that disagrees with the probe that rejected the same
+// candidate. No fixture has been found that drives that disagreement: check
+// is a function of (v.active-at-entry, t, n, v.quiet), fail and diag build
+// the same non-nil result under quiet and verbose alike (diag's own quiet
+// branch only ever drops a warning, which isFatal already treats as
+// non-fatal in the verbose result too), and v.active is restored by defer
+// before each alt in a loop is either probed or rerun, so the two passes see
+// the same entry state pair by pair. These are kept as the defensive
+// completion of "a probe said no, but the verbose recheck said yes" rather
+// than chased with a contrived fixture.
 func (v *validator) explainAlternatives(alts []Type, n Node, header string) *Error {
 	children := make([]*Error, 0, len(alts))
 
@@ -188,6 +200,9 @@ func (v *validator) ensureSubtypeIndex() {
 	v.subtypes = make(map[string][]*RecordType)
 
 	for _, name := range v.schema.Names() {
+		// Unreachable: name comes from v.schema.Names() itself, and
+		// NewSchema's byName/names invariant guarantees Type(name) then
+		// always succeeds.
 		t, ok := v.schema.Type(name)
 		if !ok {
 			continue

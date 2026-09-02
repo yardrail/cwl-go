@@ -198,6 +198,38 @@ func TestSubscopeExtendsTheIdentifierScope(t *testing.T) {
 	}
 }
 
+func TestScopeFragmentEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	if got := scopeFragment("", keyName); got != keyName {
+		t.Errorf("scopeFragment(%q, %q) = %q, want the name unchanged", "", keyName, got)
+	}
+
+	if got := scopeFragment("%zz", keyName); got != keyName {
+		t.Errorf("scopeFragment on a base url.Parse rejects = %q, want the name unchanged", got)
+	}
+
+	if got := scopeFragment("http://example.com", keyName); got != "http://example.com/#name" {
+		t.Errorf("scopeFragment(%q, %q) = %q, want a path defaulted to \"/\"", "http://example.com", keyName, got)
+	}
+}
+
+func TestResolveReferenceEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	if got := resolveReference("", "ref"); got != "ref" {
+		t.Errorf("resolveReference(%q, %q) = %q, want ref unchanged", "", "ref", got)
+	}
+
+	if got := resolveReference("%zz", "ref"); got != "ref" {
+		t.Errorf("resolveReference with a malformed base = %q, want ref unchanged", got)
+	}
+
+	if got := resolveReference(testBaseURI, "%zz"); got != "%zz" {
+		t.Errorf("resolveReference with a malformed ref = %q, want ref unchanged", got)
+	}
+}
+
 func TestHasScheme(t *testing.T) {
 	t.Parallel()
 

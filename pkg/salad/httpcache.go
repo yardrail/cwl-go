@@ -98,6 +98,10 @@ func (f *DefaultFetcher) do(req *http.Request) (httpResult, error) {
 	}
 
 	if resp == nil || resp.Body == nil {
+		// Defensive: net/http's own *http.Client already rejects a
+		// RoundTripper that returns a nil *Response with a nil error before
+		// Do ever returns it here, so this cannot be driven through any real
+		// http.Client, misbehaving transport included.
 		return httpResult{}, Errorf(SourceLine{File: req.URL.String()}, "fetching %s: empty response", req.URL)
 	}
 

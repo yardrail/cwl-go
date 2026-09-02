@@ -232,6 +232,15 @@ func (e *EnumType) HasSymbol(sym string) bool {
 
 func (e *EnumType) isType() {}
 
+// narrowsFieldOverride reports whether e is an acceptable override of an
+// inherited enum-typed field on the record named recordName: the overriding
+// enum must declare a symbol whose short name is the overriding record's own
+// short name (e.g. a WorkflowStep subtype narrows the inherited "class" enum
+// by declaring a symbol named after itself, not by restating the base's).
+func (e *EnumType) narrowsFieldOverride(recordName string) bool {
+	return e.HasSymbol(shortName(recordName))
+}
+
 // Field is one field of a RecordType.
 type Field struct {
 	Type          Type

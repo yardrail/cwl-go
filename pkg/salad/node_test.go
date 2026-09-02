@@ -313,6 +313,34 @@ func TestScalarNodeNilIsNull(t *testing.T) {
 	}
 }
 
+func TestAsFloatOnANilReceiver(t *testing.T) {
+	t.Parallel()
+
+	var s *ScalarNode
+
+	if got, ok := s.AsFloat(); ok || got != 0 {
+		t.Errorf("(*ScalarNode)(nil).AsFloat() = (%v, %v), want (0, false)", got, ok)
+	}
+}
+
+// TestScalarNodeUnknownKindFallsThrough white-box constructs a ScalarNode
+// carrying a kind outside the five defined constants, which is unreachable
+// through any exported constructor, to reach Value's and String's defensive
+// fallthrough.
+func TestScalarNodeUnknownKindFallsThrough(t *testing.T) {
+	t.Parallel()
+
+	s := &ScalarNode{kind: ScalarKind(99)}
+
+	if got := s.Value(); got != nil {
+		t.Errorf("Value() on an unknown kind = %#v, want nil", got)
+	}
+
+	if got := s.String(); got != "" {
+		t.Errorf("String() on an unknown kind = %q, want \"\"", got)
+	}
+}
+
 func TestScalarKindString(t *testing.T) {
 	t.Parallel()
 
@@ -386,6 +414,33 @@ func TestIsNull(t *testing.T) {
 
 	if IsNull(NewStringNode(SourceLine{}, "x")) {
 		t.Error("IsNull(string) should be false")
+	}
+}
+
+// TestIsNodeMarkers calls the sealed-interface marker method directly on each
+// of the three Node implementations. isNode is never called anywhere in the
+// package; it exists only to seal the Node interface, so this is the only way
+// to reach it at all.
+func TestIsNodeMarkers(t *testing.T) {
+	t.Parallel()
+
+	NewMapNode(SourceLine{}, nil).isNode()
+	NewSeqNode(SourceLine{}, nil).isNode()
+	NewStringNode(SourceLine{}, "x").isNode()
+}
+
+func TestSeqNodeAllOnANilReceiver(t *testing.T) {
+	t.Parallel()
+
+	var s *SeqNode
+
+	count := 0
+	for range s.All() {
+		count++
+	}
+
+	if count != 0 {
+		t.Errorf("a nil SeqNode's All() yielded %d items, want 0", count)
 	}
 }
 

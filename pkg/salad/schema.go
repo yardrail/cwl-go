@@ -3,6 +3,7 @@ package salad
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"sync"
 )
 
@@ -53,6 +54,10 @@ type LoadedSchema struct {
 func LoadSchema(ref string, opts ...LoaderOption) (*LoadedSchema, error) {
 	meta, metaCtx, err := Metaschema()
 	if err != nil {
+		// Practically unreachable: Metaschema() is a process-wide memoized
+		// singleton over the embedded metaschema, which always loads
+		// successfully, so once any test in the process has resolved it this
+		// branch can never be driven to fail again.
 		return nil, err
 	}
 
@@ -68,6 +73,7 @@ func LoadSchema(ref string, opts ...LoaderOption) (*LoadedSchema, error) {
 
 	ctx, err := BuildContext(doc.Root, doc.Metadata)
 	if err != nil {
+		// Dead: BuildContext's current implementation always returns a nil error.
 		return nil, err
 	}
 
@@ -183,9 +189,22 @@ var metaschema = sync.OnceValue(loadMetaschema)
 
 // loadMetaschema reads the embedded metaschema and flattens it.
 func loadMetaschema() *metaschemaLoad {
+	return loadMetaschemaFrom(metaschemaFS)
+}
+
+// loadMetaschemaFrom loads and flattens the Schema Salad metaschema out of
+// fsys, mounted at metaschemaMount.
+//
+// It is loadMetaschema's pure logic, factored out so that its two error
+// branches can be exercised directly against a broken file system: metaschema
+// = [sync.OnceValue](loadMetaschema) is a package-level, process-wide memoized
+// singleton, so once any caller has resolved it against the real embedded
+// metaschema, loadMetaschema itself can never be made to fail again within the
+// same process.
+func loadMetaschemaFrom(fsys fs.FS) *metaschemaLoad {
 	ctx := saladBootstrapContext()
 
-	loader := NewLoader(WithFetcher(NewFSFetcher(metaschemaFS, metaschemaMount)), WithContext(ctx))
+	loader := NewLoader(WithFetcher(NewFSFetcher(fsys, metaschemaMount)), WithContext(ctx))
 
 	doc, err := loader.Load(metaschemaRef)
 	if err != nil {

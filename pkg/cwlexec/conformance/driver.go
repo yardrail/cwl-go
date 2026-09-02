@@ -279,6 +279,17 @@ func compareOutputs(expected any, outputs map[string]any) error {
 // In process a panic would take the harness down with it and lose every other result, so
 // it is caught here and reported as a failed run.
 func runProtected(ctx context.Context, run *invocation) produced {
+	return runProtectedWith(ctx, run, produce)
+}
+
+// runProtectedWith is [runProtected], taking the run step as a parameter so a test can
+// supply one that panics -- no real document reaches the recover below, since every failure
+// [produce] itself can hit is already reported as an ordinary error.
+func runProtectedWith(
+	ctx context.Context,
+	run *invocation,
+	produce func(context.Context, *invocation) (map[string]any, error),
+) produced {
 	var out produced
 
 	func() {

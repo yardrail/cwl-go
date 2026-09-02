@@ -92,6 +92,10 @@ func TestIsSubtypeUnionsArraysAndMaps(t *testing.T) {
 		{name: "a union narrows a reordering of itself", sub: union(str, num), super: union(num, str), want: true},
 		{name: "a union does not narrow one of its members", sub: union(str, num), super: str},
 		{
+			name: "a plain type matching no union member does not narrow",
+			sub:  str, super: union(num, Primitive(PrimitiveBoolean)),
+		},
+		{
 			name: "a list narrows a list of a wider element",
 			sub:  &ArrayType{Items: str}, super: &ArrayType{Items: optional(str)}, want: true,
 		},
@@ -140,6 +144,10 @@ func TestIsSubtypeEnums(t *testing.T) {
 			want:  true,
 		},
 		{
+			// IsSubtype's own generic contract: this is the structural comparison
+			// used everywhere except checkOverride's enum-field-override rule,
+			// which bypasses IsSubtype for enums entirely (see overrideNarrows in
+			// flatten.go) and is tested separately in flatten_test.go.
 			name:  "symbols are matched by short name across scopes",
 			sub:   enumType(typeShade, "https://example.com/other#Shade/red"),
 			super: enumType(typeColour, symbolRed),
@@ -173,6 +181,60 @@ func TestIsSubtypeRecordsFollowExtends(t *testing.T) {
 	}
 
 	runSubtypeCases(t, s, cases)
+}
+
+// TestRecordNarrowsSameNameDifferentInstances covers recordNarrows' own
+// sameTypeName reflexive check with two distinct *RecordType values (not the
+// same Go pointer, so check()'s own "sub == super" identity short-circuit
+// cannot be what answers it) that happen to carry the same fully-qualified
+// name.
+func TestRecordNarrowsSameNameDifferentInstances(t *testing.T) {
+	t.Parallel()
+
+	a := record(typeTip, field("v", Primitive(PrimitiveString)))
+	b := record(typeTip, field("different", Primitive(PrimitiveInt)))
+
+	if a == b {
+		t.Fatal("test setup: a and b must be distinct instances")
+	}
+
+	if !(*Schema)(nil).IsSubtype(a, b) {
+		t.Error("two distinct records sharing the same name must narrow each other by name alone")
+	}
+}
+
+// TestExtendsTransitivelySkipsARepeatedBaseName covers the seen-name dedup
+// branch of extendsTransitively's BFS: a record whose extends list names the
+// same base twice must not walk it twice.
+func TestExtendsTransitivelySkipsARepeatedBaseName(t *testing.T) {
+	t.Parallel()
+
+	base := abstractRecord(typeRoot, field("v", Primitive(PrimitiveString)))
+	dup := extending(record(typeShade, field("v", Primitive(PrimitiveString))), typeRoot, typeRoot)
+	leaf := record(typeTip, field("v", Primitive(PrimitiveString)), field("extra", Primitive(PrimitiveInt)))
+
+	s := NewSchema([]Type{base, dup, leaf})
+
+	if s.IsSubtype(dup, leaf) {
+		t.Error("a record extending the same base twice must not spuriously narrow an unrelated record")
+	}
+}
+
+func TestIsSubtypeAgainstAnAnonymousRecord(t *testing.T) {
+	t.Parallel()
+
+	s := subtypeSchema()
+	leaf := namedType(t, s, typeTip)
+
+	// An anonymous record's Name is "", so extendsTransitively's guard against
+	// an empty superName must stop it from being (mis)treated as a base every
+	// record extends; leaf must then be judged structurally, and it lacks the
+	// field anon requires.
+	anon := record("", field("nope", Primitive(PrimitiveString)))
+
+	if s.IsSubtype(leaf, anon) {
+		t.Error("a record must not narrow an anonymous record it neither names nor structurally matches")
+	}
 }
 
 func TestIsSubtypeRecordsStructurally(t *testing.T) {

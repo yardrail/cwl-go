@@ -1,6 +1,7 @@
 package salad
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -281,6 +282,47 @@ func TestLoadSchemaRunsASpecExample(t *testing.T) {
 	}
 }
 
+// TestLoadMetaschemaFromReportsLoadFailure exercises loadMetaschemaFrom's
+// Loader.Load error branch directly, against a file system that has none of
+// the metaschema's files. metaschema() is a process-wide [sync.OnceValue], so
+// this can only be reached by calling loadMetaschemaFrom directly, bypassing
+// the memoized singleton entirely.
+func TestLoadMetaschemaFromReportsLoadFailure(t *testing.T) {
+	t.Parallel()
+
+	got := loadMetaschemaFrom(fstest.MapFS{})
+	if got.err == nil {
+		t.Fatal("loadMetaschemaFrom must report a Loader.Load failure against an empty file system")
+	}
+
+	if !strings.Contains(got.err.Error(), "loading the built-in Schema Salad metaschema") {
+		t.Errorf("error = %v, want it to name the loading stage", got.err)
+	}
+}
+
+// TestLoadMetaschemaFromReportsFlattenFailure exercises loadMetaschemaFrom's
+// Flatten error branch: a metaschema entry point that loads fine but flattens
+// to something broken.
+func TestLoadMetaschemaFromReportsFlattenFailure(t *testing.T) {
+	t.Parallel()
+
+	fsys := fstest.MapFS{
+		"metaschema/metaschema.yml": &fstest.MapFile{
+			Data: []byte("$base: " + testSchemaBase + "\n" +
+				"$graph:\n- name: A\n  type: record\n  extends: B\n- name: B\n  type: record\n  extends: A\n"),
+		},
+	}
+
+	got := loadMetaschemaFrom(fsys)
+	if got.err == nil {
+		t.Fatal("loadMetaschemaFrom must report a Flatten failure on a broken metaschema")
+	}
+
+	if !strings.Contains(got.err.Error(), "flattening the built-in Schema Salad metaschema") {
+		t.Errorf("error = %v, want it to name the flattening stage", got.err)
+	}
+}
+
 func TestLoadSchemaReportsAnUnreadableReference(t *testing.T) {
 	t.Parallel()
 
@@ -294,17 +336,73 @@ func TestLoadSchemaReportsAnUnreadableReference(t *testing.T) {
 	}
 }
 
+// TestLoadSchemaReportsAFlattenFailure covers LoadSchema's own Flatten error
+// branch: a document shaped enough to validate against the metaschema (which
+// checks structure, not semantics) but whose extends declarations form a
+// cycle, which only Flatten itself catches.
+func TestLoadSchemaReportsAFlattenFailure(t *testing.T) {
+	t.Parallel()
+
+	fsys := fstest.MapFS{
+		testSchemaFile: &fstest.MapFile{
+			Data: []byte("$base: " + testSchemaBase + "\n" +
+				"$graph:\n- name: A\n  type: record\n  extends: B\n- name: B\n  type: record\n  extends: A\n"),
+		},
+	}
+
+	_, err := LoadSchema(testSchemaMount+testSchemaFile, WithFetcher(NewFSFetcher(fsys, testSchemaMount)))
+	if err == nil || !strings.Contains(err.Error(), "extends itself") {
+		t.Errorf("LoadSchema on a cyclic schema = %v, want it to report the Flatten failure", err)
+	}
+}
+
 func TestLoadSchemaRejectsADocumentThatIsNotASchema(t *testing.T) {
 	t.Parallel()
 
-	fsys := fstest.MapFS{"schema.yml": &fstest.MapFile{Data: []byte("hello: world\n")}}
+	fsys := fstest.MapFS{testSchemaFile: &fstest.MapFile{Data: []byte("hello: world\n")}}
 
-	_, err := LoadSchema(testSchemaMount+"schema.yml", WithFetcher(NewFSFetcher(fsys, testSchemaMount)))
+	_, err := LoadSchema(testSchemaMount+testSchemaFile, WithFetcher(NewFSFetcher(fsys, testSchemaMount)))
 	if err == nil {
 		t.Fatal("a document that is not a schema loaded as one")
 	}
 
 	assertMentions(t, err, "is not a valid Schema Salad schema, because")
+}
+
+// stubFailFetcher is a Fetcher whose FetchText and Normalize both fail, for
+// reaching the error branches LoadSchema and LoadAndValidate delegate to their
+// Loader.
+type stubFailFetcher struct{}
+
+var errStubFetch = errors.New("stub fetch failure")
+
+func (stubFailFetcher) FetchText(string) ([]byte, error) { return nil, errStubFetch }
+func (stubFailFetcher) Exists(string) bool               { return false }
+func (stubFailFetcher) Normalize(_, _ string) (string, error) {
+	return "", errStubFetch
+}
+
+func TestLoadSchemaReportsALoaderFailure(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadSchema("anything", WithFetcher(stubFailFetcher{}))
+	if err == nil || !strings.Contains(err.Error(), errStubFetch.Error()) {
+		t.Errorf("LoadSchema with a failing fetcher = %v, want it to report the fetch failure", err)
+	}
+}
+
+func TestLoadAndValidateReportsALoaderFailure(t *testing.T) {
+	t.Parallel()
+
+	ls := &LoadedSchema{
+		Schema: NewSchema([]Type{rootRecord(typeDoc, field("v", Primitive(PrimitiveString)))}),
+		Loader: NewLoader(WithFetcher(stubFailFetcher{})),
+	}
+
+	_, err := ls.LoadAndValidate("anything")
+	if err == nil {
+		t.Error("LoadAndValidate must report a Load failure from its Loader")
+	}
 }
 
 func TestLoadAndValidateWithoutASchema(t *testing.T) {

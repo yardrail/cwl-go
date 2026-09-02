@@ -56,7 +56,7 @@ func (f memFetcher) Normalize(base, ref string) (string, error) {
 func schemaContext(t *testing.T, src string) *Context {
 	t.Helper()
 
-	node := mustParse(t, "schema.yml", src)
+	node := mustParse(t, testSchemaFile, src)
 
 	meta, _ := AsMap(node)
 
@@ -343,6 +343,142 @@ func TestLoaderIsConcurrencySafe(t *testing.T) {
 	wg.Wait()
 }
 
+func TestReindexSkipsANullIdentifierField(t *testing.T) {
+	t.Parallel()
+
+	// resolveIdentifiers explicitly skips a null identifier value, so it
+	// reaches resolveFields unchanged; reindex must then tolerate the same
+	// field failing AsString rather than indexing a bogus entry.
+	doc, err := loadMem(t, schemaContext(t, identSchema), map[string]string{docSimple: "id: null\n"}, docSimple)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	id, ok := AsString(mustGet(t, mustMap(t, doc.Root), "id"))
+	if ok || id != "" {
+		t.Errorf("id = %q, ok=%v; want the null scalar preserved", id, ok)
+	}
+}
+
+func TestWithNamespacesSkipsANonStringValue(t *testing.T) {
+	t.Parallel()
+
+	docs := map[string]string{
+		docMain: "$namespaces:\n  ex: [not, a, string]\n$graph:\n  - id: thing\n",
+	}
+
+	doc, err := loadMem(t, schemaContext(t, identSchema), docs, docMain)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if doc.Metadata == nil || !doc.Metadata.Has(dirNamespaces) {
+		t.Fatal("the $namespaces directive must still survive into the document metadata")
+	}
+}
+
+// failFetcher's Normalize and FetchText both fail unconditionally, for
+// reaching the error branches Loader.Load, Loader.LoadNode and Loader.parse
+// delegate to their Fetcher.
+type failFetcher struct{}
+
+var errStubFetcher = errors.New("stub fetcher failure")
+
+func (failFetcher) FetchText(string) ([]byte, error) { return nil, errStubFetcher }
+func (failFetcher) Exists(string) bool               { return false }
+func (failFetcher) Normalize(_, _ string) (string, error) {
+	return "", errStubFetcher
+}
+
+func TestLoaderContextWithoutWithContext(t *testing.T) {
+	t.Parallel()
+
+	l := NewLoader()
+	if got := l.Context(); got == nil {
+		t.Fatal("Context() must never return nil")
+	}
+
+	if _, ok := l.Context().Term("anything"); ok {
+		t.Error("a loader built without WithContext must report an empty context")
+	}
+}
+
+func TestLoadReportsANormalizeFailure(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewLoader(WithFetcher(failFetcher{})).Load("anything")
+	if err == nil || !strings.Contains(err.Error(), "cannot resolve document reference") {
+		t.Errorf("Load with a failing Normalize = %v, want it to report the failure", err)
+	}
+}
+
+func TestParseReportsAFetchTextFailure(t *testing.T) {
+	t.Parallel()
+
+	// Normalize succeeds (delegating to the real one) but FetchText fails, so
+	// Loader.parse's own error branch is reached rather than Load's Normalize
+	// branch.
+	_, err := NewLoader(WithFetcher(normalizingStubFetcher{})).Load("doc.yml")
+	if err == nil || !strings.Contains(err.Error(), "cannot fetch") {
+		t.Errorf("Load with a failing FetchText = %v, want it to report the fetch failure", err)
+	}
+}
+
+// normalizingStubFetcher normalizes for real but never fetches anything.
+type normalizingStubFetcher struct{}
+
+func (normalizingStubFetcher) FetchText(string) ([]byte, error) { return nil, errStubFetcher }
+func (normalizingStubFetcher) Exists(string) bool               { return false }
+func (normalizingStubFetcher) Normalize(base, ref string) (string, error) {
+	return normalizeURL(base, ref)
+}
+
+func TestLoadNodeFallsBackToTheConfiguredBaseURL(t *testing.T) {
+	t.Parallel()
+
+	loader := NewLoader(
+		WithContext(schemaContext(t, identSchema)),
+		WithBaseURL("http://example.com/configured"),
+		WithSkipLinkCheck(true),
+	)
+
+	doc, err := loader.LoadNode(mustParse(t, testFile, "id: thing\n"), "")
+	if err != nil {
+		t.Fatalf("LoadNode: %v", err)
+	}
+
+	id, _ := AsString(mustGet(t, mustMap(t, doc.Root), "id"))
+	if id != "http://example.com/configured#thing" {
+		t.Errorf("id = %q, want it resolved against the loader's configured base URL", id)
+	}
+}
+
+func TestLoadNodeReportsAResolveFailure(t *testing.T) {
+	t.Parallel()
+
+	loader := NewLoader(WithContext(schemaContext(t, identSchema)))
+
+	// A duplicate identifier is an error resolveMap/resolveObject raises, which
+	// reaches LoadNode's own error branch since there is no root fetch involved.
+	doc := mustParse(t, testFile, "$graph:\n  - id: same\n  - id: same\n")
+
+	_, err := loader.LoadNode(doc, "http://example.com/doc")
+	if err == nil || !strings.Contains(err.Error(), "duplicate identifier") {
+		t.Errorf("LoadNode = %v, want a duplicate identifier error", err)
+	}
+}
+
+func TestLoadReportsAParseFailure(t *testing.T) {
+	t.Parallel()
+
+	docs := map[string]string{"bad.yml": "a: [1, 2\n"}
+
+	_, err := loadMem(t, schemaContext(t, identSchema), docs, "bad.yml")
+	if err == nil {
+		t.Fatal("Load must report a syntax error in the fetched document")
+	}
+}
+
 func TestUnimplementedMessage(t *testing.T) {
 	t.Parallel()
 
@@ -389,6 +525,26 @@ func TestDirectiveErrors(t *testing.T) {
 			name:    "an include of a document that is not there",
 			docs:    map[string]string{docMain: "id: main\ntext:\n  $include: gone.txt\n"},
 			wantMsg: "cannot $include",
+		},
+		{
+			name:    "an import target that fails to normalize",
+			docs:    map[string]string{docMain: "id: main\nchild:\n  $import: \"\"\n"},
+			wantMsg: "cannot resolve",
+		},
+		{
+			name:    "an include target that fails to normalize",
+			docs:    map[string]string{docMain: "id: main\ntext:\n  $include: \"\"\n"},
+			wantMsg: "cannot resolve",
+		},
+		{
+			name:    "an include with more than one field",
+			docs:    map[string]string{docMain: "id: main\ntext:\n  $include: notes.txt\n  extra: nope\n"},
+			wantMsg: "only field",
+		},
+		{
+			name:    "an include target that is not a string",
+			docs:    map[string]string{docMain: "id: main\ntext:\n  $include: [a]\n"},
+			wantMsg: "$include must be a string",
 		},
 	}
 

@@ -273,6 +273,24 @@ func TestValidateNumericFit(t *testing.T) {
 	}
 }
 
+func TestValidateIntegerAndFloatingRejectNonScalars(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range []PrimitiveKind{PrimitiveInt, PrimitiveLong, PrimitiveFloat, PrimitiveDouble} {
+		s := singleFieldSchema(Primitive(kind))
+
+		err := s.Validate(mustParse(t, testFile, "v: {a: 1}\n"))
+		if err == nil {
+			t.Errorf("a mapping must not validate against %s", kind)
+		}
+
+		err = s.Validate(mustParse(t, testFile, "v: [1]\n"))
+		if err == nil {
+			t.Errorf("a sequence must not validate against %s", kind)
+		}
+	}
+}
+
 func TestValidateNumericFitMessages(t *testing.T) {
 	t.Parallel()
 

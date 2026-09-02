@@ -111,6 +111,18 @@ func execute(
 		return nil, err
 	}
 
+	return outputsFromResult(result)
+}
+
+// outputsFromResult maps a finished run's status onto its output object, or the reason
+// there is none.
+//
+// It is split out of execute so the StatusSuspended (and, in principle, any other
+// non-success) branch can be unit-tested directly against a hand-built
+// [cwlexec.RunResult] -- execute always builds its own default [cwlexec.NewRegistry], and
+// no built-in handler ever leaves a top-level run suspended, so the branch cannot be
+// reached by running the engine at all.
+func outputsFromResult(result cwlexec.RunResult) (map[string]any, error) {
 	if result.Status != cwlexec.StatusSuccess {
 		// A suspension is the only status that reaches here today, and it is an
 		// ordinary failure: the document is fine and the run is merely unfinished,

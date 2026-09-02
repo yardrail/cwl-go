@@ -253,6 +253,24 @@ func TestDecodeDirectoryListingAbsentIsNotEmpty(t *testing.T) {
 	}
 }
 
+// TestDecodeInitialWorkDirListingAbsentIsUnset covers initialWorkDirListing's
+// guard for a listing field that was never written at all — decoding must
+// leave the zero value rather than treat a missing field as an empty listing.
+func TestDecodeInitialWorkDirListingAbsentIsUnset(t *testing.T) {
+	t.Parallel()
+
+	const block = "  - class: InitialWorkDirRequirement\n"
+
+	requirement, ok := requirementOfClass(t, block).(*InitialWorkDirRequirement)
+	if !ok {
+		t.Fatal("decoded requirement is not a *InitialWorkDirRequirement")
+	}
+
+	if requirement.Listing.Kind() != ValueUnset {
+		t.Errorf("Listing.Kind() = %s, want %s for an absent field", requirement.Listing.Kind(), ValueUnset)
+	}
+}
+
 func TestDecodeInitialWorkDirListingAsExpression(t *testing.T) {
 	t.Parallel()
 

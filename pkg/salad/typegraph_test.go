@@ -66,6 +66,54 @@ $graph:
 	}
 }
 
+func TestBuildUnionReportsAMalformedMember(t *testing.T) {
+	t.Parallel()
+
+	_, err := flattenUnlinked(t,
+		"$graph:\n- name: R\n  type: record\n  fields:\n    - name: v\n      type: [string, Nope]\n")
+	assertErrorContains(t, err, `the type "Nope" is not defined`)
+}
+
+// TestResolveRefMatchesAFullyQualifiedIRI reaches namedType's primitiveIRIKinds
+// lookup. It has to be built by hand, bypassing the loader entirely: the
+// standard resolution path collapses a fully-qualified primitive IRI written
+// in a @vocab-typed field straight back to its short vocabulary term (that is
+// what ExpandVocabTerm is for), so no document the loader resolves ever hands
+// the type builder the IRI form to resolve in the first place.
+func TestResolveRefMatchesAFullyQualifiedIRI(t *testing.T) {
+	t.Parallel()
+
+	field := NewMapNode(SourceLine{}, []MapEntry{
+		{Key: keyName, Value: NewStringNode(SourceLine{}, "v")},
+		{Key: keyType, Value: NewStringNode(SourceLine{}, "http://www.w3.org/2001/XMLSchema#string")},
+	})
+	def := NewMapNode(SourceLine{}, []MapEntry{
+		{Key: keyName, Value: NewStringNode(SourceLine{}, testSchemaBase+"R")},
+		{Key: keyType, Value: NewStringNode(SourceLine{}, kindRecord)},
+		{Key: keyFields, Value: NewSeqNode(SourceLine{}, []Node{field})},
+	})
+
+	s, err := Flatten(NewSeqNode(SourceLine{}, []Node{def}), saladBootstrapContext())
+	if err != nil {
+		t.Fatalf("Flatten failed: %v", err)
+	}
+
+	r, ok := mustRecord(s, testSchemaBase+"R")
+	if !ok {
+		t.Fatalf("the schema defines no R; it defines %v", s.Names())
+	}
+
+	f, ok := r.Field("v")
+	if !ok {
+		t.Fatal("R has no field v")
+	}
+
+	p, isPrim := f.Type.(*PrimitiveType)
+	if !isPrim || p.Kind != PrimitiveString {
+		t.Errorf("field v resolved to %s, want the string primitive via its fully-qualified IRI", typeLabel(f.Type))
+	}
+}
+
 func TestFlattenBuildsAnonymousInlineTypes(t *testing.T) {
 	t.Parallel()
 

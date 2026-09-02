@@ -696,7 +696,7 @@ func TestSubworkflowPayloadIsAStableWireShape(t *testing.T) {
 	t.Parallel()
 
 	encoded, err := json.Marshal(subworkflowPayload{
-		State:       *newRunState(object(subIn, valueOne)),
+		State:       newRunState(object(subIn, valueOne)),
 		Suspensions: wireSuspensions([]Suspension{{StepID: subStep, Token: "t", ScatterIndex: []int{1}}}),
 	})
 	if err != nil {

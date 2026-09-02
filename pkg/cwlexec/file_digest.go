@@ -77,7 +77,7 @@ func outDigest(local string) (outFileStats, error) {
 // outputs are routinely alignments and archives.
 func outHashAll(r io.Reader) (outFileStats, error) {
 	digest := sha1.New()
-	head := &outHeadWriter{limit: joMaxContentsBytes}
+	head := &outHeadWriter{buf: nil, limit: joMaxContentsBytes}
 
 	size, err := io.Copy(io.MultiWriter(digest, head), r)
 	if err != nil {

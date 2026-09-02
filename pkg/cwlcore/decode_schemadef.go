@@ -36,7 +36,7 @@ import (
 func ResolveSchemaDef(scope *RequirementScope, name string) (TypeRef, bool) {
 	types := schemaDefTypes(scope)
 	if len(types) == 0 {
-		return TypeRef{}, false
+		return TypeRef{payload: nil, node: nil, name: "", kind: 0}, false
 	}
 
 	resolver := &schemaDefResolver{types: types, active: make(map[string]bool, len(types))}
@@ -98,7 +98,7 @@ type schemaDefResolver struct {
 func (r *schemaDefResolver) byName(name string) (TypeRef, bool) {
 	node, found := r.lookup(name)
 	if !found {
-		return TypeRef{}, false
+		return TypeRef{payload: nil, node: nil, name: "", kind: 0}, false
 	}
 
 	key := typeNameKey(name)

@@ -159,35 +159,35 @@ type TypeRef struct {
 // NewPrimitiveType returns a TypeRef naming the CWLType symbol name, which
 // should be one of the Primitive constants.
 func NewPrimitiveType(name string) TypeRef {
-	return TypeRef{kind: TypeKindPrimitive, name: name}
+	return TypeRef{payload: nil, node: nil, name: name, kind: TypeKindPrimitive}
 }
 
 // NewNamedType returns a TypeRef referring to the named type name, typically
 // one declared by a SchemaDefRequirement. The reference is not resolved.
 func NewNamedType(name string) TypeRef {
-	return TypeRef{kind: TypeKindNamed, name: name}
+	return TypeRef{payload: nil, node: nil, name: name, kind: TypeKindNamed}
 }
 
 // NewRecordType returns a TypeRef holding the inline record schema s.
 func NewRecordType(s *RecordSchema) TypeRef {
-	return TypeRef{kind: TypeKindRecord, payload: s}
+	return TypeRef{payload: s, node: nil, name: "", kind: TypeKindRecord}
 }
 
 // NewEnumType returns a TypeRef holding the inline enum schema s.
 func NewEnumType(s *EnumSchema) TypeRef {
-	return TypeRef{kind: TypeKindEnum, payload: s}
+	return TypeRef{payload: s, node: nil, name: "", kind: TypeKindEnum}
 }
 
 // NewArrayType returns a TypeRef holding the inline array schema s.
 func NewArrayType(s *ArraySchema) TypeRef {
-	return TypeRef{kind: TypeKindArray, payload: s}
+	return TypeRef{payload: s, node: nil, name: "", kind: TypeKindArray}
 }
 
 // NewUnionType returns a TypeRef holding the alternative types options, in
 // document order. Order is preserved because CWL resolves a value against a
 // union by trying its members in order.
 func NewUnionType(options []TypeRef) TypeRef {
-	return TypeRef{kind: TypeKindUnion, payload: options}
+	return TypeRef{payload: options, node: nil, name: "", kind: TypeKindUnion}
 }
 
 // NewShortcutType returns a TypeRef for one of the stdin, stdout and stderr
@@ -196,9 +196,9 @@ func NewUnionType(options []TypeRef) TypeRef {
 func NewShortcutType(kind TypeKind) TypeRef {
 	switch kind {
 	case TypeKindStdin, TypeKindStdout, TypeKindStderr:
-		return TypeRef{kind: kind}
+		return TypeRef{payload: nil, node: nil, name: "", kind: kind}
 	default:
-		return TypeRef{}
+		return TypeRef{payload: nil, node: nil, name: "", kind: 0}
 	}
 }
 

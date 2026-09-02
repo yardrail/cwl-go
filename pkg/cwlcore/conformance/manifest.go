@@ -110,7 +110,14 @@ func readEntries(manifestPath, root string) ([]Entry, error) {
 
 	entries, ok := salad.AsSeq(doc.Root)
 	if !ok {
-		return nil, salad.Errorf(salad.SourceLine{File: abs}, "expected the test manifest to be a list")
+		return nil, salad.Errorf(
+			salad.SourceLine{
+				File:  abs,
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"expected the test manifest to be a list",
+		)
 	}
 
 	absRoot, err := filepath.Abs(root)
@@ -147,7 +154,7 @@ func collectEntries(entries *salad.SeqNode, root string) []Entry {
 func newEntry(entry *salad.MapNode, root string) (Entry, bool) {
 	tool, ok := pathField(entry, fieldTool, root)
 	if !ok {
-		return Entry{}, false
+		return Entry{Output: nil, ID: "", Doc: "", Tool: "", Job: "", Tags: nil, ShouldFail: false}, false
 	}
 
 	job, _ := pathField(entry, fieldJob, root)
@@ -172,7 +179,7 @@ func indexEntries(tests []Entry) manifest {
 
 		record, seen := index[test.Tool]
 		if !seen {
-			record = &manifestEntry{alwaysFails: true}
+			record = &manifestEntry{ids: nil, tags: nil, alwaysFails: true}
 			index[test.Tool] = record
 		}
 

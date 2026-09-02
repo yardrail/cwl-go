@@ -29,7 +29,7 @@ func suspendingHandler() func(context.Context, *StepCall) (Result, error) {
 func roundTrip(t *testing.T, state RunState) RunState {
 	t.Helper()
 
-	encoded, err := json.Marshal(state)
+	encoded, err := json.Marshal(&state)
 	if err != nil {
 		t.Fatalf("json.Marshal(RunState): unexpected error: %v", err)
 	}

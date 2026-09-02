@@ -87,17 +87,44 @@ var _ Node = (*ScalarNode)(nil)
 
 // NewNullNode builds the null scalar located at loc.
 func NewNullNode(loc SourceLine) *ScalarNode {
-	return &ScalarNode{loc: loc, kind: NullScalar}
+	return &ScalarNode{
+		str:     "",
+		dec:     Decimal{digits: "", exp: 0, neg: false, floatForm: false},
+		loc:     loc,
+		kind:    NullScalar,
+		num:     0,
+		flt:     0,
+		truth:   false,
+		written: false,
+	}
 }
 
 // NewBoolNode builds a boolean scalar located at loc.
 func NewBoolNode(loc SourceLine, v bool) *ScalarNode {
-	return &ScalarNode{loc: loc, kind: BoolScalar, truth: v}
+	return &ScalarNode{
+		str:     "",
+		dec:     Decimal{digits: "", exp: 0, neg: false, floatForm: false},
+		loc:     loc,
+		kind:    BoolScalar,
+		num:     0,
+		flt:     0,
+		truth:   v,
+		written: false,
+	}
 }
 
 // NewIntNode builds an integer scalar located at loc.
 func NewIntNode(loc SourceLine, v int64) *ScalarNode {
-	return &ScalarNode{loc: loc, kind: IntScalar, num: v}
+	return &ScalarNode{
+		str:     "",
+		dec:     Decimal{digits: "", exp: 0, neg: false, floatForm: false},
+		loc:     loc,
+		kind:    IntScalar,
+		num:     v,
+		flt:     0,
+		truth:   false,
+		written: false,
+	}
 }
 
 // NewNumberNode builds the scalar a numeric literal resolves to, keeping the
@@ -114,14 +141,23 @@ func NewIntNode(loc SourceLine, v int64) *ScalarNode {
 //     that can hold it without losing digits.
 func NewNumberNode(loc SourceLine, d Decimal) *ScalarNode {
 	if d.IsFloatForm() {
-		return &ScalarNode{loc: loc, kind: FloatScalar, flt: d.Float64(), dec: d, written: true}
+		return &ScalarNode{
+			str:     "",
+			dec:     d,
+			loc:     loc,
+			kind:    FloatScalar,
+			num:     0,
+			flt:     d.Float64(),
+			truth:   false,
+			written: true,
+		}
 	}
 
 	if value, fits := d.Int64(); fits {
-		return &ScalarNode{loc: loc, kind: IntScalar, num: value, dec: d, written: true}
+		return &ScalarNode{str: "", dec: d, loc: loc, kind: IntScalar, num: value, flt: 0, truth: false, written: true}
 	}
 
-	return &ScalarNode{loc: loc, kind: DecimalScalar, dec: d, written: true}
+	return &ScalarNode{str: "", dec: d, loc: loc, kind: DecimalScalar, num: 0, flt: 0, truth: false, written: true}
 }
 
 // NewFloatNode builds a floating-point scalar located at loc.
@@ -131,18 +167,40 @@ func NewNumberNode(loc SourceLine, d Decimal) *ScalarNode {
 // written, and is rendered from its value the way the reference implementation
 // renders a computed one. Use [NewNumberNode] for a float a document wrote.
 func NewFloatNode(loc SourceLine, v float64) *ScalarNode {
-	return &ScalarNode{loc: loc, kind: FloatScalar, flt: v}
+	return &ScalarNode{
+		str:     "",
+		dec:     Decimal{digits: "", exp: 0, neg: false, floatForm: false},
+		loc:     loc,
+		kind:    FloatScalar,
+		num:     0,
+		flt:     v,
+		truth:   false,
+		written: false,
+	}
 }
 
 // NewStringNode builds a string scalar located at loc.
 func NewStringNode(loc SourceLine, v string) *ScalarNode {
-	return &ScalarNode{loc: loc, kind: StringScalar, str: v}
+	return &ScalarNode{
+		str:     v,
+		dec:     Decimal{digits: "", exp: 0, neg: false, floatForm: false},
+		loc:     loc,
+		kind:    StringScalar,
+		num:     0,
+		flt:     0,
+		truth:   false,
+		written: false,
+	}
 }
 
 // Loc reports where in the source document this scalar came from.
 func (s *ScalarNode) Loc() SourceLine {
 	if s == nil {
-		return SourceLine{}
+		return SourceLine{
+			File:  "",
+			Start: Position{Line: 0, Column: 0, Offset: 0},
+			End:   Position{Line: 0, Column: 0, Offset: 0},
+		}
 	}
 
 	return s.loc
@@ -217,7 +275,7 @@ func (s *ScalarNode) AsInt() (int64, bool) {
 // is one callers must keep.
 func (s *ScalarNode) AsDecimal() (Decimal, bool) {
 	if s == nil || !s.written {
-		return Decimal{}, false
+		return Decimal{digits: "", exp: 0, neg: false, floatForm: false}, false
 	}
 
 	return s.dec, true

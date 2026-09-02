@@ -77,12 +77,12 @@ type Loader struct {
 
 // NewLoader constructs a Loader configured by opts.
 func NewLoader(opts ...LoaderOption) *Loader {
-	cfg := &loaderConfig{}
+	cfg := &loaderConfig{fetcher: nil, context: nil, baseURL: "", skipLinkCheck: false}
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	return &Loader{cfg: cfg, parsed: make(map[string]Node)}
+	return &Loader{cfg: cfg, parsed: make(map[string]Node), mu: sync.Mutex{}}
 }
 
 // Context returns the term table the loader resolves documents against. It is
@@ -116,12 +116,30 @@ func (l *Loader) Fetcher() Fetcher {
 func (l *Loader) Load(ref string) (*Document, error) {
 	docURL, err := l.Fetcher().Normalize(l.cfg.baseURL, ref)
 	if err != nil {
-		return nil, Errorf(SourceLine{}, "cannot resolve document reference %q: %s", ref, err)
+		return nil, Errorf(
+			SourceLine{
+				File:  "",
+				Start: Position{Line: 0, Column: 0, Offset: 0},
+				End:   Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"cannot resolve document reference %q: %s",
+			ref,
+			err,
+		)
 	}
 
 	r := l.newResolver()
 
-	root, err := r.loadReference(docURL, SourceLine{}, l.Context(), true)
+	root, err := r.loadReference(
+		docURL,
+		SourceLine{
+			File:  "",
+			Start: Position{Line: 0, Column: 0, Offset: 0},
+			End:   Position{Line: 0, Column: 0, Offset: 0},
+		},
+		l.Context(),
+		true,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +159,7 @@ func (l *Loader) LoadNode(doc Node, baseURL string) (*Document, error) {
 
 	r := l.newResolver()
 
-	root, err := r.resolve(doc, scope{ctx: l.Context(), base: base, fileBase: base, top: true})
+	root, err := r.resolve(doc, scope{ctx: l.Context(), base: base, fileBase: base, field: "", top: true})
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +180,16 @@ func (l *Loader) parse(docURL string) (Node, error) {
 
 	text, err := l.Fetcher().FetchText(docURL)
 	if err != nil {
-		return nil, Errorf(SourceLine{File: docURL}, "cannot fetch %s: %s", docURL, err)
+		return nil, Errorf(
+			SourceLine{
+				File:  docURL,
+				Start: Position{Line: 0, Column: 0, Offset: 0},
+				End:   Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"cannot fetch %s: %s",
+			docURL,
+			err,
+		)
 	}
 
 	node, err := Parse(docURL, text)

@@ -151,7 +151,7 @@ func TestLoadManifestWrapsAMalformedManifest(t *testing.T) {
 
 	root := writeCorpusManifest(t, "- tool: [unterminated\n")
 
-	_, err := loadManifest(&corpus{root: root})
+	_, err := loadManifest(&corpus{root: root, tag: "", fetched: false})
 	if err == nil {
 		t.Fatal("loadManifest accepted a malformed manifest")
 	}
@@ -178,8 +178,8 @@ func TestReadEntriesRejectsAManifestThatIsNotAList(t *testing.T) {
 		t.Fatal("readEntries accepted a manifest whose root is a mapping, not a list")
 	}
 
-	var se *salad.Error
-	if !errors.As(err, &se) {
+	se, isSaladErr := errors.AsType[*salad.Error](err)
+	if !isSaladErr || se == nil {
 		t.Fatalf("readEntries error = %v (%T), want a *salad.Error", err, err)
 	}
 }
@@ -187,7 +187,11 @@ func TestReadEntriesRejectsAManifestThatIsNotAList(t *testing.T) {
 func TestCollectEntriesSkipsNonMapAndToollessItems(t *testing.T) {
 	t.Parallel()
 
-	loc := salad.SourceLine{}
+	loc := salad.SourceLine{
+		File:  "",
+		Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+		End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+	}
 	scalarItem := salad.NewStringNode(loc, "not a map")
 	toollessItem := salad.NewMapNode(loc, []salad.MapEntry{{Key: fieldID, Value: salad.NewStringNode(loc, "x")}})
 	seq := salad.NewSeqNode(loc, []salad.Node{scalarItem, toollessItem})
@@ -201,7 +205,11 @@ func TestCollectEntriesSkipsNonMapAndToollessItems(t *testing.T) {
 func TestNewEntryReportsFalseWhenToolIsMissing(t *testing.T) {
 	t.Parallel()
 
-	loc := salad.SourceLine{}
+	loc := salad.SourceLine{
+		File:  "",
+		Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+		End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+	}
 	entry := salad.NewMapNode(loc, []salad.MapEntry{{Key: fieldID, Value: salad.NewStringNode(loc, "x")}})
 
 	got, ok := newEntry(entry, "/root")
@@ -209,7 +217,7 @@ func TestNewEntryReportsFalseWhenToolIsMissing(t *testing.T) {
 		t.Errorf("newEntry ok = true for an entry with no tool field, got %+v", got)
 	}
 
-	if !reflect.DeepEqual(got, Entry{}) {
+	if !reflect.DeepEqual(got, (Entry{Output: nil, ID: "", Doc: "", Tool: "", Job: "", Tags: nil, ShouldFail: false})) {
 		t.Errorf("newEntry = %+v, want the zero Entry", got)
 	}
 }
@@ -217,7 +225,11 @@ func TestNewEntryReportsFalseWhenToolIsMissing(t *testing.T) {
 func TestPathFieldReportsFalseForANonStringValue(t *testing.T) {
 	t.Parallel()
 
-	loc := salad.SourceLine{}
+	loc := salad.SourceLine{
+		File:  "",
+		Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+		End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+	}
 	entry := salad.NewMapNode(loc, []salad.MapEntry{{Key: fieldTool, Value: salad.NewIntNode(loc, 3)}})
 
 	_, ok := pathField(entry, fieldTool, "/root")
@@ -237,25 +249,41 @@ func TestSourceDir(t *testing.T) {
 	}{
 		{
 			name: "no usable location falls back to the corpus root",
-			loc:  salad.SourceLine{},
+			loc: salad.SourceLine{
+				File:  "",
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
 			root: filepath.FromSlash("/corpus"),
 			want: filepath.FromSlash("/corpus"),
 		},
 		{
 			name: "a file URL is resolved",
-			loc:  salad.SourceLine{File: "file:///corpus/sub/index.yaml"},
+			loc: salad.SourceLine{
+				File:  "file:///corpus/sub/index.yaml",
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
 			root: filepath.FromSlash("/corpus"),
 			want: filepath.FromSlash("/corpus/sub"),
 		},
 		{
 			name: "a bare absolute path",
-			loc:  salad.SourceLine{File: filepath.FromSlash("/corpus/sub/index.yaml")},
+			loc: salad.SourceLine{
+				File:  filepath.FromSlash("/corpus/sub/index.yaml"),
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
 			root: filepath.FromSlash("/corpus"),
 			want: filepath.FromSlash("/corpus/sub"),
 		},
 		{
 			name: "a bare relative path is joined against the root",
-			loc:  salad.SourceLine{File: filepath.FromSlash("sub/index.yaml")},
+			loc: salad.SourceLine{
+				File:  filepath.FromSlash("sub/index.yaml"),
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
 			root: filepath.FromSlash("/corpus"),
 			want: filepath.FromSlash("/corpus/sub"),
 		},
@@ -276,7 +304,11 @@ func TestSourceDir(t *testing.T) {
 func TestBoolField(t *testing.T) {
 	t.Parallel()
 
-	loc := salad.SourceLine{}
+	loc := salad.SourceLine{
+		File:  "",
+		Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+		End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+	}
 
 	tests := []struct {
 		name  string
@@ -315,7 +347,11 @@ func TestBoolField(t *testing.T) {
 func TestTagList(t *testing.T) {
 	t.Parallel()
 
-	loc := salad.SourceLine{}
+	loc := salad.SourceLine{
+		File:  "",
+		Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+		End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+	}
 
 	t.Run("field absent", func(t *testing.T) {
 		t.Parallel()
@@ -364,9 +400,17 @@ func TestManifestIndexMergesEveryTestNamingADocument(t *testing.T) {
 	t.Parallel()
 
 	index := indexEntries([]Entry{
-		{Tool: testDoc, ID: "second", Tags: []string{tagWorkflow}, ShouldFail: true},
-		{Tool: testDoc, ID: "first", Tags: []string{tagWorkflow, tagRequired}},
-		{Tool: "tests/b.cwl", ID: "third", Tags: []string{tagTool}, ShouldFail: true},
+		{Output: nil, ID: "second", Doc: "", Tool: testDoc, Job: "", Tags: []string{tagWorkflow}, ShouldFail: true},
+		{
+			Output:     nil,
+			ID:         "first",
+			Doc:        "",
+			Tool:       testDoc,
+			Job:        "",
+			Tags:       []string{tagWorkflow, tagRequired},
+			ShouldFail: false,
+		},
+		{Output: nil, ID: "third", Doc: "", Tool: "tests/b.cwl", Job: "", Tags: []string{tagTool}, ShouldFail: true},
 	})
 
 	shared := index[testDoc]

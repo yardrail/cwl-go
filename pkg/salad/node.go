@@ -71,7 +71,11 @@ func NewMapNode(loc SourceLine, entries []MapEntry) *MapNode {
 // Loc reports where in the source document this map came from.
 func (m *MapNode) Loc() SourceLine {
 	if m == nil {
-		return SourceLine{}
+		return SourceLine{
+			File:  "",
+			Start: Position{Line: 0, Column: 0, Offset: 0},
+			End:   Position{Line: 0, Column: 0, Offset: 0},
+		}
 	}
 
 	return m.loc
@@ -204,7 +208,11 @@ func NewSeqNode(loc SourceLine, items []Node) *SeqNode {
 // Loc reports where in the source document this list came from.
 func (s *SeqNode) Loc() SourceLine {
 	if s == nil {
-		return SourceLine{}
+		return SourceLine{
+			File:  "",
+			Start: Position{Line: 0, Column: 0, Offset: 0},
+			End:   Position{Line: 0, Column: 0, Offset: 0},
+		}
 	}
 
 	return s.loc

@@ -42,14 +42,14 @@ func (d *decoder) stepRun(m *salad.MapNode) StepRun {
 	if value == nil {
 		d.missingField(m, keyRun, "a workflow step")
 
-		return StepRun{}
+		return StepRun{Process: nil, Ref: ""}
 	}
 
 	if ref, ok := salad.AsString(value); ok {
-		return StepRun{Ref: ref}
+		return StepRun{Process: nil, Ref: ref}
 	}
 
-	return StepRun{Process: d.process(value)}
+	return StepRun{Process: d.process(value), Ref: ""}
 }
 
 // workflowStepInput decodes one input wiring of a step.

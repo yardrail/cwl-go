@@ -91,7 +91,7 @@ func LoadOntologyAt(rdfxml []byte, baseURI string) (*FormatOntology, error) {
 		return nil, err
 	}
 
-	ontology := &FormatOntology{}
+	ontology := &FormatOntology{superClasses: nil, equivalents: nil}
 
 	for _, triple := range triples {
 		switch triple.Predicate {
@@ -371,17 +371,17 @@ func checkOneFormat(file any, allowed []string, o *FormatOntology) error {
 func asFormatValue(file any) (formatValue, bool, error) {
 	switch value := file.(type) {
 	case nil:
-		return formatValue{}, false, nil
+		return formatValue{iri: "", label: ""}, false, nil
 	case *File:
 		if value == nil {
-			return formatValue{}, false, nil
+			return formatValue{iri: "", label: ""}, false, nil
 		}
 
 		return fileFormatValue(value), true, nil
 	case File:
 		return fileFormatValue(&value), true, nil
 	case *Directory, Directory:
-		return formatValue{}, false, nil
+		return formatValue{iri: "", label: ""}, false, nil
 	case map[string]any:
 		return mapFormatValue(value)
 	default:
@@ -407,12 +407,12 @@ func mapFormatValue(object map[string]any) (formatValue, bool, error) {
 	)
 
 	if mapStringValue(object, fileKeyClass) == ClassDirectory {
-		return formatValue{}, false, nil
+		return formatValue{iri: "", label: ""}, false, nil
 	}
 
 	raw, declared := object[fileKeyFormat]
 	if !declared {
-		return formatValue{label: label}, true, nil
+		return formatValue{iri: "", label: label}, true, nil
 	}
 
 	iri, ok := raw.(string)

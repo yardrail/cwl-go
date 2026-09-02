@@ -55,7 +55,7 @@ type Registry struct {
 //
 // Every other class must be registered by the caller or the run fails closed with [ErrNoHandler].
 func NewRegistry() *Registry {
-	registry := &Registry{}
+	registry := &Registry{entries: nil}
 
 	registry.Register(Class(cwlcore.ClassExpressionTool), expressionToolHandler{})
 	registry.Register(Class(cwlcore.ClassOperation), operationHandler{})
@@ -84,7 +84,7 @@ func (r *Registry) Register(class Class, handler StepHandler, opts ...RegisterOp
 		panic("cwlexec: Register called with a nil handler for class " + string(class))
 	}
 
-	entry := registration{handler: handler}
+	entry := registration{handler: handler, unbudgeted: false}
 	for _, opt := range opts {
 		opt(&entry)
 	}

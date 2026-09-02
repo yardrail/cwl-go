@@ -10,7 +10,6 @@ import (
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 	"github.com/yardrail/cwl-go/pkg/cwlexec"
-	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
 // emptyJobName is the file name the synthetic empty job order is reported against, for a
@@ -53,7 +52,7 @@ type invocation struct {
 // rather than as an invalid document. That check lives inside the loader, so it covers
 // every document a run touches and not merely the one named here.
 func produce(ctx context.Context, run *invocation) (map[string]any, error) {
-	process, err := cwlcore.LoadFile(ctx, run.process, salad.Strict(true))
+	process, err := cwlcore.LoadFile(ctx, run.process, cwlcore.Strict(true))
 	if err != nil {
 		return nil, unsupportedVersion(run.process, err)
 	}
@@ -98,7 +97,24 @@ func execute(
 	inputs map[string]any,
 	outDir string,
 ) (map[string]any, error) {
-	settings := &cwlexec.Config{Logger: slog.New(slog.DiscardHandler), OutDir: outDir}
+	settings := &cwlexec.Config{
+		Logger:            slog.New(slog.DiscardHandler),
+		SelectResources:   nil,
+		AllowRequirements: nil,
+		OutDir:            outDir,
+		TmpDirPrefix:      "",
+		OnError:           "",
+		Containers: cwlexec.ContainerPolicy{
+			Disabled:    false,
+			NoMatchUser: false,
+			NoReadOnly:  false,
+			Keep:        false,
+		},
+		Resources:           cwlexec.ResourceBudget{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
+		EvalTimeout:         0,
+		MaxParallel:         0,
+		LenientRequirements: false,
+	}
 	registry := cwlexec.NewRegistry()
 
 	runner, err := cwlexec.NewRunner(ctx, process, registry, settings)

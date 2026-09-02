@@ -18,7 +18,16 @@ const (
 // probed quietly. Probing only ever asks whether a candidate matched, so
 // formatting a message that will be thrown away is wasted work; the verbose
 // re-run builds the message that a reader actually sees.
-var errNoMatch = &Error{Msg: "the value does not match the expected type"}
+var errNoMatch = &Error{
+	Msg:      "the value does not match the expected type",
+	Children: nil,
+	Loc: SourceLine{
+		File:  "",
+		Start: Position{Line: 0, Column: 0, Offset: 0},
+		End:   Position{Line: 0, Column: 0, Offset: 0},
+	},
+	Warning: false,
+}
 
 // severity says whether a diagnostic invalidates the document or is merely
 // advisory. It is an enumeration rather than a bool so that the decision can be
@@ -77,7 +86,14 @@ type validator struct {
 
 // newValidator builds a validator for one run of s with opts applied.
 func newValidator(s *Schema, opts []ValidateOption) *validator {
-	v := &validator{schema: s, active: make(map[typeNode]bool)}
+	v := &validator{
+		schema:   s,
+		subtypes: nil,
+		idents:   nil,
+		active:   make(map[typeNode]bool),
+		cfg:      validateConfig{strict: false, strictForeign: false},
+		quiet:    false,
+	}
 	for _, opt := range opts {
 		opt(&v.cfg)
 	}
@@ -365,7 +381,11 @@ func (v *validator) wrongType(n Node, want string) *Error {
 // nodeLoc reports where n came from, tolerating an absent node.
 func nodeLoc(n Node) SourceLine {
 	if n == nil {
-		return SourceLine{}
+		return SourceLine{
+			File:  "",
+			Start: Position{Line: 0, Column: 0, Offset: 0},
+			End:   Position{Line: 0, Column: 0, Offset: 0},
+		}
 	}
 
 	return n.Loc()

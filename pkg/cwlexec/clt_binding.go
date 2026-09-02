@@ -24,7 +24,15 @@ import (
 // emptyBinding is what an array's items are bound with when the array's own schema declares no
 // inputBinding but the parameter does: each item still has to reach the command line, with no
 // prefix and no position of its own. It is never mutated.
-var emptyBinding = &cwlcore.CommandLineBinding{}
+var emptyBinding = &cwlcore.CommandLineBinding{
+	Prefix:        "",
+	ItemSeparator: "",
+	ValueFrom:     "",
+	Position:      cwlcore.ExprLong{},
+	Separate:      cwlcore.OptBool{},
+	ShellQuote:    cwlcore.OptBool{},
+	LoadContents:  false,
+}
 
 // boundArg is one leaf binding: a binding, the value it applies to, and the sort key that decides
 // where its command-line elements land.
@@ -113,6 +121,7 @@ func (b *cmdBuilder) collect(tool *cwlcore.CommandLineTool) error {
 			binding: param.InputBinding,
 			value:   b.inputs[name],
 			origin:  "input " + name,
+			key:     nil,
 			tie:     textKey(name),
 		}
 
@@ -167,9 +176,25 @@ func (b *cmdBuilder) bindArgument(index int, arg cwlcore.CommandLineArgument) er
 func argumentBinding(arg cwlcore.CommandLineArgument) *cwlcore.CommandLineBinding {
 	switch arg.Kind() {
 	case cwlcore.ValueString:
-		return &cwlcore.CommandLineBinding{ValueFrom: cwlcore.Expression(arg.Literal())}
+		return &cwlcore.CommandLineBinding{
+			Prefix:        "",
+			ItemSeparator: "",
+			ValueFrom:     cwlcore.Expression(arg.Literal()),
+			Position:      cwlcore.ExprLong{},
+			Separate:      cwlcore.OptBool{},
+			ShellQuote:    cwlcore.OptBool{},
+			LoadContents:  false,
+		}
 	case cwlcore.ValueExpression:
-		return &cwlcore.CommandLineBinding{ValueFrom: arg.Expression()}
+		return &cwlcore.CommandLineBinding{
+			Prefix:        "",
+			ItemSeparator: "",
+			ValueFrom:     arg.Expression(),
+			Position:      cwlcore.ExprLong{},
+			Separate:      cwlcore.OptBool{},
+			ShellQuote:    cwlcore.OptBool{},
+			LoadContents:  false,
+		}
 	case cwlcore.ValueBinding:
 		binding := arg.Binding()
 		if binding == nil || binding.ValueFrom == "" {
@@ -395,7 +420,7 @@ func (b *cmdBuilder) bindValueFrom(key sortKey, origin string,
 
 // add records one leaf binding taken straight from the input object.
 func (b *cmdBuilder) add(key sortKey, origin string, binding *cwlcore.CommandLineBinding, value any) {
-	b.bound = append(b.bound, boundArg{binding: binding, value: value, origin: origin, key: key})
+	b.bound = append(b.bound, boundArg{binding: binding, value: value, origin: origin, key: key, computed: false})
 }
 
 // position resolves a binding's `position` to the number its sort key uses.

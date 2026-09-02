@@ -61,11 +61,14 @@ type config struct {
 // layout, before flags get a chance to override them.
 func defaultConfig() *config {
 	return &config{
-		corpus:  defaultCorpus(),
-		runner:  runnerPath,
-		outDir:  defaultOut,
-		jobs:    defaultJobs,
-		timeout: defaultTimeout,
+		badges:       "",
+		corpus:       defaultCorpus(),
+		runner:       runnerPath,
+		outDir:       defaultOut,
+		timeout:      defaultTimeout,
+		jobs:         defaultJobs,
+		update:       false,
+		gateRequired: false,
 	}
 }
 

@@ -20,14 +20,14 @@ type scope struct {
 // child returns sc for use on a nested node: only the outermost node of the root
 // document contributes the document metadata.
 func (sc scope) child() scope {
-	return scope{ctx: sc.ctx, base: sc.base, fileBase: sc.fileBase, field: sc.field}
+	return scope{ctx: sc.ctx, base: sc.base, fileBase: sc.fileBase, field: sc.field, top: false}
 }
 
 // descend returns sc for use on the value of one field. The field name travels
 // with the scope because it is the scope an identifier is declared in, which is
 // what duplicate-identifier detection compares.
 func (sc scope) descend(field string) scope {
-	return scope{ctx: sc.ctx, base: sc.base, fileBase: sc.fileBase, field: field}
+	return scope{ctx: sc.ctx, base: sc.base, fileBase: sc.fileBase, field: field, top: false}
 }
 
 // rebase returns sc with a different base URI for identifier and link resolution.
@@ -66,12 +66,13 @@ func (l *Loader) newResolver() *resolver {
 		fetcher:  l.Fetcher(),
 		ids:      make(map[string]declaration),
 		idx:      make(map[string]Node),
-		asserted: make(map[string]bool),
 		docs:     make(map[string]Node),
 		active:   make(map[string]bool),
+		meta:     nil,
 		stack:    make([]string, 0),
 		linkErrs: make([]*Error, 0),
 		spaces:   namespaceIRIs(l.Context()),
+		asserted: make(map[string]bool),
 	}
 }
 
@@ -81,7 +82,10 @@ func (r *resolver) finish(root Node, baseURI string) (*Document, error) {
 		return &Document{Root: root, Metadata: r.meta, BaseURI: baseURI}, nil
 	}
 
-	checked, err := r.checkLinks(root, scope{ctx: r.loader.Context(), base: baseURI, fileBase: baseURI})
+	checked, err := r.checkLinks(
+		root,
+		scope{ctx: r.loader.Context(), base: baseURI, fileBase: baseURI, field: "", top: false},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +456,7 @@ func applyExplicitContext(m *MapNode, sc scope) scope {
 		return sc
 	}
 
-	return scope{ctx: sc.ctx.withNamespaces(ns), base: sc.base, fileBase: sc.fileBase, top: sc.top}
+	return scope{ctx: sc.ctx.withNamespaces(ns), base: sc.base, fileBase: sc.fileBase, field: sc.field, top: sc.top}
 }
 
 // documentMetadata collects a document's explicit context: every directive on

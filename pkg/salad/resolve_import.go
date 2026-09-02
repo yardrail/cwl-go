@@ -113,7 +113,7 @@ func (r *resolver) loadDocument(docURL string, loc SourceLine, ctx *Context, top
 	r.active[docURL] = true
 	r.stack = append(r.stack, docURL)
 
-	resolved, err := r.resolve(node, scope{ctx: ctx, base: docURL, fileBase: docURL, top: top})
+	resolved, err := r.resolve(node, scope{ctx: ctx, base: docURL, fileBase: docURL, field: "", top: top})
 
 	delete(r.active, docURL)
 	r.stack = r.stack[:len(r.stack)-1]

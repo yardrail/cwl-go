@@ -185,9 +185,13 @@ func (r *resourceResolver) mebibytes(declared cwlcore.ResourceValue, name string
 func resourceRequest(step *plannedStep, call *StepCall) (ResourceRequest, error) {
 	request := ResourceRequest{
 		CoresMin:     defaultCoresMin,
+		CoresMax:     0,
 		RAMMinMiB:    defaultRAMMinMiB,
+		RAMMaxMiB:    0,
 		TmpDirMinMiB: defaultTmpDirMinMiB,
+		TmpDirMaxMiB: 0,
 		OutDirMinMiB: defaultOutDirMinMiB,
+		OutDirMaxMiB: 0,
 	}
 
 	requirement, found, _ := step.scope.GetRequirement(cwlcore.ClassResourceRequirement)
@@ -201,7 +205,8 @@ func resourceRequest(step *plannedStep, call *StepCall) (ResourceRequest, error)
 
 	resolver := &resourceResolver{
 		eval:        step.eval,
-		evalContext: &cwlcore.EvalContext{Inputs: call.Inputs, Runtime: call.RuntimeContext()},
+		evalContext: &cwlcore.EvalContext{Inputs: call.Inputs, Self: nil, Runtime: call.RuntimeContext()},
+		err:         nil,
 	}
 
 	request.CoresMin = resolver.number(declared.CoresMin, "coresMin", request.CoresMin)

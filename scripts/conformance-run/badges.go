@@ -113,7 +113,7 @@ func readBadge(path string) (*tagResult, error) {
 		return nil, err
 	}
 
-	result := &tagResult{passing: make([]string, 0)}
+	result := &tagResult{passing: make([]string, 0), passed: 0, failed: 0, skipped: 0}
 
 	for heading, body := range sections(string(raw)) {
 		ids := testIDs(body)

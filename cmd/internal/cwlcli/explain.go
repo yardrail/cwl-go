@@ -22,8 +22,7 @@ func Explain(err error) string {
 		return ""
 	}
 
-	var serr *salad.Error
-	if errors.As(err, &serr) {
+	if serr, ok := errors.AsType[*salad.Error](err); ok {
 		return serr.Pretty()
 	}
 

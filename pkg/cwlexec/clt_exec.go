@@ -198,7 +198,7 @@ type processStreams struct {
 
 // openStreams opens or creates the files a spec's redirections name.
 func openStreams(spec *ProcessSpec) (*processStreams, error) {
-	streams := &processStreams{}
+	streams := &processStreams{in: nil, out: nil, err: nil}
 
 	if spec.Stdin != "" {
 		file, err := os.Open(filepath.Clean(spec.Stdin))
@@ -339,7 +339,7 @@ func applyEnvVars(env map[string]string, scope *cwlcore.RequirementScope, inputs
 		return nil
 	}
 
-	symbols := &cwlcore.EvalContext{Inputs: outExpressionObject(inputs), Runtime: rt}
+	symbols := &cwlcore.EvalContext{Inputs: outExpressionObject(inputs), Self: nil, Runtime: rt}
 
 	for index := range declared.EnvDef {
 		definition := &declared.EnvDef[index]
@@ -420,7 +420,7 @@ func ToolNetworkAccess(scope *cwlcore.RequirementScope, inputs map[string]any,
 	}
 
 	return eval.EvalBool(string(declared.NetworkAccess.Expression()),
-		&cwlcore.EvalContext{Inputs: outExpressionObject(inputs), Runtime: rt})
+		&cwlcore.EvalContext{Inputs: outExpressionObject(inputs), Self: nil, Runtime: rt})
 }
 
 // networkAccess resolves the NetworkAccess requirement in effect for a scope. A declaration in
@@ -492,7 +492,7 @@ func timeLimitSeconds(declared cwlcore.ExprLong, inputs map[string]any,
 	}
 
 	value, err := eval.Eval(string(declared.Expression()),
-		&cwlcore.EvalContext{Inputs: outExpressionObject(inputs), Runtime: rt})
+		&cwlcore.EvalContext{Inputs: outExpressionObject(inputs), Self: nil, Runtime: rt})
 	if err != nil {
 		return 0, err
 	}

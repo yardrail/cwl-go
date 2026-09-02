@@ -40,7 +40,7 @@ func newReport(cfg *config, tags map[string]*tagResult, junit string) *report {
 // orEmpty substitutes an empty result for a missing tag.
 func orEmpty(t *tagResult) *tagResult {
 	if t == nil {
-		return &tagResult{passing: make([]string, 0)}
+		return &tagResult{passing: make([]string, 0), passed: 0, failed: 0, skipped: 0}
 	}
 
 	return t
@@ -68,7 +68,7 @@ func (r *report) write(out io.Writer) {
 func (r *report) writeRow(out io.Writer, name string, result *tagResult) {
 	row := result
 	if row == nil {
-		row = &tagResult{}
+		row = &tagResult{passing: nil, passed: 0, failed: 0, skipped: 0}
 	}
 
 	fmt.Fprintf(out, "%-26s %5d %6d %6d %6d %7.1f%%\n",

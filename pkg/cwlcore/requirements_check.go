@@ -162,7 +162,11 @@ func (s *RequirementScope) unknownRequirements(allowExtensions map[string]bool) 
 func requirementLoc(r ProcessRequirement) salad.SourceLine {
 	raw, ok := r.(*RawRequirement)
 	if !ok || raw.Node == nil {
-		return salad.SourceLine{}
+		return salad.SourceLine{
+			File:  "",
+			Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+			End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+		}
 	}
 
 	return raw.Node.Loc()

@@ -56,7 +56,7 @@ func validateAll(cfg *config, stdout, stderr io.Writer) error {
 // this implementation does not accept — and a validator that reported those as
 // valid would be telling its user something untrue.
 func validateOne(ctx context.Context, ref string, cfg *config, stdout, stderr io.Writer) error {
-	process, err := cwlcore.LoadFile(ctx, ref, cfg.validateOptions()...)
+	process, err := cwlcore.LoadFile(ctx, ref, cfg.loadOptions()...)
 	if err != nil {
 		reportFailure(stderr, ref, err, cfg)
 

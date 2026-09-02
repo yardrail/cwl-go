@@ -56,7 +56,11 @@ const (
 // nodeLoc reports where n came from, tolerating a nil node.
 func nodeLoc(n salad.Node) salad.SourceLine {
 	if n == nil {
-		return salad.SourceLine{}
+		return salad.SourceLine{
+			File:  "",
+			Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+			End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+		}
 	}
 
 	return n.Loc()
@@ -105,7 +109,14 @@ func (d *decoder) err() error {
 	case 1:
 		return d.errs[0]
 	default:
-		return salad.Group(salad.SourceLine{}, "the document could not be decoded", d.errs...)
+		return salad.Group(
+			salad.SourceLine{
+				File:  "",
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"the document could not be decoded",
+			d.errs...)
 	}
 }
 
@@ -130,7 +141,15 @@ func (d *decoder) errOr(loc salad.SourceLine, msg string) error {
 // file tolerates.
 func (d *decoder) mapping(n salad.Node, what string) *salad.MapNode {
 	if n == nil {
-		d.failf(salad.SourceLine{}, "%s is missing", what)
+		d.failf(
+			salad.SourceLine{
+				File:  "",
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"%s is missing",
+			what,
+		)
 
 		return nil
 	}
@@ -215,14 +234,14 @@ func (d *decoder) flag(m *salad.MapNode, key string) bool {
 func (d *decoder) optBool(m *salad.MapNode, key string) OptBool {
 	value := fieldNode(m, key)
 	if value == nil {
-		return OptBool{}
+		return OptBool{value: false, set: false}
 	}
 
 	scalar, ok := salad.AsScalar(value)
 	if !ok || !scalar.IsBool() {
 		d.failf(value.Loc(), "the %q field must be a boolean, but it is %s", key, salad.NodeKind(value))
 
-		return OptBool{}
+		return OptBool{value: false, set: false}
 	}
 
 	return NewOptBool(scalar.AsBool())
@@ -233,14 +252,14 @@ func (d *decoder) optBool(m *salad.MapNode, key string) OptBool {
 func (d *decoder) optInt(m *salad.MapNode, key string) OptInt {
 	value := fieldNode(m, key)
 	if value == nil {
-		return OptInt{}
+		return OptInt{value: 0, set: false}
 	}
 
 	number, ok := integerOf(value)
 	if !ok {
 		d.failf(value.Loc(), "the %q field must be an integer, but it is %s", key, salad.NodeKind(value))
 
-		return OptInt{}
+		return OptInt{value: 0, set: false}
 	}
 
 	return NewOptInt(number)
@@ -251,14 +270,14 @@ func (d *decoder) optInt(m *salad.MapNode, key string) OptInt {
 func (d *decoder) optText(m *salad.MapNode, key string) OptString {
 	value := fieldNode(m, key)
 	if value == nil {
-		return OptString{}
+		return OptString{value: "", set: false}
 	}
 
 	text, ok := salad.AsString(value)
 	if !ok {
 		d.failf(value.Loc(), "the %q field must be a string, but it is %s", key, salad.NodeKind(value))
 
-		return OptString{}
+		return OptString{value: "", set: false}
 	}
 
 	return NewOptString(text)

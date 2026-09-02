@@ -79,8 +79,7 @@ func TestASharedNameStillResolvesReferences(t *testing.T) {
 
 	doc, err := loadScopedNames(t, "takes:\n  shared: {}\ngives:\n  shared: {}\nuses: shared\n")
 	if err != nil {
-		var se *Error
-		if errors.As(err, &se) {
+		if se, ok := errors.AsType[*Error](err); ok {
 			t.Fatalf("Load:\n%s", se.Pretty())
 		}
 

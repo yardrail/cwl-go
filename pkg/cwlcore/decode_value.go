@@ -15,7 +15,7 @@ import "github.com/yardrail/cwl-go/pkg/salad"
 func (d *decoder) exprBool(m *salad.MapNode, key string) ExprBool {
 	scalar, ok := d.unionScalar(m, key, "a boolean or an expression")
 	if !ok {
-		return ExprBool{}
+		return ExprBool{expr: "", kind: 0, value: false}
 	}
 
 	switch scalar.Kind() {
@@ -26,7 +26,7 @@ func (d *decoder) exprBool(m *salad.MapNode, key string) ExprBool {
 	default:
 		d.failUnion(scalar, key, "a boolean or an expression")
 
-		return ExprBool{}
+		return ExprBool{expr: "", kind: 0, value: false}
 	}
 }
 
@@ -41,7 +41,7 @@ func (d *decoder) exprBool(m *salad.MapNode, key string) ExprBool {
 func (d *decoder) exprLong(m *salad.MapNode, key string) ExprLong {
 	scalar, ok := d.unionScalar(m, key, "an integer or an expression")
 	if !ok {
-		return ExprLong{}
+		return ExprLong{expr: "", value: 0, kind: 0}
 	}
 
 	switch scalar.Kind() {
@@ -54,7 +54,7 @@ func (d *decoder) exprLong(m *salad.MapNode, key string) ExprLong {
 	default:
 		d.failUnion(scalar, key, "an integer or an expression")
 
-		return ExprLong{}
+		return ExprLong{expr: "", value: 0, kind: 0}
 	}
 }
 
@@ -68,7 +68,7 @@ func (d *decoder) exprLong(m *salad.MapNode, key string) ExprLong {
 func (d *decoder) resourceValue(m *salad.MapNode, key string) ResourceValue {
 	scalar, ok := d.unionScalar(m, key, "a number or an expression")
 	if !ok {
-		return ResourceValue{}
+		return ResourceValue{expr: "", floatVal: 0, intVal: 0, kind: 0}
 	}
 
 	switch scalar.Kind() {
@@ -85,7 +85,7 @@ func (d *decoder) resourceValue(m *salad.MapNode, key string) ResourceValue {
 	default:
 		d.failUnion(scalar, key, "a number or an expression")
 
-		return ResourceValue{}
+		return ResourceValue{expr: "", floatVal: 0, intVal: 0, kind: 0}
 	}
 }
 
@@ -131,7 +131,7 @@ func (d *decoder) argument(node salad.Node) CommandLineArgument {
 
 	binding := d.commandLineBinding(node)
 	if binding == nil {
-		return CommandLineArgument{}
+		return CommandLineArgument{binding: nil, text: "", kind: 0}
 	}
 
 	return NewCommandLineArgumentBinding(binding)
@@ -146,7 +146,7 @@ func (d *decoder) argument(node salad.Node) CommandLineArgument {
 func (d *decoder) initialWorkDirListing(m *salad.MapNode) InitialWorkDirListing {
 	value := fieldNode(m, keyListing)
 	if value == nil {
-		return InitialWorkDirListing{}
+		return InitialWorkDirListing{expr: "", entries: nil, kind: 0}
 	}
 
 	if text, ok := salad.AsString(value); ok {
@@ -158,7 +158,7 @@ func (d *decoder) initialWorkDirListing(m *salad.MapNode) InitialWorkDirListing 
 		d.failf(value.Loc(), "the %q field must be an expression or a sequence, but it is %s",
 			keyListing, salad.NodeKind(value))
 
-		return InitialWorkDirListing{}
+		return InitialWorkDirListing{expr: "", entries: nil, kind: 0}
 	}
 
 	return NewInitialWorkDirListing(decodeEach(seq.Items(), d.initialWorkDirEntry))
@@ -181,7 +181,7 @@ func (d *decoder) initialWorkDirEntry(node salad.Node) InitialWorkDirEntry {
 
 	m := d.mapping(node, "a listing entry")
 	if m == nil {
-		return InitialWorkDirEntry{}
+		return InitialWorkDirEntry{payload: nil, expr: "", kind: 0}
 	}
 
 	return d.initialWorkDirObject(m)

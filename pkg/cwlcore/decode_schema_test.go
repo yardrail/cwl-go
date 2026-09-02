@@ -303,6 +303,17 @@ func TestLoadedSchemaCarriesTheLoader(t *testing.T) {
 	}
 }
 
+func TestWithValidateOptionsPropagates(t *testing.T) {
+	t.Parallel()
+
+	const src = "class: Operation\ncwlVersion: v1.2\ninputs: []\noutputs: []\nbogusField: 42\n"
+
+	_, err := Load(t.Context(), []byte(src), "bogus.cwl", WithValidateOptions(salad.Strict(true)))
+	if err == nil {
+		t.Fatal("Load with WithValidateOptions(salad.Strict(true)) accepted an undeclared field")
+	}
+}
+
 func TestValidateOptionsAreReachable(t *testing.T) {
 	t.Parallel()
 
@@ -316,9 +327,9 @@ func TestValidateOptionsAreReachable(t *testing.T) {
 		t.Errorf("Load rejected an undeclared field by default: %v", err)
 	}
 
-	_, err = Load(t.Context(), []byte(src), "bogus.cwl", salad.Strict(true))
+	_, err = Load(t.Context(), []byte(src), "bogus.cwl", Strict(true))
 	if err == nil {
-		t.Fatal("Load with salad.Strict(true) accepted an undeclared field, want an error")
+		t.Fatal("Load with Strict(true) accepted an undeclared field, want an error")
 	}
 
 	var rejected *salad.Error
@@ -331,14 +342,14 @@ func TestValidateOptionsAreReachable(t *testing.T) {
 	}
 
 	// The option reaches the URI form and the document form too.
-	_, err = LoadDocument(t.Context(), []byte(src), "bogus.cwl", salad.Strict(true))
+	_, err = LoadDocument(t.Context(), []byte(src), "bogus.cwl", Strict(true))
 	if err == nil {
-		t.Error("LoadDocument with salad.Strict(true) accepted an undeclared field")
+		t.Error("LoadDocument with Strict(true) accepted an undeclared field")
 	}
 
-	_, err = LoadFile(t.Context(), fixturePath("plain_tool.cwl"), salad.Strict(true))
+	_, err = LoadFile(t.Context(), fixturePath("plain_tool.cwl"), Strict(true))
 	if err != nil {
-		t.Errorf("LoadFile with salad.Strict(true) rejected a valid document: %v", err)
+		t.Errorf("LoadFile with Strict(true) rejected a valid document: %v", err)
 	}
 }
 
@@ -357,6 +368,112 @@ func fixtureSource(t *testing.T, name string) []byte {
 	}
 
 	return src
+}
+
+// loadExtensionSchema loads an extension schema fixture through the salad
+// layer, stopping before flatten since the extension's types extend CWL types
+// that only exist in the base schema.
+func loadExtensionSchema(t *testing.T, name string) *salad.LoadedSchema {
+	t.Helper()
+
+	path := fixturePath(name)
+
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatalf("resolving %s: %v", name, err)
+	}
+
+	dir := filepath.Dir(abs)
+	mount := "file://" + dir + "/"
+
+	ls, err := salad.LoadExtensionSchema(
+		mount+filepath.Base(abs),
+		salad.WithFetcher(salad.NewFSFetcher(os.DirFS(dir), mount)),
+	)
+	if err != nil {
+		t.Fatalf("loading extension schema %s: %v", name, err)
+	}
+
+	return ls
+}
+
+func TestLoadExtensionProcess(t *testing.T) {
+	t.Parallel()
+
+	extSchema := loadExtensionSchema(t, "extension_schema.yml")
+	src := fixtureSource(t, "extension_process.cwl")
+
+	process, err := Load(t.Context(), src, fixturePath("extension_process.cwl"),
+		WithExtensionSchema(extSchema), Strict(true))
+	if err != nil {
+		t.Fatalf("Load with extension schema: %v", err)
+	}
+
+	raw, ok := process.(*RawProcess)
+	if !ok {
+		t.Fatalf("process is %T, want *RawProcess", process)
+	}
+
+	assertEqual(t, "ClassIRI", raw.ClassIRI, "ConnectorAction")
+	assertEqual(t, "len(Inputs)", len(raw.Inputs), 1)
+	assertEqual(t, "len(Outputs)", len(raw.Outputs), 1)
+}
+
+func TestLoadRejectsBadExtensionSchema(t *testing.T) {
+	t.Parallel()
+
+	badExt := &salad.LoadedSchema{
+		Schema:    nil,
+		Context:   nil,
+		Loader:    nil,
+		Metadata:  nil,
+		SchemaDoc: nil,
+	}
+
+	src := fixtureSource(t, "extension_process.cwl")
+
+	_, err := Load(t.Context(), src, fixturePath("extension_process.cwl"),
+		WithExtensionSchema(badExt))
+	if err == nil {
+		t.Fatal("Load with a bad extension schema should fail")
+	}
+}
+
+func TestLoadRejectsExtensionWithoutSchema(t *testing.T) {
+	t.Parallel()
+
+	src := fixtureSource(t, "extension_process.cwl")
+
+	_, err := Load(t.Context(), src, fixturePath("extension_process.cwl"), Strict(true))
+	if err == nil {
+		t.Fatal("Load without extension schema accepted an extension class")
+	}
+}
+
+func TestLoadExtensionWorkflow(t *testing.T) {
+	t.Parallel()
+
+	extSchema := loadExtensionSchema(t, "extension_schema.yml")
+
+	process, err := LoadFile(t.Context(), fixturePath("extension_workflow.cwl"),
+		WithExtensionSchema(extSchema), Strict(true))
+	if err != nil {
+		t.Fatalf("LoadFile with extension schema: %v", err)
+	}
+
+	wf, ok := process.(*Workflow)
+	if !ok {
+		t.Fatalf("process is %T, want *Workflow", process)
+	}
+
+	assertEqual(t, "len(Steps)", len(wf.Steps), 1)
+
+	raw, ok := wf.Steps[0].Run.Process.(*RawProcess)
+	if !ok {
+		t.Fatalf("step run process is %T, want *RawProcess", wf.Steps[0].Run.Process)
+	}
+
+	assertEqual(t, "step run ClassIRI", raw.ClassIRI, "ConnectorAction")
 }
 
 func BenchmarkSchemaLoadAndFlatten(b *testing.B) {

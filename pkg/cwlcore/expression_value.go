@@ -357,9 +357,10 @@ func fromExpressionFields(object map[string]any) (any, error) {
 
 // newFileValue builds a File from its object form.
 func newFileValue(object map[string]any) (any, error) {
-	reader := &fieldReader{object: object}
+	reader := &fieldReader{object: object, err: nil}
 
 	file := &File{
+		Node:           nil,
 		Location:       reader.text(keyLocation),
 		Path:           reader.text(keyPath),
 		Basename:       reader.text(keyBasename),
@@ -382,9 +383,10 @@ func newFileValue(object map[string]any) (any, error) {
 
 // newDirectoryValue builds a Directory from its object form.
 func newDirectoryValue(object map[string]any) (any, error) {
-	reader := &fieldReader{object: object}
+	reader := &fieldReader{object: object, err: nil}
 
 	dir := &Directory{
+		Node:     nil,
 		Location: reader.text(keyLocation),
 		Path:     reader.text(keyPath),
 		Basename: reader.text(keyBasename),
@@ -428,14 +430,14 @@ func (r *fieldReader) text(key string) string {
 func (r *fieldReader) optText(key string) OptString {
 	raw, present := r.present(key)
 	if !present {
-		return OptString{}
+		return OptString{value: "", set: false}
 	}
 
 	value, ok := raw.(string)
 	if !ok {
 		r.fail(key, typeNameString, raw)
 
-		return OptString{}
+		return OptString{value: "", set: false}
 	}
 
 	return NewOptString(value)
@@ -445,14 +447,14 @@ func (r *fieldReader) optText(key string) OptString {
 func (r *fieldReader) wholeNumber(key string) OptInt {
 	raw, present := r.present(key)
 	if !present {
-		return OptInt{}
+		return OptInt{value: 0, set: false}
 	}
 
 	value, ok := asWholeNumber(raw)
 	if !ok {
 		r.fail(key, "a whole number", raw)
 
-		return OptInt{}
+		return OptInt{value: 0, set: false}
 	}
 
 	return NewOptInt(value)

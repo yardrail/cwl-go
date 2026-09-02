@@ -108,7 +108,7 @@ func (l *joLoader) fileShell(m *salad.MapNode, v *joValueCtx) (*cwlcore.File, *s
 		return nil, unknown
 	}
 
-	reader := &joFieldReader{m: m, path: v.path}
+	reader := &joFieldReader{m: m, err: nil, path: v.path}
 	ref := joResolveRef(reader, v.base)
 	contents := reader.optText(outKeyContents)
 	basename := reader.text(outKeyBasename)
@@ -130,15 +130,18 @@ func (l *joLoader) fileShell(m *salad.MapNode, v *joValueCtx) (*cwlcore.File, *s
 	parts := outSplitName(basename)
 
 	return &cwlcore.File{
-		Node:     m,
-		Location: ref.location,
-		Path:     ref.local,
-		Basename: basename,
-		Dirname:  outDirname(ref.local),
-		Nameroot: parts.root,
-		Nameext:  parts.ext,
-		Format:   format,
-		Contents: contents,
+		Node:           m,
+		Location:       ref.location,
+		Path:           ref.local,
+		Basename:       basename,
+		Dirname:        outDirname(ref.local),
+		Nameroot:       parts.root,
+		Nameext:        parts.ext,
+		Checksum:       "",
+		Format:         format,
+		Size:           cwlcore.OptInt{},
+		Contents:       contents,
+		SecondaryFiles: nil,
 	}, nil
 }
 
@@ -231,7 +234,7 @@ func (l *joLoader) normalizeDirectory(
 		return nil, unknown
 	}
 
-	reader := &joFieldReader{m: m, path: v.path}
+	reader := &joFieldReader{m: m, err: nil, path: v.path}
 	ref := joResolveRef(reader, v.base)
 	basename := reader.text(outKeyBasename)
 
@@ -386,7 +389,7 @@ func joResolveRef(r *joFieldReader, base string) joFileRef {
 
 	location := r.text(outKeyLocation)
 	if location == "" {
-		return joFileRef{}
+		return joFileRef{location: "", local: "", name: ""}
 	}
 
 	parsed, err := url.Parse(location)
@@ -394,11 +397,11 @@ func joResolveRef(r *joFieldReader, base string) joFileRef {
 		r.err = salad.Errorf(joNodeLoc(r.node(outKeyLocation)),
 			"%s: location %q is not a valid IRI: %v", r.path, location, err)
 
-		return joFileRef{}
+		return joFileRef{location: "", local: "", name: ""}
 	}
 
 	if parsed.Scheme != "" && parsed.Scheme != joSchemeFile {
-		return joFileRef{location: location, name: path.Base(parsed.Path)}
+		return joFileRef{location: location, local: "", name: path.Base(parsed.Path)}
 	}
 
 	return joRefAt(parsed.Path, base)

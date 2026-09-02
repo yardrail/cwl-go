@@ -150,7 +150,7 @@ func BuildCommandLine(tool *cwlcore.CommandLineTool, inputs map[string]any, eval
 		return nil, fmt.Errorf("%w: BuildCommandLine needs a CommandLineTool, got nil", ErrWrongProcessClass)
 	}
 
-	builder := &cmdBuilder{eval: eval, inputs: inputs, scope: scope, runtime: rt}
+	builder := &cmdBuilder{eval: eval, inputs: inputs, bound: nil, scope: scope, runtime: rt}
 
 	err := builder.collect(tool)
 	if err != nil {

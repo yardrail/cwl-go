@@ -68,7 +68,7 @@ type rdfParser struct {
 // declares its own xml:base overrides it, and an empty baseURI leaves relative
 // references verbatim.
 func parseRDFXML(data []byte, baseURI string) ([]rdfTriple, error) {
-	p := &rdfParser{dec: xml.NewDecoder(bytes.NewReader(data))}
+	p := &rdfParser{dec: xml.NewDecoder(bytes.NewReader(data)), triples: nil}
 
 	root, err := p.root()
 	if err != nil {

@@ -296,7 +296,7 @@ func runProtectedWith(
 		defer func() {
 			recovered := recover()
 			if recovered != nil {
-				out = produced{err: fmt.Errorf("%w: the engine panicked: %v", errRun, recovered)}
+				out = produced{outputs: nil, err: fmt.Errorf("%w: the engine panicked: %v", errRun, recovered)}
 			}
 		}()
 

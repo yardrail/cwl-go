@@ -227,7 +227,7 @@ func (c *container) wrap(spec *ProcessSpec, plan []PathMapping, network bool) *P
 	argv = append(argv, spec.argv()...)
 
 	wrapped := *spec
-	wrapped.Command = &CommandLine{Args: plainArgs(argv)}
+	wrapped.Command = &CommandLine{Args: plainArgs(argv), Shell: false}
 	wrapped.Env = os.Environ()
 
 	return &wrapped
@@ -407,7 +407,7 @@ func envArgs(env []string) []string {
 func plainArgs(argv []string) []Arg {
 	args := make([]Arg, 0, len(argv))
 	for _, value := range argv {
-		args = append(args, Arg{Value: value})
+		args = append(args, Arg{Value: value, Quote: false})
 	}
 
 	return args

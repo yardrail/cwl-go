@@ -49,8 +49,26 @@ func StageInitialWorkDir(mapper *PathMap, scope *cwlcore.RequirementScope, input
 	stager := &workDirStager{
 		mapper: mapper,
 		eval:   eval,
-		types:  &outputCollector{outdir: mapper.Workdir()},
-		ctx:    &cwlcore.EvalContext{Inputs: outExpressionObject(inputs), Runtime: rt},
+		types: &outputCollector{
+			tool:   nil,
+			eval:   nil,
+			scope:  nil,
+			inputs: nil,
+			roots:  nil,
+			runtime: cwlcore.RuntimeContext{
+				Cores:      nil,
+				RAM:        nil,
+				OutdirSize: nil,
+				TmpdirSize: nil,
+				ExitCode:   nil,
+				Outdir:     "",
+				Tmpdir:     "",
+			},
+			outdir:   mapper.Workdir(),
+			outroot:  "",
+			exitCode: 0,
+		},
+		ctx: &cwlcore.EvalContext{Inputs: outExpressionObject(inputs), Self: nil, Runtime: rt},
 	}
 
 	return stager.listing(requirement.Listing)

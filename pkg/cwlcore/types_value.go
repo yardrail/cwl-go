@@ -161,12 +161,12 @@ type ExprBool struct {
 
 // NewExprBool returns an ExprBool holding the boolean literal v.
 func NewExprBool(v bool) ExprBool {
-	return ExprBool{kind: ValueBool, value: v}
+	return ExprBool{expr: "", kind: ValueBool, value: v}
 }
 
 // NewExprBoolExpression returns an ExprBool holding the unevaluated expression e.
 func NewExprBoolExpression(e Expression) ExprBool {
-	return ExprBool{kind: ValueExpression, expr: e}
+	return ExprBool{expr: e, kind: ValueExpression, value: false}
 }
 
 // Kind reports which union member this value holds.
@@ -217,12 +217,12 @@ type ExprLong struct {
 
 // NewExprLong returns an ExprLong holding the integer literal v.
 func NewExprLong(v int64) ExprLong {
-	return ExprLong{kind: ValueInt, value: v}
+	return ExprLong{expr: "", value: v, kind: ValueInt}
 }
 
 // NewExprLongExpression returns an ExprLong holding the unevaluated expression e.
 func NewExprLongExpression(e Expression) ExprLong {
-	return ExprLong{kind: ValueExpression, expr: e}
+	return ExprLong{expr: e, value: 0, kind: ValueExpression}
 }
 
 // Kind reports which union member this value holds.
@@ -277,19 +277,19 @@ type ResourceValue struct {
 // NewResourceInt returns a ResourceValue holding the integer literal v, for the
 // schema's int and long members.
 func NewResourceInt(v int64) ResourceValue {
-	return ResourceValue{kind: ValueInt, intVal: v}
+	return ResourceValue{expr: "", floatVal: 0, intVal: v, kind: ValueInt}
 }
 
 // NewResourceFloat returns a ResourceValue holding the floating-point literal
 // v, for the schema's float member.
 func NewResourceFloat(v float64) ResourceValue {
-	return ResourceValue{kind: ValueFloat, floatVal: v}
+	return ResourceValue{expr: "", floatVal: v, intVal: 0, kind: ValueFloat}
 }
 
 // NewResourceExpression returns a ResourceValue holding the unevaluated
 // expression e.
 func NewResourceExpression(e Expression) ResourceValue {
-	return ResourceValue{kind: ValueExpression, expr: e}
+	return ResourceValue{expr: e, floatVal: 0, intVal: 0, kind: ValueExpression}
 }
 
 // Kind reports which union member this value holds.
@@ -365,18 +365,18 @@ type CommandLineArgument struct {
 // NewCommandLineArgumentString returns an argument holding the plain string
 // literal s, which embeds no expression.
 func NewCommandLineArgumentString(s string) CommandLineArgument {
-	return CommandLineArgument{kind: ValueString, text: s}
+	return CommandLineArgument{binding: nil, text: s, kind: ValueString}
 }
 
 // NewCommandLineArgumentExpression returns an argument holding the unevaluated
 // expression e.
 func NewCommandLineArgumentExpression(e Expression) CommandLineArgument {
-	return CommandLineArgument{kind: ValueExpression, text: string(e)}
+	return CommandLineArgument{binding: nil, text: string(e), kind: ValueExpression}
 }
 
 // NewCommandLineArgumentBinding returns an argument holding the binding b.
 func NewCommandLineArgumentBinding(b *CommandLineBinding) CommandLineArgument {
-	return CommandLineArgument{kind: ValueBinding, binding: b}
+	return CommandLineArgument{binding: b, text: "", kind: ValueBinding}
 }
 
 // Kind reports which union member this value holds.
@@ -446,34 +446,34 @@ type InitialWorkDirEntry struct {
 // NewInitialWorkDirNull returns an entry holding an explicit null, which the
 // schema permits and which stages nothing.
 func NewInitialWorkDirNull() InitialWorkDirEntry {
-	return InitialWorkDirEntry{kind: ValueNull}
+	return InitialWorkDirEntry{payload: nil, expr: "", kind: ValueNull}
 }
 
 // NewInitialWorkDirDirent returns an entry holding the Dirent d.
 func NewInitialWorkDirDirent(d *Dirent) InitialWorkDirEntry {
-	return InitialWorkDirEntry{kind: ValueDirent, payload: d}
+	return InitialWorkDirEntry{payload: d, expr: "", kind: ValueDirent}
 }
 
 // NewInitialWorkDirExpression returns an entry holding the unevaluated
 // expression e.
 func NewInitialWorkDirExpression(e Expression) InitialWorkDirEntry {
-	return InitialWorkDirEntry{kind: ValueExpression, expr: e}
+	return InitialWorkDirEntry{payload: nil, expr: e, kind: ValueExpression}
 }
 
 // NewInitialWorkDirFile returns an entry holding the File value f.
 func NewInitialWorkDirFile(f *File) InitialWorkDirEntry {
-	return InitialWorkDirEntry{kind: ValueFile, payload: f}
+	return InitialWorkDirEntry{payload: f, expr: "", kind: ValueFile}
 }
 
 // NewInitialWorkDirDirectory returns an entry holding the Directory value d.
 func NewInitialWorkDirDirectory(d *Directory) InitialWorkDirEntry {
-	return InitialWorkDirEntry{kind: ValueDirectory, payload: d}
+	return InitialWorkDirEntry{payload: d, expr: "", kind: ValueDirectory}
 }
 
 // NewInitialWorkDirObjects returns an entry holding the nested-array member:
 // a list of File and Directory values, in document order.
 func NewInitialWorkDirObjects(objects []FileOrDirectory) InitialWorkDirEntry {
-	return InitialWorkDirEntry{kind: ValueList, payload: objects}
+	return InitialWorkDirEntry{payload: objects, expr: "", kind: ValueList}
 }
 
 // Kind reports which union member this entry holds.
@@ -557,13 +557,13 @@ type InitialWorkDirListing struct {
 // NewInitialWorkDirListing returns a listing holding the given entries, in
 // document order.
 func NewInitialWorkDirListing(entries []InitialWorkDirEntry) InitialWorkDirListing {
-	return InitialWorkDirListing{kind: ValueList, entries: entries}
+	return InitialWorkDirListing{expr: "", entries: entries, kind: ValueList}
 }
 
 // NewInitialWorkDirListingExpression returns a listing holding the unevaluated
 // expression e, which must evaluate to the listing array.
 func NewInitialWorkDirListingExpression(e Expression) InitialWorkDirListing {
-	return InitialWorkDirListing{kind: ValueExpression, expr: e}
+	return InitialWorkDirListing{expr: e, entries: nil, kind: ValueExpression}
 }
 
 // Kind reports which union member this listing holds.

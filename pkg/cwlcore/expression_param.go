@@ -158,7 +158,7 @@ func parseParamRef(inner string) (string, []paramSegment, bool) {
 // parseSegment decodes one matched segment into its field name or index.
 func parseSegment(text string) (paramSegment, bool) {
 	if strings.HasPrefix(text, ".") {
-		return paramSegment{text: text, key: text[1:], field: true}, true
+		return paramSegment{text: text, key: text[1:], index: 0, field: true}, true
 	}
 
 	if quoted := text[1]; quoted == '\'' || quoted == '"' {
@@ -167,17 +167,17 @@ func parseSegment(text string) (paramSegment, bool) {
 		key := text[2 : len(text)-2]
 		key = strings.ReplaceAll(key, `\`+string(quoted), string(quoted))
 
-		return paramSegment{text: text, key: key, field: true}, true
+		return paramSegment{text: text, key: key, index: 0, field: true}, true
 	}
 
 	index, err := strconv.Atoi(text[1 : len(text)-1])
 	if err != nil {
 		// A run of digits too long for an int. Not a usable index, so not a
 		// parameter reference.
-		return paramSegment{}, false
+		return paramSegment{text: "", key: "", index: 0, field: false}, false
 	}
 
-	return paramSegment{text: text, index: index}, true
+	return paramSegment{text: text, key: "", index: index, field: false}, true
 }
 
 // rootSymbol resolves a reference's leading symbol against the parameter

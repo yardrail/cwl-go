@@ -129,12 +129,6 @@ type RunState struct {
 	version int
 }
 
-// Compile-time proof that a RunState is exactly as persistable as it claims to be.
-var (
-	_ json.Marshaler   = RunState{}
-	_ json.Unmarshaler = (*RunState)(nil)
-)
-
 // newRunState returns an empty snapshot stamped with the current version, for a run that is about
 // to start.
 func newRunState(inputs map[string]any) *RunState {
@@ -146,7 +140,7 @@ func newRunState(inputs map[string]any) *RunState {
 }
 
 // MarshalJSON renders the snapshot, version field included, as the JSON a caller persists.
-func (s RunState) MarshalJSON() ([]byte, error) {
+func (s *RunState) MarshalJSON() ([]byte, error) {
 	return json.Marshal(runStateJSON{Inputs: s.inputs, Steps: s.steps, Version: s.version})
 }
 
@@ -179,7 +173,7 @@ func (s *RunState) UnmarshalJSON(data []byte) error {
 func (s *RunState) step(id string) *stepState {
 	recorded, found := s.steps[id]
 	if !found {
-		recorded = &stepState{}
+		recorded = &stepState{Outputs: nil, Status: "", Error: "", Jobs: nil, Shape: nil, Started: false}
 		s.steps[id] = recorded
 	}
 

@@ -94,7 +94,7 @@ type RequirementScope struct {
 // A nil process yields an empty scope.
 func NewScope(p Process) *RequirementScope {
 	if p == nil {
-		return &RequirementScope{}
+		return &RequirementScope{frames: nil, view: nil}
 	}
 
 	base := p.Base()
@@ -111,7 +111,7 @@ func NewScope(p Process) *RequirementScope {
 // inheritance-validity filter. Push the process itself with
 // [RequirementScope.PushProcess] when the filter should apply.
 func (s *RequirementScope) Push(reqs []ProcessRequirement, hints []Hint) *RequirementScope {
-	return s.push(reqFrame{reqs: reqs, hints: hints})
+	return s.push(reqFrame{class: "", reqs: reqs, hints: hints})
 }
 
 // PushProcess returns a child scope with p's own requirements and hints
@@ -272,8 +272,8 @@ func hintAsRequirement(h Hint) ProcessRequirement {
 	}
 
 	if raw, ok := h.(*RawHint); ok {
-		return &RawRequirement{Node: raw.Node, ClassIRI: raw.ClassIRI}
+		return &RawRequirement{requirementBase: requirementBase{}, Node: raw.Node, ClassIRI: raw.ClassIRI}
 	}
 
-	return &RawRequirement{ClassIRI: h.Class()}
+	return &RawRequirement{requirementBase: requirementBase{}, Node: nil, ClassIRI: h.Class()}
 }

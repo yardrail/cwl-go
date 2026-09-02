@@ -91,7 +91,7 @@ func (d *decoder) requirement(node salad.Node) ProcessRequirement {
 		return decode(d, m)
 	}
 
-	return &RawRequirement{Node: node, ClassIRI: class}
+	return &RawRequirement{requirementBase: requirementBase{}, Node: node, ClassIRI: class}
 }
 
 // hints decodes a hints field.
@@ -105,7 +105,7 @@ func (d *decoder) hints(m *salad.MapNode, key string) []Hint {
 func (d *decoder) hint(node salad.Node) Hint {
 	m, ok := salad.AsMap(node)
 	if !ok {
-		return &RawHint{Node: node}
+		return &RawHint{Node: node, ClassIRI: ""}
 	}
 
 	class := lenientText(m, keyClass)
@@ -118,24 +118,31 @@ func (d *decoder) hint(node salad.Node) Hint {
 
 // inlineJavascriptRequirement decodes an InlineJavascriptRequirement.
 func (d *decoder) inlineJavascriptRequirement(m *salad.MapNode) ProcessRequirement {
-	return &InlineJavascriptRequirement{ExpressionLib: d.textList(m, keyExpressionLib)}
+	return &InlineJavascriptRequirement{
+		requirementBase: requirementBase{},
+		ExpressionLib:   d.textList(m, keyExpressionLib),
+	}
 }
 
 // schemaDefRequirement decodes a SchemaDefRequirement. Its type schemas stay
 // salad nodes: one of them may refer by name to another declared alongside it,
 // and untangling that needs the whole requirement scope rather than one node.
 func (d *decoder) schemaDefRequirement(m *salad.MapNode) ProcessRequirement {
-	return &SchemaDefRequirement{Types: d.listItems(m, keyTypes, keyName, keyType)}
+	return &SchemaDefRequirement{requirementBase: requirementBase{}, Types: d.listItems(m, keyTypes, keyName, keyType)}
 }
 
 // loadListingRequirement decodes a LoadListingRequirement.
 func (d *decoder) loadListingRequirement(m *salad.MapNode) ProcessRequirement {
-	return &LoadListingRequirement{LoadListing: LoadListingEnum(d.text(m, keyLoadListing))}
+	return &LoadListingRequirement{
+		requirementBase: requirementBase{},
+		LoadListing:     LoadListingEnum(d.text(m, keyLoadListing)),
+	}
 }
 
 // dockerRequirement decodes a DockerRequirement.
 func (d *decoder) dockerRequirement(m *salad.MapNode) ProcessRequirement {
 	return &DockerRequirement{
+		requirementBase:       requirementBase{},
 		DockerPull:            d.text(m, keyDockerPull),
 		DockerLoad:            d.text(m, keyDockerLoad),
 		DockerFile:            d.text(m, keyDockerFile),
@@ -148,7 +155,8 @@ func (d *decoder) dockerRequirement(m *salad.MapNode) ProcessRequirement {
 // softwareRequirement decodes a SoftwareRequirement.
 func (d *decoder) softwareRequirement(m *salad.MapNode) ProcessRequirement {
 	return &SoftwareRequirement{
-		Packages: decodeEach(d.listItems(m, keyPackages, keyPackage, keySpecs), d.softwarePackage),
+		requirementBase: requirementBase{},
+		Packages:        decodeEach(d.listItems(m, keyPackages, keyPackage, keySpecs), d.softwarePackage),
 	}
 }
 
@@ -165,13 +173,14 @@ func (d *decoder) softwarePackage(node salad.Node) SoftwarePackage {
 
 // initialWorkDirRequirement decodes an InitialWorkDirRequirement.
 func (d *decoder) initialWorkDirRequirement(m *salad.MapNode) ProcessRequirement {
-	return &InitialWorkDirRequirement{Listing: d.initialWorkDirListing(m)}
+	return &InitialWorkDirRequirement{requirementBase: requirementBase{}, Listing: d.initialWorkDirListing(m)}
 }
 
 // envVarRequirement decodes an EnvVarRequirement.
 func (d *decoder) envVarRequirement(m *salad.MapNode) ProcessRequirement {
 	return &EnvVarRequirement{
-		EnvDef: decodeEach(d.listItems(m, keyEnvDef, keyEnvName, keyEnvValue), d.environmentDef),
+		requirementBase: requirementBase{},
+		EnvDef:          decodeEach(d.listItems(m, keyEnvDef, keyEnvName, keyEnvValue), d.environmentDef),
 	}
 }
 
@@ -188,7 +197,7 @@ func (d *decoder) environmentDef(node salad.Node) EnvironmentDef {
 // shellCommandRequirement decodes a ShellCommandRequirement, which is a marker
 // with no fields beyond its class.
 func (*decoder) shellCommandRequirement(*salad.MapNode) ProcessRequirement {
-	return &ShellCommandRequirement{}
+	return &ShellCommandRequirement{requirementBase: requirementBase{}}
 }
 
 // resourceRequirement decodes a ResourceRequirement. Every field may legitimately
@@ -197,53 +206,57 @@ func (*decoder) shellCommandRequirement(*salad.MapNode) ProcessRequirement {
 // equal the documented default.
 func (d *decoder) resourceRequirement(m *salad.MapNode) ProcessRequirement {
 	return &ResourceRequirement{
-		CoresMin:  d.resourceValue(m, keyCoresMin),
-		CoresMax:  d.resourceValue(m, keyCoresMax),
-		RAMMin:    d.resourceValue(m, keyRAMMin),
-		RAMMax:    d.resourceValue(m, keyRAMMax),
-		TmpdirMin: d.resourceValue(m, keyTmpdirMin),
-		TmpdirMax: d.resourceValue(m, keyTmpdirMax),
-		OutdirMin: d.resourceValue(m, keyOutdirMin),
-		OutdirMax: d.resourceValue(m, keyOutdirMax),
+		requirementBase: requirementBase{},
+		CoresMin:        d.resourceValue(m, keyCoresMin),
+		CoresMax:        d.resourceValue(m, keyCoresMax),
+		RAMMin:          d.resourceValue(m, keyRAMMin),
+		RAMMax:          d.resourceValue(m, keyRAMMax),
+		TmpdirMin:       d.resourceValue(m, keyTmpdirMin),
+		TmpdirMax:       d.resourceValue(m, keyTmpdirMax),
+		OutdirMin:       d.resourceValue(m, keyOutdirMin),
+		OutdirMax:       d.resourceValue(m, keyOutdirMax),
 	}
 }
 
 // workReuse decodes a WorkReuse requirement.
 func (d *decoder) workReuse(m *salad.MapNode) ProcessRequirement {
-	return &WorkReuse{EnableReuse: d.exprBool(m, keyEnableReuse)}
+	return &WorkReuse{requirementBase: requirementBase{}, EnableReuse: d.exprBool(m, keyEnableReuse)}
 }
 
 // networkAccess decodes a NetworkAccess requirement.
 func (d *decoder) networkAccess(m *salad.MapNode) ProcessRequirement {
-	return &NetworkAccess{NetworkAccess: d.exprBool(m, keyNetworkAccessField)}
+	return &NetworkAccess{requirementBase: requirementBase{}, NetworkAccess: d.exprBool(m, keyNetworkAccessField)}
 }
 
 // inplaceUpdateRequirement decodes an InplaceUpdateRequirement.
 func (d *decoder) inplaceUpdateRequirement(m *salad.MapNode) ProcessRequirement {
-	return &InplaceUpdateRequirement{InplaceUpdate: d.flag(m, keyInplaceUpdateField)}
+	return &InplaceUpdateRequirement{
+		requirementBase: requirementBase{},
+		InplaceUpdate:   d.flag(m, keyInplaceUpdateField),
+	}
 }
 
 // toolTimeLimit decodes a ToolTimeLimit requirement.
 func (d *decoder) toolTimeLimit(m *salad.MapNode) ProcessRequirement {
-	return &ToolTimeLimit{Timelimit: d.exprLong(m, keyTimelimit)}
+	return &ToolTimeLimit{requirementBase: requirementBase{}, Timelimit: d.exprLong(m, keyTimelimit)}
 }
 
 // subworkflowFeatureRequirement decodes a SubworkflowFeatureRequirement marker.
 func (*decoder) subworkflowFeatureRequirement(*salad.MapNode) ProcessRequirement {
-	return &SubworkflowFeatureRequirement{}
+	return &SubworkflowFeatureRequirement{requirementBase: requirementBase{}}
 }
 
 // scatterFeatureRequirement decodes a ScatterFeatureRequirement marker.
 func (*decoder) scatterFeatureRequirement(*salad.MapNode) ProcessRequirement {
-	return &ScatterFeatureRequirement{}
+	return &ScatterFeatureRequirement{requirementBase: requirementBase{}}
 }
 
 // multipleInputFeatureRequirement decodes a MultipleInputFeatureRequirement marker.
 func (*decoder) multipleInputFeatureRequirement(*salad.MapNode) ProcessRequirement {
-	return &MultipleInputFeatureRequirement{}
+	return &MultipleInputFeatureRequirement{requirementBase: requirementBase{}}
 }
 
 // stepInputExpressionRequirement decodes a StepInputExpressionRequirement marker.
 func (*decoder) stepInputExpressionRequirement(*salad.MapNode) ProcessRequirement {
-	return &StepInputExpressionRequirement{}
+	return &StepInputExpressionRequirement{requirementBase: requirementBase{}}
 }

@@ -82,7 +82,16 @@ func (f *DefaultFetcher) fetchHTTP(u string) ([]byte, error) {
 	}
 
 	if res.code != http.StatusOK {
-		return nil, Errorf(SourceLine{File: u}, "fetching %s: HTTP %s", u, res.status)
+		return nil, Errorf(
+			SourceLine{
+				File:  u,
+				Start: Position{Line: 0, Column: 0, Offset: 0},
+				End:   Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"fetching %s: HTTP %s",
+			u,
+			res.status,
+		)
 	}
 
 	f.writeCache(u, res.header, res.body)
@@ -102,7 +111,15 @@ func (f *DefaultFetcher) do(req *http.Request) (httpResult, error) {
 		// RoundTripper that returns a nil *Response with a nil error before
 		// Do ever returns it here, so this cannot be driven through any real
 		// http.Client, misbehaving transport included.
-		return httpResult{}, Errorf(SourceLine{File: req.URL.String()}, "fetching %s: empty response", req.URL)
+		return httpResult{}, Errorf(
+			SourceLine{
+				File:  req.URL.String(),
+				Start: Position{Line: 0, Column: 0, Offset: 0},
+				End:   Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"fetching %s: empty response",
+			req.URL,
+		)
 	}
 
 	body, readErr := io.ReadAll(resp.Body)
@@ -141,24 +158,24 @@ func (f *DefaultFetcher) cachePath(u string) string {
 func (f *DefaultFetcher) readCache(u string) (cacheEntry, []byte, bool) {
 	base := f.cachePath(u)
 	if base == "" {
-		return cacheEntry{}, nil, false
+		return cacheEntry{URL: "", ETag: "", LastModified: "", Expires: 0}, nil, false
 	}
 
 	meta, err := os.ReadFile(base + cacheMetaSuffix)
 	if err != nil {
-		return cacheEntry{}, nil, false
+		return cacheEntry{URL: "", ETag: "", LastModified: "", Expires: 0}, nil, false
 	}
 
 	var entry cacheEntry
 
 	jsonErr := json.Unmarshal(meta, &entry)
 	if jsonErr != nil || entry.URL != u {
-		return cacheEntry{}, nil, false
+		return cacheEntry{URL: "", ETag: "", LastModified: "", Expires: 0}, nil, false
 	}
 
 	body, err := os.ReadFile(base + cacheBodySuffix)
 	if err != nil {
-		return cacheEntry{}, nil, false
+		return cacheEntry{URL: "", ETag: "", LastModified: "", Expires: 0}, nil, false
 	}
 
 	return entry, body, true

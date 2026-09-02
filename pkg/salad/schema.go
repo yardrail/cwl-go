@@ -33,6 +33,10 @@ type LoadedSchema struct {
 	Loader *Loader
 	// Metadata holds the schema document's own $namespaces, $schemas and $base directives.
 	Metadata *MapNode
+	// SchemaDoc is the resolved schema document root, retained so that
+	// MergeSchemas can re-collect the raw type definitions for a combined
+	// flatten pass.
+	SchemaDoc Node
 }
 
 // LoadSchema loads a Schema Salad schema document, validates it against the
@@ -83,10 +87,11 @@ func LoadSchema(ref string, opts ...LoaderOption) (*LoadedSchema, error) {
 	}
 
 	return &LoadedSchema{
-		Schema:   schema,
-		Context:  ctx,
-		Loader:   NewLoader(WithContext(ctx)),
-		Metadata: doc.Metadata,
+		Schema:    schema,
+		Context:   ctx,
+		Loader:    NewLoader(WithContext(ctx)),
+		Metadata:  doc.Metadata,
+		SchemaDoc: doc.Root,
 	}, nil
 }
 
@@ -96,7 +101,15 @@ func LoadSchema(ref string, opts ...LoaderOption) (*LoadedSchema, error) {
 // It is the analogue of schema.load_and_validate.
 func (ls *LoadedSchema) LoadAndValidate(ref string, opts ...ValidateOption) (*Document, error) {
 	if ls == nil || ls.Loader == nil || ls.Schema == nil {
-		return nil, Errorf(SourceLine{File: ref}, "the schema is not loaded, so %s cannot be validated against it", ref)
+		return nil, Errorf(
+			SourceLine{
+				File:  ref,
+				Start: Position{Line: 0, Column: 0, Offset: 0},
+				End:   Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"the schema is not loaded, so %s cannot be validated against it",
+			ref,
+		)
 	}
 
 	doc, err := ls.Loader.Load(ref)
@@ -110,6 +123,105 @@ func (ls *LoadedSchema) LoadAndValidate(ref string, opts ...ValidateOption) (*Do
 	}
 
 	return doc, nil
+}
+
+// LoadExtensionSchema loads a Schema Salad schema document and builds its
+// context, but does not flatten it. The extension's type definitions are meant
+// to be flattened together with a base schema by MergeSchemas, because an
+// extension typically extends types the base schema defines.
+//
+// The returned LoadedSchema has a nil Schema field and a nil Loader: both are
+// built by MergeSchemas from the combined definitions.
+func LoadExtensionSchema(ref string, opts ...LoaderOption) (*LoadedSchema, error) {
+	meta, metaCtx, err := Metaschema()
+	if err != nil {
+		return nil, err
+	}
+
+	doc, err := NewLoader(withContext(opts, metaCtx)...).Load(ref)
+	if err != nil {
+		return nil, err
+	}
+
+	invalid := meta.Validate(doc.Root, Strict(true))
+	if invalid != nil {
+		return nil, Group(nodeLoc(doc.Root), ref+" is not a valid Schema Salad schema, because", asError(invalid))
+	}
+
+	ctx, err := BuildContext(doc.Root, doc.Metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LoadedSchema{
+		Schema:    nil,
+		Context:   ctx,
+		Loader:    nil,
+		Metadata:  doc.Metadata,
+		SchemaDoc: doc.Root,
+	}, nil
+}
+
+// ErrMissingSchemaDoc is returned by MergeSchemas when either schema's
+// SchemaDoc field is nil.
+var ErrMissingSchemaDoc = errors.New("both schemas must retain their SchemaDoc for merging")
+
+// MergeSchemas combines two loaded schemas into one by concatenating their raw
+// type definitions and re-flattening the combined set. The base schema's
+// definitions come first, so the extension schema's types can extend them:
+// an extension record declaring extends: [base#Process] resolves against the
+// base's Process definition naturally, because both are in the same flattener
+// name table.
+//
+// Both schemas must retain their SchemaDoc (the resolved document root), which
+// LoadSchema populates automatically.
+func MergeSchemas(base, ext *LoadedSchema) (*LoadedSchema, error) {
+	if base.SchemaDoc == nil || ext.SchemaDoc == nil {
+		return nil, ErrMissingSchemaDoc
+	}
+
+	baseDefs, berr := collectDefinitions(base.SchemaDoc)
+	if berr != nil {
+		return nil, berr
+	}
+
+	extDefs, eerr := collectDefinitions(ext.SchemaDoc)
+	if eerr != nil {
+		return nil, eerr
+	}
+
+	allDefs := make([]*MapNode, 0, len(baseDefs)+len(extDefs))
+	allDefs = append(allDefs, baseDefs...)
+	allDefs = append(allDefs, extDefs...)
+
+	mergedCtx := MergeContexts(base.Context, ext.Context)
+
+	items := make([]Node, len(allDefs))
+	for i, d := range allDefs {
+		items[i] = d
+	}
+
+	merged := NewSeqNode(
+		SourceLine{
+			File:  "",
+			Start: Position{Line: 0, Column: 0, Offset: 0},
+			End:   Position{Line: 0, Column: 0, Offset: 0},
+		},
+		items,
+	)
+
+	schema, ferr := Flatten(merged, mergedCtx)
+	if ferr != nil {
+		return nil, ferr
+	}
+
+	return &LoadedSchema{
+		Schema:    schema,
+		Context:   mergedCtx,
+		Loader:    NewLoader(WithContext(mergedCtx)),
+		Metadata:  base.Metadata,
+		SchemaDoc: merged,
+	}, nil
 }
 
 // Flatten applies extends and specialize to already-resolved schema definitions
@@ -208,15 +320,23 @@ func loadMetaschemaFrom(fsys fs.FS) *metaschemaLoad {
 
 	doc, err := loader.Load(metaschemaRef)
 	if err != nil {
-		return &metaschemaLoad{err: fmt.Errorf("loading the built-in Schema Salad metaschema: %w", err)}
+		return &metaschemaLoad{
+			schema: nil,
+			ctx:    nil,
+			err:    fmt.Errorf("loading the built-in Schema Salad metaschema: %w", err),
+		}
 	}
 
 	schema, err := Flatten(doc.Root, ctx)
 	if err != nil {
-		return &metaschemaLoad{err: fmt.Errorf("flattening the built-in Schema Salad metaschema: %w", err)}
+		return &metaschemaLoad{
+			schema: nil,
+			ctx:    nil,
+			err:    fmt.Errorf("flattening the built-in Schema Salad metaschema: %w", err),
+		}
 	}
 
-	return &metaschemaLoad{schema: schema, ctx: ctx}
+	return &metaschemaLoad{schema: schema, ctx: ctx, err: nil}
 }
 
 // withContext returns opts with ctx appended, so that the context a loader is
@@ -231,10 +351,17 @@ func withContext(opts []LoaderOption, ctx *Context) []LoaderOption {
 // asError recovers the diagnostic tree from an error so that it can be grouped
 // under a context line, falling back to a leaf when the error is not one of ours.
 func asError(err error) *Error {
-	var e *Error
-	if errors.As(err, &e) {
+	if e, ok := errors.AsType[*Error](err); ok {
 		return e
 	}
 
-	return Errorf(SourceLine{}, "%s", err)
+	return Errorf(
+		SourceLine{
+			File:  "",
+			Start: Position{Line: 0, Column: 0, Offset: 0},
+			End:   Position{Line: 0, Column: 0, Offset: 0},
+		},
+		"%s",
+		err,
+	)
 }

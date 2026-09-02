@@ -33,13 +33,13 @@ type keyElem struct {
 
 // numKey returns the numeric key element n. Positions and array indices are numeric.
 func numKey(n int64) keyElem {
-	return keyElem{num: n}
+	return keyElem{text: "", num: n, isText: false}
 }
 
 // textKey returns the string key element s. Parameter and record field names are strings, and are
 // what the specification's tie-break rule orders by.
 func textKey(s string) keyElem {
-	return keyElem{text: s, isText: true}
+	return keyElem{text: s, num: 0, isText: true}
 }
 
 // sortKey is a binding's full sort key, outermost level first.

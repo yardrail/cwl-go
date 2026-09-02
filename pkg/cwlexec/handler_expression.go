@@ -45,7 +45,7 @@ func (expressionToolHandler) Execute(ctx context.Context, call *StepCall) (Resul
 		return PermanentFail(fmt.Errorf("%w: %s is not an ExpressionTool", ErrWrongProcessClass, describe(call)))
 	}
 
-	evalContext := &cwlcore.EvalContext{Inputs: call.Inputs, Runtime: call.RuntimeContext()}
+	evalContext := &cwlcore.EvalContext{Inputs: call.Inputs, Self: nil, Runtime: call.RuntimeContext()}
 
 	value, err := call.Evaluator().Eval(string(tool.Expression), evalContext)
 	if err != nil {

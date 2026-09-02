@@ -372,12 +372,12 @@ func asFileLike(value any) (fileLike, bool) {
 
 	object, ok := valueObject(value)
 	if !ok {
-		return fileLike{}, false
+		return fileLike{class: "", path: ""}, false
 	}
 
 	class, ok := object[fileClassField].(string)
 	if !ok || (class != cwlcore.ClassFile && class != cwlcore.ClassDirectory) {
-		return fileLike{}, false
+		return fileLike{class: "", path: ""}, false
 	}
 
 	return fileLike{class: class, path: objectPath(object)}, true

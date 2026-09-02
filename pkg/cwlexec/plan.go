@@ -134,7 +134,7 @@ func newPlan(ctx context.Context, process cwlcore.Process, cfg *Config) (*plan, 
 
 	for index := range workflow.Inputs {
 		id := workflow.Inputs[index].IDField
-		built.sources[id] = sourceRef{Port: ShortName(id)}
+		built.sources[id] = sourceRef{Step: "", Port: ShortName(id)}
 	}
 
 	err := built.addSteps(ctx, workflow, cfg)
@@ -168,16 +168,22 @@ func bareProcessPlan(ctx context.Context, process cwlcore.Process, cfg *Config) 
 	ins := inputDecls(process)
 
 	step := &plannedStep{
+		step:       nil,
 		run:        process,
 		scope:      scope,
 		eval:       EvaluatorFor(scope, cfg.evalOptions()...),
+		handler:    nil,
 		outTypes:   declaredTypes(outs),
 		defaults:   declaredDefaults(ins),
 		declaredIn: declaredInputs(ins),
 		pending:    newProcessValues(ctx, process, scope, ins),
 		id:         processStepID(process),
 		class:      Class(process.Class()),
+		when:       "",
+		method:     "",
 		out:        declaredNames(outs),
+		scatter:    nil,
+		deps:       nil,
 		implicit:   true,
 	}
 
@@ -192,7 +198,17 @@ func bareProcessPlan(ctx context.Context, process cwlcore.Process, cfg *Config) 
 	for _, port := range step.out {
 		id := step.id + "/" + port
 		built.sources[id] = sourceRef{Step: step.id, Port: port}
-		built.outputs = append(built.outputs, sink{Name: port, Sources: []string{id}})
+		built.outputs = append(
+			built.outputs,
+			sink{
+				Name:      port,
+				LinkMerge: "",
+				PickValue: "",
+				Sources:   []string{id},
+				Type:      cwlcore.TypeRef{},
+				StepInput: false,
+			},
+		)
 	}
 
 	return built, nil
@@ -255,6 +271,7 @@ func (p *plan) addWorkflowOutputs(workflow *cwlcore.Workflow) error {
 			PickValue: param.PickValue,
 			Sources:   param.OutputSource,
 			Type:      param.Type,
+			StepInput: false,
 		})
 	}
 

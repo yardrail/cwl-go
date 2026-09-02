@@ -110,12 +110,12 @@ func openCorpus(ctx context.Context, base, tag, cacheDir string) (*corpus, error
 			return nil, fmt.Errorf("%s=%s: %w", envCorpus, explicit, errCorpusIncomplete)
 		}
 
-		return &corpus{root: explicit, tag: tag}, nil
+		return &corpus{root: explicit, tag: tag, fetched: false}, nil
 	}
 
 	dest := filepath.Join(cacheDir, "cwl-v1.2-"+tag)
 	if hasManifest(dest) {
-		return &corpus{root: dest, tag: tag}, nil
+		return &corpus{root: dest, tag: tag, fetched: false}, nil
 	}
 
 	err := downloadCorpus(ctx, base, tag, dest)
@@ -226,7 +226,7 @@ func fetchTarball(ctx context.Context, url string) ([]byte, error) {
 		return nil, err
 	}
 
-	client := &http.Client{Timeout: fetchTimeout}
+	client := &http.Client{Transport: nil, CheckRedirect: nil, Jar: nil, Timeout: fetchTimeout}
 
 	resp, err := client.Do(req)
 	if err != nil {

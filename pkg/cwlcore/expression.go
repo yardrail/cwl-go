@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -232,7 +233,12 @@ type Evaluator struct {
 // referencesOnly is the configuration a nil or zero-valued *Evaluator behaves
 // as. It is shared and never mutated: with JavaScript disabled its program
 // cache is never touched.
-var referencesOnly = &Evaluator{timeout: DefaultEvalTimeout}
+var referencesOnly = &Evaluator{
+	libSrc:    "",
+	programs:  programCache{programs: nil, mu: sync.RWMutex{}},
+	timeout:   DefaultEvalTimeout,
+	jsEnabled: false,
+}
 
 // EvalOption configures an Evaluator at construction time.
 type EvalOption func(*Evaluator)
@@ -241,7 +247,12 @@ type EvalOption func(*Evaluator)
 // supports parameter references only, which is what the spec requires of every
 // conforming implementation regardless of any requirement being declared.
 func NewEvaluator(opts ...EvalOption) *Evaluator {
-	evaluator := &Evaluator{timeout: DefaultEvalTimeout}
+	evaluator := &Evaluator{
+		libSrc:    "",
+		programs:  programCache{programs: nil, mu: sync.RWMutex{}},
+		timeout:   DefaultEvalTimeout,
+		jsEnabled: false,
+	}
 
 	for _, opt := range opts {
 		opt(evaluator)
@@ -398,7 +409,19 @@ func (e *Evaluator) EvalBool(expr string, ctx *EvalContext) (bool, error) {
 // read out of, which is the only thing Eval and EvalContent disagree about.
 func (e *Evaluator) evalScanned(src string, ctx *EvalContext) (any, error) {
 	if ctx == nil {
-		ctx = &EvalContext{}
+		ctx = &EvalContext{
+			Inputs: nil,
+			Self:   nil,
+			Runtime: RuntimeContext{
+				Cores:      nil,
+				RAM:        nil,
+				OutdirSize: nil,
+				TmpdirSize: nil,
+				ExitCode:   nil,
+				Outdir:     "",
+				Tmpdir:     "",
+			},
+		}
 	}
 
 	return e.interpolate(src, ctx)

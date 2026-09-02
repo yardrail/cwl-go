@@ -88,7 +88,7 @@ type subworkflowEnv struct {
 // Config.TmpDirPrefix are always overridden per nested run, with the suspended invocation's own
 // StepCall.OutDir and StepCall.TmpDir, so what is passed here for those two is ignored.
 func WithSubworkflows(ctx context.Context, registry *Registry, cfg *Config) context.Context {
-	return context.WithValue(ctx, subworkflowKey{}, subworkflowEnv{registry: registry, cfg: cfg})
+	return context.WithValue(ctx, subworkflowKey{}, subworkflowEnv{registry: registry, cfg: cfg, ancestors: nil})
 }
 
 // subworkflowsFrom reads the environment a nested run inherits, substituting the built-in registry
@@ -143,7 +143,19 @@ func (e subworkflowEnv) descend(workflow *cwlcore.Workflow, cfg *Config) subwork
 // An unset OutDir or TmpDir stays unset, which reads as "this run allocates no directories" exactly
 // as it does at the top level.
 func (e subworkflowEnv) childConfig(call *StepCall) *Config {
-	cfg := Config{}
+	cfg := Config{
+		Logger:              nil,
+		SelectResources:     nil,
+		AllowRequirements:   nil,
+		OutDir:              "",
+		TmpDirPrefix:        "",
+		OnError:             "",
+		Containers:          ContainerPolicy{Disabled: false, NoMatchUser: false, NoReadOnly: false, Keep: false},
+		Resources:           ResourceBudget{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
+		EvalTimeout:         0,
+		MaxParallel:         0,
+		LenientRequirements: false,
+	}
 	if e.cfg != nil {
 		cfg = *e.cfg
 	}
@@ -290,7 +302,7 @@ func nestedError(call *StepCall, status Status, err error) error {
 // this does not do.
 func suspendNested(call *StepCall, run RunResult) (Result, error) {
 	payload, err := json.Marshal(subworkflowPayload{
-		State:       run.State,
+		State:       &run.State,
 		Suspensions: wireSuspensions(run.Suspensions),
 	})
 	if err != nil {
@@ -303,7 +315,7 @@ func suspendNested(call *StepCall, run RunResult) (Result, error) {
 // subworkflowPayload is the wire shape of a nested suspension's payload. Every field is named
 // explicitly, because what a caller persists is part of this package's contract.
 type subworkflowPayload struct {
-	State       RunState         `json:"state"`
+	State       *RunState        `json:"state"`
 	Suspensions []suspensionJSON `json:"suspensions,omitempty"`
 }
 
@@ -383,7 +395,7 @@ func DecodeSubworkflowSuspension(payload []byte) (SubworkflowSuspension, error) 
 	}
 
 	decoded := SubworkflowSuspension{
-		State:       wire.State,
+		State:       *wire.State,
 		Suspensions: make([]Suspension, 0, len(wire.Suspensions)),
 	}
 

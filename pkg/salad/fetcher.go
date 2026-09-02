@@ -79,7 +79,7 @@ var _ Fetcher = (*DefaultFetcher)(nil)
 // directory.
 func NewDefaultFetcher(opts ...FetcherOption) *DefaultFetcher {
 	f := &DefaultFetcher{
-		client:   &http.Client{Timeout: httpTimeout},
+		client:   &http.Client{Transport: nil, CheckRedirect: nil, Jar: nil, Timeout: httpTimeout},
 		cacheDir: userCacheDir(),
 	}
 
@@ -107,7 +107,15 @@ func (f *DefaultFetcher) FetchText(u string) ([]byte, error) {
 	case schemeHTTP, schemeHTTPS:
 		return f.fetchHTTP(target.String())
 	default:
-		return nil, Errorf(SourceLine{File: u}, "unsupported URL scheme %q", target.Scheme)
+		return nil, Errorf(
+			SourceLine{
+				File:  u,
+				Start: Position{Line: 0, Column: 0, Offset: 0},
+				End:   Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"unsupported URL scheme %q",
+			target.Scheme,
+		)
 	}
 }
 
@@ -165,7 +173,16 @@ func NewFSFetcher(fsys fs.FS, base string) *FSFetcher {
 func (f *FSFetcher) FetchText(u string) ([]byte, error) {
 	name, ok := f.path(u)
 	if !ok {
-		return nil, Errorf(SourceLine{File: u}, "%s is not under the mount point %s", u, f.base)
+		return nil, Errorf(
+			SourceLine{
+				File:  u,
+				Start: Position{Line: 0, Column: 0, Offset: 0},
+				End:   Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"%s is not under the mount point %s",
+			u,
+			f.base,
+		)
 	}
 
 	return fs.ReadFile(f.fsys, name)
@@ -249,7 +266,19 @@ func pathToURLAbs(abs func(string) (string, error), p string) (string, error) {
 		return "", err
 	}
 
-	u := url.URL{Scheme: schemeFile, Path: filepath.ToSlash(resolved)}
+	u := url.URL{
+		Scheme:      schemeFile,
+		Opaque:      "",
+		User:        nil,
+		Host:        "",
+		Path:        filepath.ToSlash(resolved),
+		RawPath:     "",
+		RawQuery:    "",
+		Fragment:    "",
+		RawFragment: "",
+		ForceQuery:  false,
+		OmitHost:    false,
+	}
 
 	return u.String(), nil
 }

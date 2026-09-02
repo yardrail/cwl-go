@@ -105,7 +105,28 @@ func newInvocation(call *StepCall) (*invocation, error) {
 		return nil, fmt.Errorf("%w: %s is not a CommandLineTool", ErrWrongProcessClass, describe(call))
 	}
 
-	run := &invocation{call: call, tool: tool, eval: call.Evaluator()}
+	run := &invocation{
+		call:   call,
+		tool:   tool,
+		eval:   call.Evaluator(),
+		mapper: nil,
+		inputs: nil,
+		docker: nil,
+		box:    nil,
+		runtime: cwlcore.RuntimeContext{
+			Cores:      nil,
+			RAM:        nil,
+			OutdirSize: nil,
+			TmpdirSize: nil,
+			ExitCode:   nil,
+			Outdir:     "",
+			Tmpdir:     "",
+		},
+		outdir:   "",
+		tmpdir:   "",
+		scratch:  "",
+		absolute: false,
+	}
 
 	err := run.makeDirs()
 	if err != nil {
@@ -406,7 +427,16 @@ func (i *invocation) execute(ctx context.Context) (Result, error) {
 
 	status := ClassifyExit(i.tool, code)
 	if status != StatusSuccess {
-		return Result{Status: status}, fmt.Errorf("%s: %w: %d", describe(i.call), ErrToolExit, code)
+		return Result{
+				Status:     status,
+				Outputs:    nil,
+				Suspension: nil,
+			}, fmt.Errorf(
+				"%s: %w: %d",
+				describe(i.call),
+				ErrToolExit,
+				code,
+			)
 	}
 
 	outputs, err := i.collect(code)
@@ -435,7 +465,7 @@ func (i *invocation) spec() (*ProcessSpec, error) {
 		return nil, err
 	}
 
-	spec := &ProcessSpec{Command: line, Dir: i.outdir, Env: env, Timeout: limit}
+	spec := &ProcessSpec{Command: line, Dir: i.outdir, Stdin: "", Stdout: "", Stderr: "", Env: env, Timeout: limit}
 
 	err = i.redirect(spec)
 	if err != nil {
@@ -613,7 +643,7 @@ func (i *invocation) hostInputs() map[string]any {
 
 // evalContext builds the symbol environment this invocation's own expressions are evaluated against.
 func (i *invocation) evalContext() *cwlcore.EvalContext {
-	return &cwlcore.EvalContext{Inputs: outExpressionObject(i.inputs), Runtime: i.runtime}
+	return &cwlcore.EvalContext{Inputs: outExpressionObject(i.inputs), Self: nil, Runtime: i.runtime}
 }
 
 // outputView returns the tool [CollectOutputs] should read: this invocation's tool, with the two
@@ -683,100 +713,4 @@ func (i *invocation) stagedRequirements() []cwlcore.ProcessRequirement {
 	}
 
 	return append(slices.Clone(i.tool.Requirements), inherited)
-}
-
-// relistBinding returns binding with mode filled in, unless it set `loadListing` itself — in which
-// case the binding wins, which is the first step of the precedence — or there is no binding to fill
-// in at all.
-func relistBinding(binding *cwlcore.CommandOutputBinding, mode cwlcore.LoadListingEnum) *cwlcore.CommandOutputBinding {
-	if binding == nil || binding.LoadListing != "" {
-		return binding
-	}
-
-	relisted := *binding
-	relisted.LoadListing = mode
-
-	return &relisted
-}
-
-// relistType fills mode into every output binding reachable inside a declared type, descending
-// through arrays, unions and record fields.
-//
-// A record field carries an outputBinding of its own, so a Directory-typed field is subject to the
-// same three-step precedence as a top-level output and must inherit the requirement the same way.
-// The walk terminates because [cwlcore.ResolveTypeRef] refuses to expand a type into itself, so the
-// resolved graph is finite.
-func relistType(declared cwlcore.TypeRef, mode cwlcore.LoadListingEnum) cwlcore.TypeRef {
-	switch declared.Kind() {
-	case cwlcore.TypeKindRecord:
-		return relistRecord(declared, mode)
-	case cwlcore.TypeKindArray:
-		return relistArray(declared, mode)
-	case cwlcore.TypeKindUnion:
-		return cwlcore.NewUnionType(relistOptions(declared.Options(), mode)).WithNode(declared.Node())
-	default:
-		return declared
-	}
-}
-
-// relistRecord fills mode into each of a record's field bindings, and into the types those fields
-// are themselves declared as.
-func relistRecord(declared cwlcore.TypeRef, mode cwlcore.LoadListingEnum) cwlcore.TypeRef {
-	schema := declared.Record()
-	if schema == nil {
-		return declared
-	}
-
-	relisted := *schema
-	relisted.Fields = slices.Clone(schema.Fields)
-
-	for index := range relisted.Fields {
-		field := &relisted.Fields[index]
-		field.OutputBinding = relistBinding(field.OutputBinding, mode)
-		field.Type = relistType(field.Type, mode)
-	}
-
-	return cwlcore.NewRecordType(&relisted).WithNode(declared.Node())
-}
-
-// relistArray fills mode into the type an array's elements are declared as.
-func relistArray(declared cwlcore.TypeRef, mode cwlcore.LoadListingEnum) cwlcore.TypeRef {
-	schema := declared.Array()
-	if schema == nil {
-		return declared
-	}
-
-	relisted := *schema
-	relisted.Items = relistType(schema.Items, mode)
-
-	return cwlcore.NewArrayType(&relisted).WithNode(declared.Node())
-}
-
-// relistOptions fills mode into every member of a union.
-func relistOptions(options []cwlcore.TypeRef, mode cwlcore.LoadListingEnum) []cwlcore.TypeRef {
-	relisted := make([]cwlcore.TypeRef, 0, len(options))
-	for _, option := range options {
-		relisted = append(relisted, relistType(option, mode))
-	}
-
-	return relisted
-}
-
-// loadListingDefault resolves the LoadListingRequirement in effect for a scope.
-func loadListingDefault(scope *cwlcore.RequirementScope) (cwlcore.LoadListingEnum, bool) {
-	if scope == nil {
-		return "", false
-	}
-
-	requirement, found, _ := scope.GetRequirement(cwlcore.ClassLoadListingRequirement)
-	if !found {
-		return "", false
-	}
-
-	typed, ok := requirement.(*cwlcore.LoadListingRequirement)
-	if !ok {
-		return "", false
-	}
-
-	return typed.LoadListing, true
 }

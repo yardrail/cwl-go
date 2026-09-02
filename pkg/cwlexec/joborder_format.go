@@ -69,17 +69,17 @@ func joReadVocabulary(p cwlcore.Process, job salad.Node) joVocabulary {
 // once.
 func joFileVocabulary(path string) joVocabulary {
 	if path == "" {
-		return joVocabulary{}
+		return joVocabulary{namespaces: nil, hasOntology: false}
 	}
 
 	src, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
-		return joVocabulary{}
+		return joVocabulary{namespaces: nil, hasOntology: false}
 	}
 
 	root, err := salad.Parse(path, src)
 	if err != nil {
-		return joVocabulary{}
+		return joVocabulary{namespaces: nil, hasOntology: false}
 	}
 
 	return joNodeVocabulary(root)
@@ -89,7 +89,7 @@ func joFileVocabulary(path string) joVocabulary {
 func joNodeVocabulary(root salad.Node) joVocabulary {
 	m, ok := salad.AsMap(root)
 	if !ok {
-		return joVocabulary{}
+		return joVocabulary{namespaces: nil, hasOntology: false}
 	}
 
 	vocab := joVocabulary{namespaces: make(map[string]string), hasOntology: joNamesOntology(m)}

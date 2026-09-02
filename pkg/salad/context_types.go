@@ -213,7 +213,21 @@ func (c *Context) registerField(name string, field *MapNode) {
 // termFor builds a TermDef from a field's jsonldPredicate, defaulting the
 // predicate IRI to the field's own absolute name when none is declared.
 func (c *Context) termFor(field *MapNode, fieldIRI string) *TermDef {
-	def := &TermDef{ID: absoluteOrEmpty(fieldIRI)}
+	def := &TermDef{
+		ID:                absoluteOrEmpty(fieldIRI),
+		Type:              "",
+		Subscope:          "",
+		MapSubject:        "",
+		MapPredicate:      "",
+		RefScope:          0,
+		Identity:          false,
+		Noconvert:         false,
+		NoLinkCheck:       false,
+		TypeDSL:           false,
+		SecondaryFilesDSL: false,
+		ScopedRef:         false,
+		IsIdentifier:      false,
+	}
 
 	pred := nodeOrNil(field, keyJSONLDPredicate)
 	if pred == nil {

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 // vocabSchema exercises every path BuildContext walks: namespaces, an enum's
@@ -117,10 +118,19 @@ func TestBuildContextReadsPredicateModifiers(t *testing.T) {
 	}
 
 	want := TermDef{
-		ID:          testAcidNS + "kind",
-		Type:        keywordVocab,
-		Subscope:    "inner",
-		NoLinkCheck: true,
+		ID:                testAcidNS + "kind",
+		Type:              keywordVocab,
+		Subscope:          "inner",
+		MapSubject:        "",
+		MapPredicate:      "",
+		RefScope:          0,
+		Identity:          false,
+		Noconvert:         false,
+		NoLinkCheck:       true,
+		TypeDSL:           false,
+		SecondaryFilesDSL: false,
+		ScopedRef:         false,
+		IsIdentifier:      false,
 	}
 	if *term != want {
 		t.Errorf("term = %+v, want %+v", *term, want)
@@ -189,7 +199,7 @@ func buildFixtureContext(t *testing.T, files map[string]string) (*Context, error
 
 	fsys := make(fstest.MapFS, len(files))
 	for name, src := range files {
-		fsys[name] = &fstest.MapFile{Data: []byte(src)}
+		fsys[name] = &fstest.MapFile{Data: []byte(src), Mode: 0, ModTime: time.Time{}, Sys: nil}
 	}
 
 	loader := NewLoader(
@@ -509,5 +519,122 @@ func TestBootstrapContextReadsTheMetaschema(t *testing.T) {
 
 	if !ctx.hasVocabTerm(kindRecord) || !ctx.hasVocabTerm(nameString) {
 		t.Error("the bootstrap vocabulary must know the type declaration keywords and the primitives")
+	}
+}
+
+func mergeContextFixture() *Context {
+	base := newContext()
+	base.namespaces["cwl"] = "https://w3id.org/cwl/cwl#"
+	base.vocab["CommandLineTool"] = "https://w3id.org/cwl/cwl#CommandLineTool"
+	base.vocab["Workflow"] = "https://w3id.org/cwl/cwl#Workflow"
+	base.rvocab["https://w3id.org/cwl/cwl#CommandLineTool"] = "CommandLineTool"
+	base.terms["class"] = &TermDef{
+		ID:                "@type",
+		Type:              "@vocab",
+		Subscope:          "",
+		MapSubject:        "",
+		MapPredicate:      "",
+		RefScope:          0,
+		Identity:          false,
+		Noconvert:         false,
+		NoLinkCheck:       false,
+		TypeDSL:           false,
+		SecondaryFilesDSL: false,
+		ScopedRef:         false,
+		IsIdentifier:      false,
+	}
+	base.identifiers = []string{"id"}
+	base.schemas = []string{"https://w3id.org/cwl/cwl.ttl"}
+
+	ext := newContext()
+	ext.namespaces["yr"] = "https://yardrail.com/cwl#"
+	ext.vocab["ConnectorAction"] = "https://yardrail.com/cwl#ConnectorAction"
+	ext.vocab["CommandLineTool"] = "https://yardrail.com/cwl#CommandLineTool"
+	ext.rvocab["https://yardrail.com/cwl#ConnectorAction"] = "ConnectorAction"
+	ext.terms["capability"] = &TermDef{
+		ID:                "https://yardrail.com/cwl#capability",
+		Type:              "",
+		Subscope:          "",
+		MapSubject:        "",
+		MapPredicate:      "",
+		RefScope:          0,
+		Identity:          false,
+		Noconvert:         false,
+		NoLinkCheck:       false,
+		TypeDSL:           false,
+		SecondaryFilesDSL: false,
+		ScopedRef:         false,
+		IsIdentifier:      false,
+	}
+	ext.identifiers = []string{"id", keyName}
+	ext.schemas = []string{"https://yardrail.com/cwl.ttl"}
+
+	return MergeContexts(base, ext)
+}
+
+func TestMergeContextsNamespaces(t *testing.T) {
+	t.Parallel()
+
+	merged := mergeContextFixture()
+
+	if merged.namespaces["cwl"] != "https://w3id.org/cwl/cwl#" {
+		t.Error("base namespace lost")
+	}
+
+	if merged.namespaces["yr"] != "https://yardrail.com/cwl#" {
+		t.Error("extension namespace lost")
+	}
+}
+
+func TestMergeContextsVocabCollision(t *testing.T) {
+	t.Parallel()
+
+	merged := mergeContextFixture()
+
+	if merged.vocab["CommandLineTool"] != "https://w3id.org/cwl/cwl#CommandLineTool" {
+		t.Errorf("vocab collision: got %q, want base value", merged.vocab["CommandLineTool"])
+	}
+
+	if merged.vocab["ConnectorAction"] != "https://yardrail.com/cwl#ConnectorAction" {
+		t.Error("extension-only vocab entry lost")
+	}
+}
+
+func TestMergeContextsTerms(t *testing.T) {
+	t.Parallel()
+
+	merged := mergeContextFixture()
+
+	if _, ok := merged.terms["class"]; !ok {
+		t.Error("base term lost")
+	}
+
+	if _, ok := merged.terms["capability"]; !ok {
+		t.Error("extension term lost")
+	}
+}
+
+func TestMergeContextsIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	merged := mergeContextFixture()
+
+	want := []string{"id", keyName}
+	if !reflect.DeepEqual(merged.identifiers, want) {
+		t.Errorf("identifiers = %v, want %v", merged.identifiers, want)
+	}
+}
+
+func TestMergeContextsSchemas(t *testing.T) {
+	t.Parallel()
+
+	merged := mergeContextFixture()
+
+	if len(merged.schemas) != 2 {
+		t.Fatalf("schemas = %v, want 2 entries", merged.schemas)
+	}
+
+	if merged.schemas[0] != "https://w3id.org/cwl/cwl.ttl" || merged.schemas[1] != "https://yardrail.com/cwl.ttl" {
+		t.Errorf("schemas = %v, want base then extension", merged.schemas)
 	}
 }

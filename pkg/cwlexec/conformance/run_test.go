@@ -8,7 +8,6 @@ import (
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 	"github.com/yardrail/cwl-go/pkg/cwlexec"
-	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
 // runFixture resolves a document under testdata/run.
@@ -32,7 +31,7 @@ func TestProduceRejectsADocumentWithNoCWLVersion(t *testing.T) {
 
 	path := runFixture(t, "no-cwlversion.cwl")
 
-	run := &invocation{process: path, outDir: t.TempDir(), baseDir: filepath.Dir(path)}
+	run := &invocation{process: path, job: "", outDir: t.TempDir(), baseDir: filepath.Dir(path)}
 
 	_, err := produce(t.Context(), run)
 	if !errors.Is(err, errNoCWLVersion) {
@@ -51,7 +50,7 @@ func TestProduceRejectsAMissingRequiredInput(t *testing.T) {
 		t.Fatalf("resolving the fixture: %v", err)
 	}
 
-	run := &invocation{process: path, outDir: t.TempDir(), baseDir: filepath.Dir(path)}
+	run := &invocation{process: path, job: "", outDir: t.TempDir(), baseDir: filepath.Dir(path)}
 
 	_, err = produce(t.Context(), run)
 	if err == nil {
@@ -70,7 +69,7 @@ func TestExecutePropagatesARunError(t *testing.T) {
 		t.Fatalf("resolving the fixture: %v", err)
 	}
 
-	process, err := cwlcore.LoadFile(t.Context(), path, salad.Strict(true))
+	process, err := cwlcore.LoadFile(t.Context(), path, cwlcore.Strict(true))
 	if err != nil {
 		t.Fatalf("loading the fixture: %v", err)
 	}
@@ -94,7 +93,7 @@ func TestExecuteRejectsAnUnplannableWorkflow(t *testing.T) {
 
 	path := runFixture(t, "unknown-output-source.cwl")
 
-	process, err := cwlcore.LoadFile(t.Context(), path, salad.Strict(true))
+	process, err := cwlcore.LoadFile(t.Context(), path, cwlcore.Strict(true))
 	if err != nil {
 		t.Fatalf("loading the fixture: %v", err)
 	}
@@ -116,7 +115,14 @@ func TestOutputsFromResultMapsStatus(t *testing.T) {
 
 		want := map[string]any{outputName: testValue}
 
-		outputs, err := outputsFromResult(cwlexec.RunResult{Status: cwlexec.StatusSuccess, Outputs: want})
+		outputs, err := outputsFromResult(
+			cwlexec.RunResult{
+				Outputs:     want,
+				Status:      cwlexec.StatusSuccess,
+				Suspensions: nil,
+				State:       cwlexec.RunState{},
+			},
+		)
 		if err != nil {
 			t.Fatalf("outputsFromResult: %v", err)
 		}
@@ -129,7 +135,14 @@ func TestOutputsFromResultMapsStatus(t *testing.T) {
 	t.Run("a suspended run", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := outputsFromResult(cwlexec.RunResult{Status: cwlexec.StatusSuspended})
+		_, err := outputsFromResult(
+			cwlexec.RunResult{
+				Outputs:     nil,
+				Status:      cwlexec.StatusSuspended,
+				Suspensions: nil,
+				State:       cwlexec.RunState{},
+			},
+		)
 		if !errors.Is(err, errRun) {
 			t.Errorf("outputsFromResult = %v, want it to wrap errRun", err)
 		}

@@ -11,7 +11,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/yardrail/cwl-go/pkg/salad"
+	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
 // toolName is how the tool names itself in its usage and version output.
@@ -90,25 +90,32 @@ type config struct {
 	help bool
 }
 
-// validateOptions turns the strict flag into the options the loader takes.
+// loadOptions turns the strict flag into the options the loader takes.
 //
 // Under -strict, the conditions the specification lets an implementation
 // tolerate — an unrecognized field, most of all — become errors rather than
 // advisories. That is the check a project wants in CI: permissive validation
 // discards advisories entirely, so a typo'd field name is otherwise reported
 // nowhere at all, and a document that does nothing passes.
-func (c *config) validateOptions() []salad.ValidateOption {
+func (c *config) loadOptions() []cwlcore.LoadOption {
 	if !c.strict {
 		return nil
 	}
 
-	return []salad.ValidateOption{salad.Strict(true)}
+	return []cwlcore.LoadOption{cwlcore.Strict(true)}
 }
 
 // parseFlags reads args into a config. Flag errors are written to stderr by
 // the flag set itself, so the returned error only has to carry the exit status.
 func parseFlags(args []string, stderr io.Writer) (*config, error) {
-	cfg := &config{documents: make([]string, 0, len(args))}
+	cfg := &config{
+		documents: make([]string, 0, len(args)),
+		quiet:     false,
+		strict:    false,
+		verbose:   false,
+		version:   false,
+		help:      false,
+	}
 
 	fs := flag.NewFlagSet(toolName, flag.ContinueOnError)
 	fs.SetOutput(stderr)

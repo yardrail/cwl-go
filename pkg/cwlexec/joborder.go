@@ -113,7 +113,15 @@ func LoadJobOrder(
 
 	problem := errors.Join(absErr, readErr)
 	if problem != nil {
-		return nil, salad.Errorf(salad.SourceLine{File: jobPath}, "reading job order: %v", problem)
+		return nil, salad.Errorf(
+			salad.SourceLine{
+				File:  jobPath,
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"reading job order: %v",
+			problem,
+		)
 	}
 
 	return ParseJobOrder(ctx, abs, src, p, opts...)
@@ -174,13 +182,26 @@ func ParseJobOrder(
 	ctx context.Context, jobPath string, src []byte, p cwlcore.Process, opts ...JobOrderOption,
 ) (map[string]any, error) {
 	if p == nil {
-		return nil, salad.Errorf(salad.SourceLine{File: jobPath},
-			"a job order must be loaded against a process, but none was given")
+		return nil, salad.Errorf(
+			salad.SourceLine{
+				File:  jobPath,
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"a job order must be loaded against a process, but none was given",
+		)
 	}
 
 	if !filepath.IsAbs(jobPath) {
-		return nil, salad.Errorf(salad.SourceLine{File: jobPath},
-			"the job order path %q must be absolute, since it is what relative references resolve against", jobPath)
+		return nil, salad.Errorf(
+			salad.SourceLine{
+				File:  jobPath,
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"the job order path %q must be absolute, since it is what relative references resolve against",
+			jobPath,
+		)
 	}
 
 	root, err := salad.Parse(jobPath, src)
@@ -200,9 +221,10 @@ func ParseJobOrder(
 	listing, _ := loadListingDefault(cwlcore.NewScope(p))
 
 	loader := &joLoader{
+		vocab:   joReadVocabulary(p, root),
+		log:     nil,
 		jobDir:  jobDir,
 		docDir:  joProcessDir(p, jobDir),
-		vocab:   joReadVocabulary(p, root),
 		listing: listing,
 	}
 
@@ -591,7 +613,11 @@ func joJoinQuoted(names []string) string {
 // joNodeLoc returns n's source location, tolerating a nil node.
 func joNodeLoc(n salad.Node) salad.SourceLine {
 	if n == nil {
-		return salad.SourceLine{}
+		return salad.SourceLine{
+			File:  "",
+			Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+			End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+		}
 	}
 
 	return n.Loc()

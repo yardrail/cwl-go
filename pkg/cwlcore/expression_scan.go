@@ -68,7 +68,7 @@ type exprScanner struct {
 // unterminated fragment — the scanner never runs past the end of the string
 // looking for a delimiter that is not there.
 func scanFragment(src string) (scanWindow, bool, error) {
-	scanner := &exprScanner{src: src, stack: []scanState{scanText}}
+	scanner := &exprScanner{src: src, stack: []scanState{scanText}, pos: 0, fragStart: 0, escStart: 0}
 
 	for scanner.pos < len(src) {
 		char, size := utf8.DecodeRuneInString(src[scanner.pos:])
@@ -79,7 +79,7 @@ func scanFragment(src string) (scanWindow, bool, error) {
 		}
 	}
 
-	return scanWindow{}, false, scanner.unterminated()
+	return scanWindow{start: 0, end: 0, escape: false}, false, scanner.unterminated()
 }
 
 // step consumes one rune in the current state and reports a completed window.
@@ -102,7 +102,7 @@ func (s *exprScanner) step(char rune, size int) (scanWindow, bool) {
 	default:
 		s.pos += size
 
-		return scanWindow{}, false
+		return scanWindow{start: 0, end: 0, escape: false}, false
 	}
 }
 
@@ -120,7 +120,7 @@ func (s *exprScanner) stepText(char rune, size int) (scanWindow, bool) {
 
 	s.pos += size
 
-	return scanWindow{}, false
+	return scanWindow{start: 0, end: 0, escape: false}, false
 }
 
 // stepBackslash consumes the escaped rune. An escape that lands back in
@@ -136,7 +136,7 @@ func (s *exprScanner) stepBackslash(char rune, size int) (scanWindow, bool) {
 	s.pos += size
 
 	if s.top() != scanText {
-		return scanWindow{}, false
+		return scanWindow{start: 0, end: 0, escape: false}, false
 	}
 
 	if char == '$' && s.opensFragment() {
@@ -164,12 +164,12 @@ func (s *exprScanner) stepDollar(char rune, size int) (scanWindow, bool) {
 	default:
 		s.pop()
 
-		return scanWindow{}, false
+		return scanWindow{start: 0, end: 0, escape: false}, false
 	}
 
 	s.pos += size
 
-	return scanWindow{}, false
+	return scanWindow{start: 0, end: 0, escape: false}, false
 }
 
 // stepGroup scans inside a fragment, tracking nested delimiters of the same
@@ -188,7 +188,7 @@ func (s *exprScanner) stepGroup(char, openRune, closeRune rune, size int) (scanW
 		s.pop()
 
 		if s.top() == scanDollar {
-			return scanWindow{start: s.fragStart, end: s.pos}, true
+			return scanWindow{start: s.fragStart, end: s.pos, escape: false}, true
 		}
 	case '\'':
 		s.push(scanSingleQuote)
@@ -197,7 +197,7 @@ func (s *exprScanner) stepGroup(char, openRune, closeRune rune, size int) (scanW
 	default:
 	}
 
-	return scanWindow{}, false
+	return scanWindow{start: 0, end: 0, escape: false}, false
 }
 
 // stepQuoted scans inside a JavaScript string literal, where delimiters are
@@ -214,7 +214,7 @@ func (s *exprScanner) stepQuoted(char, quote rune, size int) (scanWindow, bool) 
 	default:
 	}
 
-	return scanWindow{}, false
+	return scanWindow{start: 0, end: 0, escape: false}, false
 }
 
 // unterminated reports the fragment left open at end of input, if any.

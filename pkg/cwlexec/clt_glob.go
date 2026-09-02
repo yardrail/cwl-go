@@ -489,7 +489,10 @@ func outCollectFile(local string, binding *cwlcore.CommandOutputBinding) (*cwlco
 // outMeasureFile builds a File value for local with its size and checksum read from disk and no
 // contents, which is what a directory listing entry and a secondary file get.
 func outMeasureFile(local string) (*cwlcore.File, error) {
-	return outCollectFile(local, &cwlcore.CommandOutputBinding{})
+	return outCollectFile(
+		local,
+		&cwlcore.CommandOutputBinding{OutputEval: "", LoadListing: "", Glob: nil, LoadContents: false},
+	)
 }
 
 // outWithContents puts a file's leading bytes into the value a loadContents binding asks for.
@@ -614,12 +617,18 @@ func outNewFile(local string) *cwlcore.File {
 	parts := outSplitName(basename)
 
 	return &cwlcore.File{
-		Location: outFileURI(local),
-		Path:     local,
-		Basename: basename,
-		Dirname:  outDirname(local),
-		Nameroot: parts.root,
-		Nameext:  parts.ext,
+		Node:           nil,
+		Location:       outFileURI(local),
+		Path:           local,
+		Basename:       basename,
+		Dirname:        outDirname(local),
+		Nameroot:       parts.root,
+		Nameext:        parts.ext,
+		Checksum:       "",
+		Format:         "",
+		Size:           cwlcore.OptInt{},
+		Contents:       cwlcore.OptString{},
+		SecondaryFiles: nil,
 	}
 }
 
@@ -740,8 +749,10 @@ func outReadListing(local string) []cwlcore.FileOrDirectory {
 // carries no derived name fields either.
 func outNewDirectory(local string) *cwlcore.Directory {
 	return &cwlcore.Directory{
+		Node:     nil,
 		Location: outFileURI(local),
 		Path:     local,
 		Basename: filepath.Base(local),
+		Listing:  nil,
 	}
 }

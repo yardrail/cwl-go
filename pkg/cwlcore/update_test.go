@@ -187,7 +187,7 @@ func TestSchemaMemoIsPerVersion(t *testing.T) {
 func TestV10DocumentValidatesAsV10AndLoads(t *testing.T) {
 	t.Parallel()
 
-	process, err := Load(t.Context(), []byte(toolV10), "file:///tools/tool-v10.cwl", salad.Strict(true))
+	process, err := Load(t.Context(), []byte(toolV10), "file:///tools/tool-v10.cwl", Strict(true))
 	if err != nil {
 		t.Fatalf("loading a v1.0 document: %v", explain(err))
 	}
@@ -242,12 +242,12 @@ func TestV12SyntaxInAnOlderDocumentIsRejected(t *testing.T) {
 			v12 := strings.Replace(tc.src, "cwlVersion: v1.0", "cwlVersion: v1.2", 1)
 			v12 = strings.Replace(v12, "cwlVersion: v1.1", "cwlVersion: v1.2", 1)
 
-			_, err := Load(t.Context(), []byte(v12), "file:///tools/control.cwl", salad.Strict(true))
+			_, err := Load(t.Context(), []byte(v12), "file:///tools/control.cwl", Strict(true))
 			if err != nil {
 				t.Fatalf("the same document declaring v1.2 must be valid, got: %v", explain(err))
 			}
 
-			_, err = Load(t.Context(), []byte(tc.src), "file:///tools/subject.cwl", salad.Strict(true))
+			_, err = Load(t.Context(), []byte(tc.src), "file:///tools/subject.cwl", Strict(true))
 			if err == nil {
 				t.Fatal("the document loaded, want it rejected against its declared version")
 			}
@@ -291,7 +291,7 @@ func TestUpgradeRenamesCwltoolRequirements(t *testing.T) {
 
 			root := parseNode(t, "cwlVersion: v1.0\nclass: CommandLineTool\nrequirements:\n  - class: "+tc.class+"\n")
 
-			upgraded := Upgrade(&salad.Document{Root: root, BaseURI: testDocURI}, CWLVersionV10)
+			upgraded := Upgrade(&salad.Document{Root: root, BaseURI: testDocURI, Metadata: nil}, CWLVersionV10)
 
 			if got := firstRequirementClass(t, upgraded.Root); got != tc.want {
 				t.Errorf("requirement class after upgrading = %q, want %q", got, tc.want)
@@ -320,7 +320,7 @@ steps:
         timelimit: 5
 `)
 
-	upgraded := Upgrade(&salad.Document{Root: root, BaseURI: testDocURI}, CWLVersionV10)
+	upgraded := Upgrade(&salad.Document{Root: root, BaseURI: testDocURI, Metadata: nil}, CWLVersionV10)
 
 	steps := seqField(t, upgraded.Root, keySteps)
 	if got := firstHintClass(t, steps[0]); got != ClassToolTimeLimit {
@@ -333,7 +333,7 @@ func TestUpgradeChainsThroughV11(t *testing.T) {
 
 	root := parseNode(t, toolV10)
 
-	upgraded := Upgrade(&salad.Document{Root: root, BaseURI: testDocURI}, CWLVersionV10)
+	upgraded := Upgrade(&salad.Document{Root: root, BaseURI: testDocURI, Metadata: nil}, CWLVersionV10)
 
 	m, ok := salad.AsMap(upgraded.Root)
 	if !ok {
@@ -375,7 +375,7 @@ func TestUpgradeKeepsAQuestionMarkInAV10Pattern(t *testing.T) {
 
 	root := parseNode(t, strings.Replace(toolV10, `".2"`, `".2?"`, 1))
 
-	upgraded := Upgrade(&salad.Document{Root: root, BaseURI: testDocURI}, CWLVersionV10)
+	upgraded := Upgrade(&salad.Document{Root: root, BaseURI: testDocURI, Metadata: nil}, CWLVersionV10)
 
 	if got := firstSecondaryFilePattern(t, upgraded.Root); got != ".2?" {
 		t.Errorf("pattern after upgrading = %q, want %q", got, ".2?")
@@ -401,7 +401,7 @@ outputs: []
 steps: []
 `)
 
-	upgraded := Upgrade(&salad.Document{Root: root, BaseURI: testDocURI}, CWLVersionV10)
+	upgraded := Upgrade(&salad.Document{Root: root, BaseURI: testDocURI, Metadata: nil}, CWLVersionV10)
 
 	inputs := seqField(t, upgraded.Root, keyInputs)
 
@@ -423,7 +423,7 @@ steps: []
 func TestUpgradeLeavesAV12DocumentAlone(t *testing.T) {
 	t.Parallel()
 
-	doc := &salad.Document{Root: parseNode(t, toolV10), BaseURI: testDocURI}
+	doc := &salad.Document{Root: parseNode(t, toolV10), BaseURI: testDocURI, Metadata: nil}
 
 	if got := Upgrade(doc, CWLVersionV12); got != doc {
 		t.Error("Upgrade rewrote a document that declares the version it already targets")
@@ -513,8 +513,7 @@ func firstSecondaryFilePattern(t *testing.T, root salad.Node) string {
 // failed assertion shows the leaf that explains it rather than a one-line
 // summary of a union rejection.
 func explain(err error) string {
-	var tree *salad.Error
-	if errors.As(err, &tree) {
+	if tree, ok := errors.AsType[*salad.Error](err); ok {
 		return tree.Pretty()
 	}
 
@@ -577,7 +576,7 @@ func TestUpgradeStampsEveryProcessOfAGraph(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			doc := &salad.Document{Root: parseNode(t, tc.src), BaseURI: testDocURI}
+			doc := &salad.Document{Root: parseNode(t, tc.src), BaseURI: testDocURI, Metadata: nil}
 
 			for i, member := range tc.read(t, Upgrade(doc, CWLVersionV10).Root) {
 				if got := firstHintClass(t, member); got != ClassLoadListingRequirement {
@@ -618,7 +617,7 @@ func TestUpgradeToleratesShapesTheSchemaWouldHaveRejected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			doc := &salad.Document{Root: parseNode(t, tc.src), BaseURI: testDocURI}
+			doc := &salad.Document{Root: parseNode(t, tc.src), BaseURI: testDocURI, Metadata: nil}
 			if got := Upgrade(doc, CWLVersionV10); got == nil {
 				t.Fatal("Upgrade returned nothing")
 			}
@@ -641,7 +640,7 @@ inputs:
 outputs: []
 `
 
-	upgraded := Upgrade(&salad.Document{Root: parseNode(t, src), BaseURI: testDocURI}, CWLVersionV10)
+	upgraded := Upgrade(&salad.Document{Root: parseNode(t, src), BaseURI: testDocURI, Metadata: nil}, CWLVersionV10)
 
 	if got := firstSecondaryFilePattern(t, upgraded.Root); got != ".bai" {
 		t.Errorf("pattern after upgrading = %q, want %q", got, ".bai")
@@ -668,7 +667,7 @@ inputs:
 outputs: []
 `
 
-	upgraded := Upgrade(&salad.Document{Root: parseNode(t, src), BaseURI: testDocURI}, CWLVersionV10)
+	upgraded := Upgrade(&salad.Document{Root: parseNode(t, src), BaseURI: testDocURI, Metadata: nil}, CWLVersionV10)
 
 	input, ok := salad.AsMap(seqField(t, upgraded.Root, keyInputs)[0])
 	if !ok {
@@ -711,7 +710,7 @@ hints:
   - class: ` + ClassShellCommandRequirement + `
 `
 
-	upgraded := Upgrade(&salad.Document{Root: parseNode(t, src), BaseURI: testDocURI}, CWLVersionV10)
+	upgraded := Upgrade(&salad.Document{Root: parseNode(t, src), BaseURI: testDocURI, Metadata: nil}, CWLVersionV10)
 
 	hints := seqField(t, upgraded.Root, keyHints)
 

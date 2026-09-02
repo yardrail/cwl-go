@@ -173,8 +173,7 @@ func memberNames(rest []docResult) []string {
 // prettyOf renders an error tree, falling back to the flat message for an error that did
 // not come from pkg/salad.
 func prettyOf(err error) string {
-	var se *salad.Error
-	if errors.As(err, &se) {
+	if se, ok := errors.AsType[*salad.Error](err); ok {
 		return se.Pretty()
 	}
 

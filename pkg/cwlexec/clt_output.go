@@ -162,7 +162,7 @@ func StreamFile(tool *cwlcore.CommandLineTool, stream Stream, inputs map[string]
 	}
 
 	name, err := eval.EvalString(string(declared),
-		&cwlcore.EvalContext{Inputs: outExpressionObject(inputs), Runtime: rt})
+		&cwlcore.EvalContext{Inputs: outExpressionObject(inputs), Self: nil, Runtime: rt})
 	if err != nil {
 		return "", err
 	}
@@ -252,12 +252,23 @@ func newOutputCollector(
 	scope := cwlcore.NewScope(tool)
 
 	return &outputCollector{
-		tool:    tool,
-		scope:   scope,
-		inputs:  rendered,
-		roots:   outAllowedRoots(rendered, scope),
-		outdir:  dir,
-		outroot: outResolvePath(dir),
+		tool:   tool,
+		eval:   nil,
+		scope:  scope,
+		inputs: rendered,
+		roots:  outAllowedRoots(rendered, scope),
+		runtime: cwlcore.RuntimeContext{
+			Cores:      nil,
+			RAM:        nil,
+			OutdirSize: nil,
+			TmpdirSize: nil,
+			ExitCode:   nil,
+			Outdir:     "",
+			Tmpdir:     "",
+		},
+		outdir:   dir,
+		outroot:  outResolvePath(dir),
+		exitCode: 0,
 	}
 }
 
@@ -391,7 +402,7 @@ func (c *outputCollector) collectionPlan(
 
 	binding := target.binding
 	if binding == nil {
-		binding = &cwlcore.CommandOutputBinding{}
+		binding = &cwlcore.CommandOutputBinding{OutputEval: "", LoadListing: "", Glob: nil, LoadContents: false}
 	}
 
 	return binding, []string{name}, nil

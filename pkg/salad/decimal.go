@@ -70,21 +70,21 @@ type Decimal struct {
 func ParseDecimal(text string) (Decimal, bool) {
 	signed, ok := decimalSign(text)
 	if !ok {
-		return Decimal{}, false
+		return Decimal{digits: "", exp: 0, neg: false, floatForm: false}, false
 	}
 
 	scaled, ok := decimalExponent(signed.body)
 	if !ok {
-		return Decimal{}, false
+		return Decimal{digits: "", exp: 0, neg: false, floatForm: false}, false
 	}
 
 	pointed := decimalPoint(scaled.mantissa)
 	if !decimalDigitsOnly(pointed.whole) || !decimalDigitsOnly(pointed.fraction) {
-		return Decimal{}, false
+		return Decimal{digits: "", exp: 0, neg: false, floatForm: false}, false
 	}
 
 	if pointed.whole == "" && pointed.fraction == "" {
-		return Decimal{}, false
+		return Decimal{digits: "", exp: 0, neg: false, floatForm: false}, false
 	}
 
 	value := Decimal{
@@ -95,7 +95,7 @@ func ParseDecimal(text string) (Decimal, bool) {
 	}
 
 	if len(value.digits)+abs(value.exp) > maxDecimalText {
-		return Decimal{}, false
+		return Decimal{digits: "", exp: 0, neg: false, floatForm: false}, false
 	}
 
 	return value, true
@@ -112,16 +112,16 @@ type signedText struct {
 // nothing after it.
 func decimalSign(text string) (signedText, bool) {
 	if text == "" {
-		return signedText{}, false
+		return signedText{body: "", neg: false}, false
 	}
 
 	switch text[0] {
 	case '-':
 		return signedText{body: text[1:], neg: true}, true
 	case '+':
-		return signedText{body: text[1:]}, true
+		return signedText{body: text[1:], neg: false}, true
 	default:
-		return signedText{body: text}, true
+		return signedText{body: text, neg: false}, true
 	}
 }
 
@@ -141,12 +141,12 @@ func decimalExponent(body string) (scaledText, bool) {
 	}
 
 	if !found {
-		return scaledText{mantissa: body}, true
+		return scaledText{mantissa: body, exp: 0}, true
 	}
 
 	exp, err := strconv.Atoi(digits)
 	if err != nil {
-		return scaledText{}, false
+		return scaledText{mantissa: "", exp: 0}, false
 	}
 
 	return scaledText{mantissa: mantissa, exp: exp}, true

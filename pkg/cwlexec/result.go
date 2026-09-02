@@ -42,20 +42,20 @@ func (l *runLoop) result() (RunResult, error) {
 
 	status, failure := l.failure()
 	if failure != nil {
-		return RunResult{Status: status, State: snapshot}, failure
+		return RunResult{Status: status, Outputs: nil, Suspensions: nil, State: snapshot}, failure
 	}
 
 	suspensions := l.suspensions()
 	if len(suspensions) > 0 {
-		return RunResult{Status: StatusSuspended, Suspensions: suspensions, State: snapshot}, nil
+		return RunResult{Status: StatusSuspended, Outputs: nil, Suspensions: suspensions, State: snapshot}, nil
 	}
 
 	outputs, err := l.runOutputs()
 	if err != nil {
-		return RunResult{Status: StatusPermanentFail, State: snapshot}, err
+		return RunResult{Status: StatusPermanentFail, Outputs: nil, Suspensions: nil, State: snapshot}, err
 	}
 
-	return RunResult{Status: StatusSuccess, Outputs: outputs, State: snapshot}, nil
+	return RunResult{Status: StatusSuccess, Outputs: outputs, Suspensions: nil, State: snapshot}, nil
 }
 
 // failure reports the run's failure status and the error behind it, or a nil error when no step

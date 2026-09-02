@@ -80,7 +80,7 @@ func clusterFailures(failures []docResult) []*cluster {
 
 		group, seen := byKey[sig.key]
 		if !seen {
-			group = &cluster{signature: sig.key, headline: sig.headline, tags: make(map[string]int)}
+			group = &cluster{signature: sig.key, headline: sig.headline, members: nil, tags: make(map[string]int)}
 			byKey[sig.key] = group
 			order = append(order, group)
 		}

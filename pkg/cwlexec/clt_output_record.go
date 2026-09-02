@@ -218,7 +218,7 @@ func outUnbound(declared cwlcore.TypeRef) error {
 func outRecordType(declared cwlcore.TypeRef) outRecordShape {
 	switch declared.Kind() {
 	case cwlcore.TypeKindRecord:
-		return outRecordShape{schema: declared.Record()}
+		return outRecordShape{schema: declared.Record(), depth: 0}
 	case cwlcore.TypeKindArray:
 		return outArrayRecordType(declared)
 	case cwlcore.TypeKindUnion:
@@ -226,7 +226,7 @@ func outRecordType(declared cwlcore.TypeRef) outRecordShape {
 	default:
 		// A primitive, an enum, a standard-stream shortcut, an unresolved name or the unset
 		// zero value: none of them has fields to collect.
-		return outRecordShape{}
+		return outRecordShape{schema: nil, depth: 0}
 	}
 }
 
@@ -234,12 +234,12 @@ func outRecordType(declared cwlcore.TypeRef) outRecordShape {
 func outArrayRecordType(declared cwlcore.TypeRef) outRecordShape {
 	schema := declared.Array()
 	if schema == nil {
-		return outRecordShape{}
+		return outRecordShape{schema: nil, depth: 0}
 	}
 
 	shape := outRecordType(schema.Items)
 	if shape.schema == nil {
-		return outRecordShape{}
+		return outRecordShape{schema: nil, depth: 0}
 	}
 
 	shape.depth++
@@ -257,5 +257,5 @@ func outUnionRecordType(declared cwlcore.TypeRef) outRecordShape {
 		}
 	}
 
-	return outRecordShape{}
+	return outRecordShape{schema: nil, depth: 0}
 }

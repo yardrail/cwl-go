@@ -39,7 +39,7 @@ func (d *decoder) typeRef(node salad.Node) TypeRef {
 	default:
 		// A nil node, which is what an absent type field reads as. The
 		// Node interface is sealed, so there is no fourth shape.
-		return TypeRef{}
+		return TypeRef{payload: nil, node: nil, name: "", kind: 0}
 	}
 }
 
@@ -57,7 +57,7 @@ func (d *decoder) namedTypeRef(node salad.Node) TypeRef {
 	if !ok {
 		d.failf(nodeLoc(node), "a type name must be a string, but it is %s", salad.NodeKind(node))
 
-		return TypeRef{}
+		return TypeRef{payload: nil, node: nil, name: "", kind: 0}
 	}
 
 	return typeRefForName(shortName(name)).WithNode(node)
@@ -95,7 +95,7 @@ func (d *decoder) inlineTypeRef(m *salad.MapNode) TypeRef {
 		d.failf(m.Loc(), "an inline type schema must declare a type of %q, %q or %q",
 			kindNameRecord, kindNameEnum, kindNameArray)
 
-		return TypeRef{}
+		return TypeRef{payload: nil, node: nil, name: "", kind: 0}
 	}
 }
 

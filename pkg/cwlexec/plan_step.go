@@ -51,16 +51,23 @@ func planStep(
 	}
 
 	planned := &plannedStep{
-		step:    step,
-		run:     run,
-		scope:   scope,
-		eval:    EvaluatorFor(scope, cfg.evalOptions()...),
-		id:      ShortName(step.ID),
-		class:   Class(run.Class()),
-		when:    string(step.When),
-		method:  ScatterMethod(step.ScatterMethod),
-		out:     stepOutPorts(step),
-		scatter: shortNames(step.Scatter),
+		step:       step,
+		run:        run,
+		scope:      scope,
+		eval:       EvaluatorFor(scope, cfg.evalOptions()...),
+		handler:    nil,
+		outTypes:   nil,
+		defaults:   nil,
+		declaredIn: nil,
+		pending:    nil,
+		id:         ShortName(step.ID),
+		class:      Class(run.Class()),
+		when:       string(step.When),
+		method:     ScatterMethod(step.ScatterMethod),
+		out:        stepOutPorts(step),
+		scatter:    shortNames(step.Scatter),
+		deps:       nil,
+		implicit:   false,
 	}
 	decls := inputDecls(run)
 	planned.outTypes = declaredTypes(outputDecls(run))
@@ -233,7 +240,17 @@ func baseDecls[T any](params []T, base func(*T) *cwlcore.ParameterBase) []portDe
 	decls := make([]portDecl, 0, len(params))
 	for index := range params {
 		shared := base(&params[index])
-		decls = append(decls, portDecl{Name: ShortName(shared.IDField), Type: shared.Type})
+		decls = append(
+			decls,
+			portDecl{
+				Default:      nil,
+				DefaultNode:  nil,
+				Name:         ShortName(shared.IDField),
+				Type:         shared.Type,
+				LoadListing:  "",
+				LoadContents: false,
+			},
+		)
 	}
 
 	return decls

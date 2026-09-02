@@ -156,8 +156,15 @@ func checkRunCycles(p Process) error {
 // closes a cycle.
 func walkRunGraph(p Process, onPath, done map[Process]bool) error {
 	if onPath[p] {
-		return salad.Errorf(salad.SourceLine{},
-			"%s runs itself, directly or through another workflow", describeProcess(p))
+		return salad.Errorf(
+			salad.SourceLine{
+				File:  "",
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"%s runs itself, directly or through another workflow",
+			describeProcess(p),
+		)
 	}
 
 	wf, ok := p.(*Workflow)
@@ -215,9 +222,16 @@ func describeProcess(p Process) string {
 func stepError(step *WorkflowStep, err error) error {
 	msg := fmt.Sprintf("the step %q cannot run %q, because", step.ID, step.Run.Ref)
 
-	var nested *salad.Error
-	if errors.As(err, &nested) {
-		return salad.Group(salad.SourceLine{}, msg, nested)
+	if nested, ok := errors.AsType[*salad.Error](err); ok {
+		return salad.Group(
+			salad.SourceLine{
+				File:  "",
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			msg,
+			nested,
+		)
 	}
 
 	return fmt.Errorf("%s %w", msg, err)
@@ -241,8 +255,19 @@ func runTargetOf(base, ref string) (runTarget, error) {
 
 	uri, err := documentFetcher().Normalize(documentPart(base), document)
 	if err != nil {
-		return runTarget{}, salad.Errorf(salad.SourceLine{File: base},
-			"the reference cannot be resolved against %s: %s", base, err)
+		return runTarget{
+				uri:      "",
+				fragment: "",
+			}, salad.Errorf(
+				salad.SourceLine{
+					File:  base,
+					Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+					End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+				},
+				"the reference cannot be resolved against %s: %s",
+				base,
+				err,
+			)
 	}
 
 	return runTarget{uri: uri, fragment: fragmentPart(ref)}, nil
@@ -275,7 +300,7 @@ func namesUndeclaredObject(base, ref string) bool {
 type externalRuns struct {
 	cache  map[string]Process
 	linked map[Process]bool
-	opts   []salad.ValidateOption
+	cfg    *loadConfig
 }
 
 // resolveExternalRuns follows every run reference p leaves unresolved, reports
@@ -288,12 +313,12 @@ func resolveExternalRuns(
 	ctx context.Context,
 	p Process,
 	base, fragment string,
-	opts []salad.ValidateOption,
+	cfg *loadConfig,
 ) error {
 	runs := &externalRuns{
 		cache:  map[string]Process{cacheKey(base, fragment): p},
 		linked: make(map[Process]bool),
-		opts:   opts,
+		cfg:    cfg,
 	}
 
 	err := runs.link(ctx, p, base)
@@ -337,8 +362,17 @@ func (e *externalRuns) linkStep(ctx context.Context, step *WorkflowStep, base st
 	}
 
 	if namesUndeclaredObject(base, step.Run.Ref) {
-		return stepError(step, salad.Errorf(salad.SourceLine{File: base},
-			"the document declares no object with that identifier"))
+		return stepError(
+			step,
+			salad.Errorf(
+				salad.SourceLine{
+					File:  base,
+					Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+					End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+				},
+				"the document declares no object with that identifier",
+			),
+		)
 	}
 
 	process, err := e.loadTarget(ctx, base, step.Run.Ref)
@@ -369,7 +403,7 @@ func (e *externalRuns) load(ctx context.Context, target runTarget) (Process, err
 		return cached, nil
 	}
 
-	doc, err := LoadFileDocument(ctx, target.uri, e.opts...)
+	doc, err := loadFileDocument(ctx, target.uri, e.cfg)
 	if err != nil {
 		return nil, err
 	}

@@ -118,7 +118,7 @@ func run(ctx context.Context, c *corpus, docs []string, m manifest) *sweep {
 
 // loadOne loads a single document and pairs the outcome with its manifest entry.
 func loadOne(ctx context.Context, c *corpus, rel string, m manifest) docResult {
-	out := docResult{path: rel, entry: m[rel]}
+	out := docResult{path: rel, err: nil, entry: m[rel], graphOnly: false}
 
 	abs, err := filepath.Abs(filepath.Join(c.root, filepath.FromSlash(rel)))
 	if err != nil {
@@ -127,7 +127,7 @@ func loadOne(ctx context.Context, c *corpus, rel string, m manifest) docResult {
 		return out
 	}
 
-	_, err = cwlcore.LoadFile(ctx, abs, salad.Strict(true))
+	_, err = cwlcore.LoadFile(ctx, abs, cwlcore.Strict(true))
 	if err == nil {
 		return out
 	}
@@ -154,7 +154,7 @@ func loadOne(ctx context.Context, c *corpus, rel string, m manifest) docResult {
 // so the happy path stays a single load through the full stack, external run references
 // included.
 func decodeWholeGraph(ctx context.Context, abs string) bool {
-	doc, err := cwlcore.LoadFileDocument(ctx, abs, salad.Strict(true))
+	doc, err := cwlcore.LoadFileDocument(ctx, abs, cwlcore.Strict(true))
 	if err != nil {
 		return false
 	}
@@ -171,7 +171,7 @@ func decodeWholeGraph(ctx context.Context, abs string) bool {
 
 // tally counts the outcomes.
 func tally(c *corpus, results []docResult) *sweep {
-	s := &sweep{tag: c.tag, root: c.root, results: results}
+	s := &sweep{tag: c.tag, root: c.root, results: results, passed: 0, failed: 0}
 
 	for _, r := range results {
 		if r.ok() {

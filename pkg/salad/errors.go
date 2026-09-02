@@ -91,12 +91,12 @@ type Error struct {
 
 // Errorf builds a leaf Error at loc with a printf-formatted message.
 func Errorf(loc SourceLine, format string, a ...any) *Error {
-	return &Error{Msg: fmt.Sprintf(format, a...), Loc: loc}
+	return &Error{Msg: fmt.Sprintf(format, a...), Children: nil, Loc: loc, Warning: false}
 }
 
 // Warnf builds a leaf Error at loc, flagged as a warning.
 func Warnf(loc SourceLine, format string, a ...any) *Error {
-	return &Error{Msg: fmt.Sprintf(format, a...), Loc: loc, Warning: true}
+	return &Error{Msg: fmt.Sprintf(format, a...), Children: nil, Loc: loc, Warning: true}
 }
 
 // Group builds an Error whose message provides context for a set of child
@@ -109,7 +109,7 @@ func Group(loc SourceLine, msg string, children ...*Error) *Error {
 		}
 	}
 
-	return &Error{Msg: msg, Loc: loc, Children: kept}
+	return &Error{Msg: msg, Children: kept, Loc: loc, Warning: false}
 }
 
 // Error returns a one-line summary of the error: the "file:line:col" prefix, if

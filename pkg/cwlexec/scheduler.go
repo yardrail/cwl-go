@@ -271,6 +271,12 @@ func (r *Runner) bindHandlers() error {
 	for _, step := range r.plan.steps {
 		handler, found := r.registry.Handler(step.class)
 		if !found {
+			if isStepContainer(step.run) {
+				handler, found = r.registry.Handler(Class(cwlcore.ClassWorkflow))
+			}
+		}
+
+		if !found {
 			return fmt.Errorf("%w: step %q has class %q", ErrNoHandler, step.id, step.class)
 		}
 

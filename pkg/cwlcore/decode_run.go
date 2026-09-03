@@ -82,13 +82,13 @@ func (idx *processIndex) add(p Process, indexed map[Process]bool) {
 	indexed[p] = true
 	idx.record(p)
 
-	wf, ok := p.(*Workflow)
+	sc, ok := p.(StepContainer)
 	if !ok {
 		return
 	}
 
-	for i := range wf.Steps {
-		idx.add(wf.Steps[i].Run.Process, indexed)
+	for i := range sc.WorkflowSteps() {
+		idx.add(sc.WorkflowSteps()[i].Run.Process, indexed)
 	}
 }
 
@@ -124,15 +124,16 @@ func (idx *processIndex) find(ref string) Process {
 // link resolves p's run references against the index, then descends into
 // whatever each step turned out to run.
 func (idx *processIndex) link(p Process, linked map[Process]bool) {
-	wf, ok := p.(*Workflow)
+	sc, ok := p.(StepContainer)
 	if !ok || linked[p] {
 		return
 	}
 
 	linked[p] = true
 
-	for i := range wf.Steps {
-		run := &wf.Steps[i].Run
+	steps := sc.WorkflowSteps()
+	for i := range steps {
+		run := &steps[i].Run
 		if run.Process == nil && run.Ref != "" {
 			run.Process = idx.find(run.Ref)
 		}
@@ -167,15 +168,16 @@ func walkRunGraph(p Process, onPath, done map[Process]bool) error {
 		)
 	}
 
-	wf, ok := p.(*Workflow)
+	sc, ok := p.(StepContainer)
 	if !ok || done[p] {
 		return nil
 	}
 
 	onPath[p] = true
 
-	for i := range wf.Steps {
-		err := walkRunStep(&wf.Steps[i], onPath, done)
+	steps := sc.WorkflowSteps()
+	for i := range steps {
+		err := walkRunStep(&steps[i], onPath, done)
 		if err != nil {
 			return err
 		}
@@ -332,15 +334,16 @@ func resolveExternalRuns(
 // link resolves every step of one workflow, with base the URI of the document
 // that workflow was written in.
 func (e *externalRuns) link(ctx context.Context, p Process, base string) error {
-	wf, ok := p.(*Workflow)
+	sc, ok := p.(StepContainer)
 	if !ok || e.linked[p] {
 		return nil
 	}
 
 	e.linked[p] = true
 
-	for i := range wf.Steps {
-		err := e.linkStep(ctx, &wf.Steps[i], base)
+	steps := sc.WorkflowSteps()
+	for i := range steps {
+		err := e.linkStep(ctx, &steps[i], base)
 		if err != nil {
 			return err
 		}
@@ -440,4 +443,32 @@ func decodeTarget(doc *salad.Document, fragment string) (Process, error) {
 	}
 
 	return decodeFragment(doc, fragment)
+}
+
+// decodeTargetWithSchema is decodeTarget with the loaded schema threaded
+// through to the decoder, so that extension process classes that extend
+// Workflow can be recognized and decoded as ExtensionWorkflow.
+func decodeTargetWithSchema(doc *salad.Document, fragment string, loaded *salad.LoadedSchema) (Process, error) {
+	var opts []decoderOption
+	if loaded != nil {
+		opts = append(opts, withLoadedSchema(loaded))
+	}
+
+	if fragment == "" {
+		nodes, isGraph := graphNodes(doc.Root)
+
+		entry := doc.Root
+		if isGraph {
+			main, err := selectMain(nodes, doc.BaseURI)
+			if err != nil {
+				return nil, err
+			}
+
+			entry = main
+		}
+
+		return decodeLinked(nodes, entry, opts...)
+	}
+
+	return decodeFragment(doc, fragment, opts...)
 }

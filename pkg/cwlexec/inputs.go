@@ -501,10 +501,10 @@ func newProcessValues(
 // A step's own requests do not reach the run process's parameter defaults, and cannot: those fill
 // parameters the step wired no `in` entry for at all, so there is no step declaration in play.
 func newPendingValues(
-	ctx context.Context, workflow *cwlcore.Workflow, step *plannedStep, decls []portDecl,
+	ctx context.Context, sc cwlcore.StepContainer, step *plannedStep, decls []portDecl,
 ) *pendingValues {
 	pending := newProcessValues(ctx, step.run, step.scope, decls)
-	pending.stepBase = documentDir(workflow)
+	pending.stepBase = documentDir(sc)
 	pending.secondary = stepSecondaryDecls(step.run, step.scope)
 
 	ins := step.step.In

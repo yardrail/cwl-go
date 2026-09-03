@@ -86,12 +86,24 @@ func fieldNode(m *salad.MapNode, key string) salad.Node {
 // malformed field it finds instead of only the first. Each decode entry point
 // builds its own decoder; a decoder is not safe for concurrent use.
 type decoder struct {
-	errs []*salad.Error
+	errs   []*salad.Error
+	loaded *salad.LoadedSchema
+}
+
+type decoderOption func(*decoder)
+
+func withLoadedSchema(ls *salad.LoadedSchema) decoderOption {
+	return func(d *decoder) { d.loaded = ls }
 }
 
 // newDecoder starts one decode run.
-func newDecoder() *decoder {
-	return &decoder{errs: make([]*salad.Error, 0)}
+func newDecoder(opts ...decoderOption) *decoder {
+	d := &decoder{errs: make([]*salad.Error, 0)}
+	for _, o := range opts {
+		o(d)
+	}
+
+	return d
 }
 
 // failf records a decoding error at loc.

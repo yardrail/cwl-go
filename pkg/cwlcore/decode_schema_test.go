@@ -476,6 +476,33 @@ func TestLoadExtensionWorkflow(t *testing.T) {
 	assertEqual(t, "step run ClassIRI", raw.ClassIRI, "ConnectorAction")
 }
 
+func TestLoadExtensionWorkflowClass(t *testing.T) {
+	t.Parallel()
+
+	extSchema := loadExtensionSchema(t, "extension_schema.yml")
+	src := fixtureSource(t, "extension_workflow_class.cwl")
+
+	process, err := Load(t.Context(), src, fixturePath("extension_workflow_class.cwl"),
+		WithExtensionSchema(extSchema))
+	if err != nil {
+		t.Fatalf("Load extension workflow: %v", err)
+	}
+
+	ew, ok := process.(*ExtensionWorkflow)
+	if !ok {
+		t.Fatalf("process is %T, want *ExtensionWorkflow", process)
+	}
+
+	assertEqual(t, "ClassIRI", ew.ClassIRI, "ExtWorkflow")
+	assertEqual(t, "len(Steps)", len(ew.Steps), 1)
+	assertEqual(t, "len(Inputs)", len(ew.Inputs), 1)
+	assertEqual(t, "len(Outputs)", len(ew.Outputs), 1)
+
+	if ew.Node == nil {
+		t.Error("Node should not be nil")
+	}
+}
+
 func BenchmarkSchemaLoadAndFlatten(b *testing.B) {
 	// Deliberately bypasses the sync.OnceValues memoization: the cost worth
 	// measuring is the one paid once, at first use, by every entry point that

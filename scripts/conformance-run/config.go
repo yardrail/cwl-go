@@ -65,7 +65,6 @@ func defaultConfig() *config {
 		outDir:       defaultOut,
 		timeout:      defaultTimeout,
 		jobs:         defaultJobs,
-		update:       false,
 		gateRequired: false,
 	}
 }

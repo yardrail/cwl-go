@@ -98,7 +98,7 @@ func withLoadedSchema(ls *salad.LoadedSchema) decoderOption {
 
 // newDecoder starts one decode run.
 func newDecoder(opts ...decoderOption) *decoder {
-	d := &decoder{errs: make([]*salad.Error, 0)}
+	d := &decoder{errs: make([]*salad.Error, 0), loaded: nil}
 	for _, o := range opts {
 		o(d)
 	}

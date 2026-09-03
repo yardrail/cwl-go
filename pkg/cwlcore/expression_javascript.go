@@ -194,13 +194,12 @@ func (e *Evaluator) jsTimeout() time.Duration {
 
 // convertJSError classifies a failure from the engine.
 func convertJSError(err error, timeout time.Duration) error {
-	var interrupted *goja.InterruptedError
-	if errors.As(err, &interrupted) {
+	ie, isInterrupt := errors.AsType[*goja.InterruptedError](err)
+	if isInterrupt && ie != nil {
 		return fmt.Errorf("%w after %s", ErrExpressionTimeout, timeout)
 	}
 
-	var exception *goja.Exception
-	if errors.As(err, &exception) {
+	if exception, ok := errors.AsType[*goja.Exception](err); ok {
 		return fmt.Errorf("%w: %s", ErrExpressionEval, exception.String())
 	}
 

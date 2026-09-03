@@ -200,6 +200,9 @@ linters:
         text: "symbol should have a godoc"
         path: "_test\\.go$"
       - linters:
+          - exhaustruct_v5
+        path: "_test\\.go$"
+      - linters:
           - errcheck
         path: "example_test\\.go$"
       - linters:

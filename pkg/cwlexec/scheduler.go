@@ -182,7 +182,19 @@ func NewRunner(ctx context.Context, process cwlcore.Process, registry *Registry,
 		return nil, ErrNoProcess
 	}
 
-	settings := Config{}
+	settings := Config{
+		Logger:              nil,
+		SelectResources:     nil,
+		AllowRequirements:   nil,
+		OutDir:              "",
+		TmpDirPrefix:        "",
+		OnError:             "",
+		Containers:          ContainerPolicy{Disabled: false, NoMatchUser: false, NoReadOnly: false, Keep: false},
+		Resources:           ResourceBudget{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
+		EvalTimeout:         0,
+		MaxParallel:         0,
+		LenientRequirements: false,
+	}
 	if cfg != nil {
 		settings = *cfg
 	}
@@ -236,7 +248,7 @@ func (r *Runner) Run(ctx context.Context, inputs map[string]any) (RunResult, err
 func (r *Runner) Resume(ctx context.Context, state RunState, resumed []ResumedStep) (RunResult, error) {
 	restored, err := state.rehydrate()
 	if err != nil {
-		return RunResult{Status: StatusPermanentFail, State: state}, err
+		return RunResult{Status: StatusPermanentFail, Outputs: nil, Suspensions: nil, State: state}, err
 	}
 
 	loop := r.newLoop(restored)
@@ -247,7 +259,7 @@ func (r *Runner) Resume(ctx context.Context, state RunState, resumed []ResumedSt
 	}
 
 	if err != nil {
-		return RunResult{Status: StatusPermanentFail, State: loop.state.clone()}, err
+		return RunResult{Status: StatusPermanentFail, Outputs: nil, Suspensions: nil, State: loop.state.clone()}, err
 	}
 
 	return loop.run(ctx)
@@ -258,6 +270,12 @@ func (r *Runner) Resume(ctx context.Context, state RunState, resumed []ResumedSt
 func (r *Runner) bindHandlers() error {
 	for _, step := range r.plan.steps {
 		handler, found := r.registry.Handler(step.class)
+		if !found {
+			if isStepContainer(step.run) {
+				handler, found = r.registry.Handler(Class(cwlcore.ClassWorkflow))
+			}
+		}
+
 		if !found {
 			return fmt.Errorf("%w: step %q has class %q", ErrNoHandler, step.id, step.class)
 		}

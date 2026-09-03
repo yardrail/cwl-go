@@ -1,0 +1,31 @@
+$base: "https://example.com/ext#"
+$namespaces:
+  cwl: "https://w3id.org/cwl/cwl#"
+$graph:
+- name: ConnectorAction
+  type: record
+  extends: "https://w3id.org/cwl/cwl#Process"
+  documentRoot: true
+  fields:
+    - name: class
+      type:
+        type: enum
+        symbols: ["https://example.com/ext#ConnectorAction"]
+      jsonldPredicate:
+        _id: "@type"
+        _type: "@vocab"
+    - name: capability
+      type: string
+      doc: The trait this connector implements.
+- name: ExtWorkflow
+  type: record
+  extends: "https://w3id.org/cwl/cwl#Workflow"
+  documentRoot: true
+  fields:
+    - name: class
+      type:
+        type: enum
+        symbols: ["https://example.com/ext#ExtWorkflow"]
+      jsonldPredicate:
+        _id: "@type"
+        _type: "@vocab"

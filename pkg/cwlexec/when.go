@@ -58,7 +58,22 @@ func EvalWhen(when string, inputs map[string]any, eval *cwlcore.Evaluator) (bool
 	// sentinel a missing key or a thrown exception already uses, so delegating would fuse the
 	// two failure modes the scheduler must tell apart. The rule is one line here and the
 	// sentinel is the contract, so the duplication buys the classification.
-	value, err := eval.Eval(expr, &cwlcore.EvalContext{Inputs: inputs})
+	value, err := eval.Eval(
+		expr,
+		&cwlcore.EvalContext{
+			Inputs: inputs,
+			Self:   nil,
+			Runtime: cwlcore.RuntimeContext{
+				Cores:      nil,
+				RAM:        nil,
+				OutdirSize: nil,
+				TmpdirSize: nil,
+				ExitCode:   nil,
+				Outdir:     "",
+				Tmpdir:     "",
+			},
+		},
+	)
 	if err != nil {
 		return false, fmt.Errorf("when %q: %w", when, err)
 	}

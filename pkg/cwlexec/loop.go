@@ -59,6 +59,8 @@ func (r *Runner) newLoop(state *RunState) *runLoop {
 		errs:     make(map[string]error, len(r.plan.steps)),
 		done:     make(chan jobDone),
 		finished: make(chan struct{}),
+		running:  0,
+		stopped:  false,
 	}
 }
 
@@ -72,7 +74,7 @@ func (l *runLoop) run(ctx context.Context) (RunResult, error) {
 
 	err := l.execute(ctx)
 	if err != nil {
-		return RunResult{Status: StatusPermanentFail, State: l.state.clone()}, err
+		return RunResult{Outputs: nil, Status: StatusPermanentFail, Suspensions: nil, State: l.state.clone()}, err
 	}
 
 	return l.result()
@@ -292,7 +294,15 @@ func (l *runLoop) launch(ctx context.Context, jobs []runJob, step *plannedStep, 
 
 	call, err := l.newCall(job, step)
 	if err != nil {
-		l.record(jobDone{step: step, job: job, index: index, err: err})
+		l.record(
+			jobDone{
+				err:    err,
+				step:   step,
+				job:    job,
+				result: Result{Status: "", Outputs: nil, Suspension: nil},
+				index:  index,
+			},
+		)
 
 		return
 	}
@@ -473,7 +483,7 @@ func (l *runLoop) sourceValue(id string) (any, bool) {
 // scattered, and every method agrees on the one-key case.
 func expandJobs(step *plannedStep, inputs map[string]any) ([]runJob, []int, error) {
 	if len(step.scatter) == 0 {
-		return []runJob{{inputs: inputs}}, nil, nil
+		return []runJob{{inputs: inputs, index: nil, err: nil, dispatched: false}}, nil, nil
 	}
 
 	method := step.method
@@ -488,7 +498,7 @@ func expandJobs(step *plannedStep, inputs map[string]any) ([]runJob, []int, erro
 
 	jobs := make([]runJob, 0, len(expanded.Jobs))
 	for _, job := range expanded.Jobs {
-		jobs = append(jobs, runJob{inputs: job.Inputs, index: job.Index})
+		jobs = append(jobs, runJob{inputs: job.Inputs, index: job.Index, err: nil, dispatched: false})
 	}
 
 	return jobs, expanded.OutShape.Dims, nil
@@ -501,6 +511,8 @@ func gatherStep(step *plannedStep, recorded *stepState) (map[string]any, error) 
 	}
 
 	expanded := ScatterPlan{
+		Method:   "",
+		Keys:     nil,
 		Jobs:     make([]ScatterJob, 0, len(recorded.Jobs)),
 		OutShape: OutShape{Dims: recorded.Shape},
 	}
@@ -508,7 +520,7 @@ func gatherStep(step *plannedStep, recorded *stepState) (map[string]any, error) 
 	outputs := make(map[int]map[string]any, len(recorded.Jobs))
 
 	for index := range recorded.Jobs {
-		expanded.Jobs = append(expanded.Jobs, ScatterJob{Index: recorded.Jobs[index].Index})
+		expanded.Jobs = append(expanded.Jobs, ScatterJob{Inputs: nil, Index: recorded.Jobs[index].Index})
 		outputs[index] = recorded.Jobs[index].Outputs
 	}
 
@@ -551,11 +563,12 @@ func (l *runLoop) newCall(job *runJob, step *plannedStep) (*StepCall, error) {
 		Inputs:       projectDeclaredInputs(step, job.inputs),
 		ScatterIndex: job.index,
 		Requirements: step.scope,
+		Resources:    Resources{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
+		Containers:   l.runner.cfg.Containers,
 		OutDir:       dirs.OutDir,
 		TmpDir:       dirs.TmpDir,
 		Eval:         step.eval,
 		Logger:       l.runner.cfg.Logger,
-		Containers:   l.runner.cfg.Containers,
 	}
 
 	if l.runner.registry.IsUnbudgeted(step.class) {

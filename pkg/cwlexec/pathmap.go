@@ -194,6 +194,9 @@ func NewPathMap(workdir, staging string) *PathMap {
 		staging:     staging,
 		hostWorkdir: workdir,
 		hostStaging: staging,
+		inplace:     false,
+		contained:   false,
+		absolute:    false,
 	}
 }
 
@@ -351,7 +354,10 @@ func (m *PathMap) StageContents(name, contents string) (string, error) {
 		return "", err
 	}
 
-	m.add(&PathMapping{Target: target, Contents: contents, Action: StageWrite}, nil)
+	m.add(
+		&PathMapping{Resolved: "", Target: target, Host: "", Contents: contents, Action: StageWrite, Writable: false},
+		nil,
+	)
 
 	return target, nil
 }
@@ -413,12 +419,12 @@ func (m *PathMap) stageFile(file *cwlcore.File, target string, writable bool) er
 	switch local := pathOf(file); {
 	case local != "":
 		m.add(&PathMapping{
-			Resolved: local, Target: target,
+			Resolved: local, Target: target, Host: "", Contents: "",
 			Action: stageActions[m.isolate(writable)], Writable: writable,
 		}, file)
 	case file.Contents.IsSet():
 		m.add(&PathMapping{
-			Target: target, Contents: file.Contents.Value(),
+			Resolved: "", Target: target, Host: "", Contents: file.Contents.Value(),
 			Action: StageWrite, Writable: writable,
 		}, file)
 	case file.Location != "":
@@ -450,7 +456,7 @@ func (m *PathMap) stageDirectory(dir *cwlcore.Directory, target string, writable
 	local := pathOf(dir)
 	if local != "" {
 		m.add(&PathMapping{
-			Resolved: local, Target: target,
+			Resolved: local, Target: target, Host: "", Contents: "",
 			Action: stageActions[m.isolate(writable)], Writable: writable,
 		}, dir)
 
@@ -466,7 +472,10 @@ func (m *PathMap) stageDirectory(dir *cwlcore.Directory, target string, writable
 		return fmt.Errorf("%w: Directory %q has neither a path nor a listing", ErrStageValue, dir.Basename)
 	}
 
-	m.add(&PathMapping{Target: target, Action: StageMkdir, Writable: writable}, dir)
+	m.add(
+		&PathMapping{Resolved: "", Target: target, Host: "", Contents: "", Action: StageMkdir, Writable: writable},
+		dir,
+	)
 
 	for _, entry := range dir.Listing {
 		err := m.stageAt(entry, filepath.Join(target, basenameOf(entry)), writable)
@@ -608,7 +617,7 @@ func fieldsOf(value cwlcore.FileOrDirectory) stageFields {
 		return stageFields{basename: dir.Basename, path: dir.Path, location: dir.Location}
 	}
 
-	return stageFields{}
+	return stageFields{basename: "", path: "", location: ""}
 }
 
 // stageRef is what a filesystem value names: the host path holding its bytes, and the final
@@ -641,12 +650,12 @@ func (f stageFields) ref() stageRef {
 
 	parsed, err := url.Parse(f.location)
 	if err != nil || parsed.Path == "" {
-		return stageRef{}
+		return stageRef{local: "", name: ""}
 	}
 
 	name := path.Base(parsed.Path)
 	if (parsed.Scheme != "" && parsed.Scheme != joSchemeFile) || !path.IsAbs(parsed.Path) {
-		return stageRef{name: name}
+		return stageRef{local: "", name: name}
 	}
 
 	return stageRef{local: filepath.Clean(parsed.Path), name: name}
@@ -678,17 +687,18 @@ func relocateFile(file *cwlcore.File, target string) *cwlcore.File {
 	parts := outSplitName(basename)
 
 	moved := &cwlcore.File{
-		Node:     file.Node,
-		Location: outFileURI(target),
-		Path:     target,
-		Basename: basename,
-		Dirname:  outDirname(target),
-		Nameroot: parts.root,
-		Nameext:  parts.ext,
-		Checksum: file.Checksum,
-		Format:   file.Format,
-		Size:     file.Size,
-		Contents: file.Contents,
+		Node:           file.Node,
+		Location:       outFileURI(target),
+		Path:           target,
+		Basename:       basename,
+		Dirname:        outDirname(target),
+		Nameroot:       parts.root,
+		Nameext:        parts.ext,
+		Checksum:       file.Checksum,
+		Format:         file.Format,
+		Size:           file.Size,
+		Contents:       file.Contents,
+		SecondaryFiles: nil,
 	}
 
 	beside := filepath.Dir(target)
@@ -709,6 +719,7 @@ func relocateDirectory(dir *cwlcore.Directory, target string) *cwlcore.Directory
 		Location: outFileURI(target),
 		Path:     target,
 		Basename: filepath.Base(target),
+		Listing:  nil,
 	}
 
 	for _, entry := range dir.Listing {

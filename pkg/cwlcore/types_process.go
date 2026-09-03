@@ -15,6 +15,12 @@ var (
 	_ Process = (*ExpressionTool)(nil)
 	_ Process = (*Operation)(nil)
 	_ Process = (*RawProcess)(nil)
+	_ Process = (*ExtensionWorkflow)(nil)
+)
+
+var (
+	_ StepContainer = (*Workflow)(nil)
+	_ StepContainer = (*ExtensionWorkflow)(nil)
 )
 
 // ProcessBase holds the fields the schema's abstract Process record contributes
@@ -149,6 +155,15 @@ func (*Workflow) Class() string {
 	return ClassWorkflow
 }
 
+// WorkflowSteps returns the workflow's steps.
+func (w *Workflow) WorkflowSteps() []WorkflowStep { return w.Steps }
+
+// WorkflowInputs returns the workflow's input parameters.
+func (w *Workflow) WorkflowInputs() []WorkflowInputParameter { return w.Inputs }
+
+// WorkflowOutputs returns the workflow's output parameters.
+func (w *Workflow) WorkflowOutputs() []WorkflowOutputParameter { return w.Outputs }
+
 // ExpressionTool computes its outputs from a single CWL expression over its
 // inputs, without running any program.
 //
@@ -234,3 +249,41 @@ type RawProcess struct {
 func (r *RawProcess) Class() string {
 	return r.ClassIRI
 }
+
+// ExtensionWorkflow is an extension process class that extends Workflow. It
+// carries the full decoded workflow structure (steps, typed inputs and outputs)
+// alongside the raw node and extension class name, so the execution layer plans
+// and runs it as a workflow while downstream code can still distinguish it from
+// a core Workflow and decode extension-specific fields from Node.
+type ExtensionWorkflow struct {
+	ProcessBase
+
+	// Node is the complete validated salad node for the process, ready for a
+	// downstream typed decode of the class-specific fields.
+	Node *salad.MapNode
+
+	// ClassIRI is the resolved class discriminator — an extension IRI in a
+	// namespace the document declared.
+	ClassIRI string
+
+	// Steps are the workflow's steps, in document order.
+	Steps []WorkflowStep
+
+	// Inputs are the workflow's input parameters, in document order.
+	Inputs []WorkflowInputParameter
+
+	// Outputs are the workflow's output parameters, in document order.
+	Outputs []WorkflowOutputParameter
+}
+
+// Class returns the extension class IRI this process declared.
+func (ew *ExtensionWorkflow) Class() string { return ew.ClassIRI }
+
+// WorkflowSteps returns the workflow's steps.
+func (ew *ExtensionWorkflow) WorkflowSteps() []WorkflowStep { return ew.Steps }
+
+// WorkflowInputs returns the workflow's input parameters.
+func (ew *ExtensionWorkflow) WorkflowInputs() []WorkflowInputParameter { return ew.Inputs }
+
+// WorkflowOutputs returns the workflow's output parameters.
+func (ew *ExtensionWorkflow) WorkflowOutputs() []WorkflowOutputParameter { return ew.Outputs }

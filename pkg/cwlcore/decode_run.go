@@ -82,13 +82,13 @@ func (idx *processIndex) add(p Process, indexed map[Process]bool) {
 	indexed[p] = true
 	idx.record(p)
 
-	wf, ok := p.(*Workflow)
+	sc, ok := p.(StepContainer)
 	if !ok {
 		return
 	}
 
-	for i := range wf.Steps {
-		idx.add(wf.Steps[i].Run.Process, indexed)
+	for i := range sc.WorkflowSteps() {
+		idx.add(sc.WorkflowSteps()[i].Run.Process, indexed)
 	}
 }
 
@@ -124,15 +124,16 @@ func (idx *processIndex) find(ref string) Process {
 // link resolves p's run references against the index, then descends into
 // whatever each step turned out to run.
 func (idx *processIndex) link(p Process, linked map[Process]bool) {
-	wf, ok := p.(*Workflow)
+	sc, ok := p.(StepContainer)
 	if !ok || linked[p] {
 		return
 	}
 
 	linked[p] = true
 
-	for i := range wf.Steps {
-		run := &wf.Steps[i].Run
+	steps := sc.WorkflowSteps()
+	for i := range steps {
+		run := &steps[i].Run
 		if run.Process == nil && run.Ref != "" {
 			run.Process = idx.find(run.Ref)
 		}
@@ -156,19 +157,27 @@ func checkRunCycles(p Process) error {
 // closes a cycle.
 func walkRunGraph(p Process, onPath, done map[Process]bool) error {
 	if onPath[p] {
-		return salad.Errorf(salad.SourceLine{},
-			"%s runs itself, directly or through another workflow", describeProcess(p))
+		return salad.Errorf(
+			salad.SourceLine{
+				File:  "",
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"%s runs itself, directly or through another workflow",
+			describeProcess(p),
+		)
 	}
 
-	wf, ok := p.(*Workflow)
+	sc, ok := p.(StepContainer)
 	if !ok || done[p] {
 		return nil
 	}
 
 	onPath[p] = true
 
-	for i := range wf.Steps {
-		err := walkRunStep(&wf.Steps[i], onPath, done)
+	steps := sc.WorkflowSteps()
+	for i := range steps {
+		err := walkRunStep(&steps[i], onPath, done)
 		if err != nil {
 			return err
 		}
@@ -215,9 +224,16 @@ func describeProcess(p Process) string {
 func stepError(step *WorkflowStep, err error) error {
 	msg := fmt.Sprintf("the step %q cannot run %q, because", step.ID, step.Run.Ref)
 
-	var nested *salad.Error
-	if errors.As(err, &nested) {
-		return salad.Group(salad.SourceLine{}, msg, nested)
+	if nested, ok := errors.AsType[*salad.Error](err); ok {
+		return salad.Group(
+			salad.SourceLine{
+				File:  "",
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			msg,
+			nested,
+		)
 	}
 
 	return fmt.Errorf("%s %w", msg, err)
@@ -241,8 +257,19 @@ func runTargetOf(base, ref string) (runTarget, error) {
 
 	uri, err := documentFetcher().Normalize(documentPart(base), document)
 	if err != nil {
-		return runTarget{}, salad.Errorf(salad.SourceLine{File: base},
-			"the reference cannot be resolved against %s: %s", base, err)
+		return runTarget{
+				uri:      "",
+				fragment: "",
+			}, salad.Errorf(
+				salad.SourceLine{
+					File:  base,
+					Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+					End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+				},
+				"the reference cannot be resolved against %s: %s",
+				base,
+				err,
+			)
 	}
 
 	return runTarget{uri: uri, fragment: fragmentPart(ref)}, nil
@@ -275,7 +302,7 @@ func namesUndeclaredObject(base, ref string) bool {
 type externalRuns struct {
 	cache  map[string]Process
 	linked map[Process]bool
-	opts   []salad.ValidateOption
+	cfg    *loadConfig
 }
 
 // resolveExternalRuns follows every run reference p leaves unresolved, reports
@@ -288,12 +315,12 @@ func resolveExternalRuns(
 	ctx context.Context,
 	p Process,
 	base, fragment string,
-	opts []salad.ValidateOption,
+	cfg *loadConfig,
 ) error {
 	runs := &externalRuns{
 		cache:  map[string]Process{cacheKey(base, fragment): p},
 		linked: make(map[Process]bool),
-		opts:   opts,
+		cfg:    cfg,
 	}
 
 	err := runs.link(ctx, p, base)
@@ -307,15 +334,16 @@ func resolveExternalRuns(
 // link resolves every step of one workflow, with base the URI of the document
 // that workflow was written in.
 func (e *externalRuns) link(ctx context.Context, p Process, base string) error {
-	wf, ok := p.(*Workflow)
+	sc, ok := p.(StepContainer)
 	if !ok || e.linked[p] {
 		return nil
 	}
 
 	e.linked[p] = true
 
-	for i := range wf.Steps {
-		err := e.linkStep(ctx, &wf.Steps[i], base)
+	steps := sc.WorkflowSteps()
+	for i := range steps {
+		err := e.linkStep(ctx, &steps[i], base)
 		if err != nil {
 			return err
 		}
@@ -337,8 +365,17 @@ func (e *externalRuns) linkStep(ctx context.Context, step *WorkflowStep, base st
 	}
 
 	if namesUndeclaredObject(base, step.Run.Ref) {
-		return stepError(step, salad.Errorf(salad.SourceLine{File: base},
-			"the document declares no object with that identifier"))
+		return stepError(
+			step,
+			salad.Errorf(
+				salad.SourceLine{
+					File:  base,
+					Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+					End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+				},
+				"the document declares no object with that identifier",
+			),
+		)
 	}
 
 	process, err := e.loadTarget(ctx, base, step.Run.Ref)
@@ -369,7 +406,7 @@ func (e *externalRuns) load(ctx context.Context, target runTarget) (Process, err
 		return cached, nil
 	}
 
-	doc, err := LoadFileDocument(ctx, target.uri, e.opts...)
+	doc, err := loadFileDocument(ctx, target.uri, e.cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -406,4 +443,32 @@ func decodeTarget(doc *salad.Document, fragment string) (Process, error) {
 	}
 
 	return decodeFragment(doc, fragment)
+}
+
+// decodeTargetWithSchema is decodeTarget with the loaded schema threaded
+// through to the decoder, so that extension process classes that extend
+// Workflow can be recognized and decoded as ExtensionWorkflow.
+func decodeTargetWithSchema(doc *salad.Document, fragment string, loaded *salad.LoadedSchema) (Process, error) {
+	var opts []decoderOption
+	if loaded != nil {
+		opts = append(opts, withLoadedSchema(loaded))
+	}
+
+	if fragment == "" {
+		nodes, isGraph := graphNodes(doc.Root)
+
+		entry := doc.Root
+		if isGraph {
+			main, err := selectMain(nodes, doc.BaseURI)
+			if err != nil {
+				return nil, err
+			}
+
+			entry = main
+		}
+
+		return decodeLinked(nodes, entry, opts...)
+	}
+
+	return decodeFragment(doc, fragment, opts...)
 }

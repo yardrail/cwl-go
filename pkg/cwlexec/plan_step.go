@@ -15,7 +15,7 @@ import (
 // Everything here is fixed for the whole run, so it happens once at [NewRunner] time. That is also
 // what makes an unrunnable document fail before any step has run, rather than half way through.
 func planStep(
-	ctx context.Context, workflow *cwlcore.Workflow, step *cwlcore.WorkflowStep, cfg *Config,
+	ctx context.Context, sc cwlcore.StepContainer, step *cwlcore.WorkflowStep, cfg *Config,
 ) (*plannedStep, error) {
 	// Test the resolved process, not IsRef: cwlcore keeps Run.Ref populated after resolution so a
 	// diagnostic can still say what the step pointed at, and fills Run.Process alongside it. A step
@@ -42,7 +42,7 @@ func planStep(
 	// ([resourceRequest]), SchemaDef type resolution, and the [StepCall] handed to the handler.
 	// Each of those asks "what is in effect for the thing being run", which is exactly the
 	// question the inheritance filter exists to answer.
-	stepScope := cwlcore.NewScope(workflow).Push(step.Requirements, step.Hints)
+	stepScope := cwlcore.NewScope(sc).Push(step.Requirements, step.Hints)
 	scope := stepScope.PushProcess(run)
 
 	err := scope.CheckKnown(cfg.AllowRequirements, cfg.checkOptions()...)
@@ -51,22 +51,29 @@ func planStep(
 	}
 
 	planned := &plannedStep{
-		step:    step,
-		run:     run,
-		scope:   scope,
-		eval:    EvaluatorFor(scope, cfg.evalOptions()...),
-		id:      ShortName(step.ID),
-		class:   Class(run.Class()),
-		when:    string(step.When),
-		method:  ScatterMethod(step.ScatterMethod),
-		out:     stepOutPorts(step),
-		scatter: shortNames(step.Scatter),
+		step:       step,
+		run:        run,
+		scope:      scope,
+		eval:       EvaluatorFor(scope, cfg.evalOptions()...),
+		handler:    nil,
+		outTypes:   nil,
+		defaults:   nil,
+		declaredIn: nil,
+		pending:    nil,
+		id:         ShortName(step.ID),
+		class:      Class(run.Class()),
+		when:       string(step.When),
+		method:     ScatterMethod(step.ScatterMethod),
+		out:        stepOutPorts(step),
+		scatter:    shortNames(step.Scatter),
+		deps:       nil,
+		implicit:   false,
 	}
 	decls := inputDecls(run)
 	planned.outTypes = declaredTypes(outputDecls(run))
 	planned.declaredIn = declaredInputs(decls)
 	planned.defaults = declaredDefaults(decls)
-	planned.pending = newPendingValues(ctx, workflow, planned, decls)
+	planned.pending = newPendingValues(ctx, sc, planned, decls)
 
 	return planned, checkStepFeatures(planned, stepScope)
 }
@@ -86,7 +93,7 @@ func checkStepFeatures(planned *plannedStep, scope *cwlcore.RequirementScope) er
 		return featureError(planned.id, "scatter", cwlcore.ClassScatterFeatureRequirement)
 	}
 
-	if planned.class == Class(cwlcore.ClassWorkflow) && !inScope(scope, cwlcore.ClassSubworkflowFeatureRequirement) {
+	if isStepContainer(planned.run) && !inScope(scope, cwlcore.ClassSubworkflowFeatureRequirement) {
 		return featureError(planned.id, "a Workflow under run:", cwlcore.ClassSubworkflowFeatureRequirement)
 	}
 
@@ -118,6 +125,12 @@ func featureError(step, feature, class string) error {
 // differ whenever a step declares a subset of what its tool produces, and it is the step's list
 // that names the ports the rest of the workflow can read, that a skipped step fills with nulls, and
 // that a scattered step gathers into arrays.
+func isStepContainer(p cwlcore.Process) bool {
+	_, ok := p.(cwlcore.StepContainer)
+
+	return ok
+}
+
 func stepOutPorts(step *cwlcore.WorkflowStep) []string {
 	ports := make([]string, 0, len(step.Out))
 	for _, out := range step.Out {
@@ -142,8 +155,8 @@ func inputDecls(process cwlcore.Process) []portDecl {
 	switch typed := process.(type) {
 	case *cwlcore.CommandLineTool:
 		return commandInputDecls(typed.Inputs)
-	case *cwlcore.Workflow:
-		return workflowInputDecls(typed.Inputs)
+	case cwlcore.StepContainer:
+		return workflowInputDecls(typed.WorkflowInputs())
 	case *cwlcore.ExpressionTool:
 		return workflowInputDecls(typed.Inputs)
 	case *cwlcore.Operation:
@@ -162,8 +175,8 @@ func outputDecls(process cwlcore.Process) []portDecl {
 		return baseDecls(typed.Outputs, func(p *cwlcore.CommandOutputParameter) *cwlcore.ParameterBase {
 			return &p.ParameterBase
 		})
-	case *cwlcore.Workflow:
-		return baseDecls(typed.Outputs, func(p *cwlcore.WorkflowOutputParameter) *cwlcore.ParameterBase {
+	case cwlcore.StepContainer:
+		return baseDecls(typed.WorkflowOutputs(), func(p *cwlcore.WorkflowOutputParameter) *cwlcore.ParameterBase {
 			return &p.ParameterBase
 		})
 	case *cwlcore.ExpressionTool:
@@ -233,7 +246,17 @@ func baseDecls[T any](params []T, base func(*T) *cwlcore.ParameterBase) []portDe
 	decls := make([]portDecl, 0, len(params))
 	for index := range params {
 		shared := base(&params[index])
-		decls = append(decls, portDecl{Name: ShortName(shared.IDField), Type: shared.Type})
+		decls = append(
+			decls,
+			portDecl{
+				Default:      nil,
+				DefaultNode:  nil,
+				Name:         ShortName(shared.IDField),
+				Type:         shared.Type,
+				LoadListing:  "",
+				LoadContents: false,
+			},
+		)
 	}
 
 	return decls

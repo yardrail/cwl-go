@@ -66,7 +66,7 @@ type subworkflowEnv struct {
 	// ancestors are the workflows enclosing this invocation, outermost first. Identity is the
 	// decoded process pointer, so the same workflow reached twice down one chain is the cycle it
 	// is, while the same workflow run by two sibling steps is not.
-	ancestors []*cwlcore.Workflow
+	ancestors []cwlcore.StepContainer
 }
 
 // WithSubworkflows returns a context carrying the registry and configuration that a Workflow under a
@@ -88,7 +88,7 @@ type subworkflowEnv struct {
 // Config.TmpDirPrefix are always overridden per nested run, with the suspended invocation's own
 // StepCall.OutDir and StepCall.TmpDir, so what is passed here for those two is ignored.
 func WithSubworkflows(ctx context.Context, registry *Registry, cfg *Config) context.Context {
-	return context.WithValue(ctx, subworkflowKey{}, subworkflowEnv{registry: registry, cfg: cfg})
+	return context.WithValue(ctx, subworkflowKey{}, subworkflowEnv{registry: registry, cfg: cfg, ancestors: nil})
 }
 
 // subworkflowsFrom reads the environment a nested run inherits, substituting the built-in registry
@@ -109,11 +109,11 @@ func subworkflowsFrom(ctx context.Context) subworkflowEnv {
 // Handing the child configuration down rather than the parent's is what makes a doubly-nested run
 // inherit the settings that were resolved for its own parent, and it costs nothing, because the two
 // directory fields are re-derived at every level anyway.
-func (e subworkflowEnv) descend(workflow *cwlcore.Workflow, cfg *Config) subworkflowEnv {
-	ancestors := make([]*cwlcore.Workflow, 0, len(e.ancestors)+1)
+func (e subworkflowEnv) descend(sc cwlcore.StepContainer, cfg *Config) subworkflowEnv {
+	ancestors := make([]cwlcore.StepContainer, 0, len(e.ancestors)+1)
 	ancestors = append(ancestors, e.ancestors...)
 
-	return subworkflowEnv{registry: e.registry, cfg: cfg, ancestors: append(ancestors, workflow)}
+	return subworkflowEnv{registry: e.registry, cfg: cfg, ancestors: append(ancestors, sc)}
 }
 
 // childConfig derives the configuration one nested run executes under.
@@ -143,7 +143,19 @@ func (e subworkflowEnv) descend(workflow *cwlcore.Workflow, cfg *Config) subwork
 // An unset OutDir or TmpDir stays unset, which reads as "this run allocates no directories" exactly
 // as it does at the top level.
 func (e subworkflowEnv) childConfig(call *StepCall) *Config {
-	cfg := Config{}
+	cfg := Config{
+		Logger:              nil,
+		SelectResources:     nil,
+		AllowRequirements:   nil,
+		OutDir:              "",
+		TmpDirPrefix:        "",
+		OnError:             "",
+		Containers:          ContainerPolicy{Disabled: false, NoMatchUser: false, NoReadOnly: false, Keep: false},
+		Resources:           ResourceBudget{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
+		EvalTimeout:         0,
+		MaxParallel:         0,
+		LenientRequirements: false,
+	}
 	if e.cfg != nil {
 		cfg = *e.cfg
 	}
@@ -173,7 +185,7 @@ func (workflowHandler) Execute(ctx context.Context, call *StepCall) (Result, err
 
 // runSubworkflow checks that the invocation is one that may run at all, and then runs it.
 func runSubworkflow(ctx context.Context, call *StepCall) (Result, error) {
-	workflow, ok := call.Process.(*cwlcore.Workflow)
+	sc, ok := call.Process.(cwlcore.StepContainer)
 	if !ok {
 		return PermanentFail(fmt.Errorf("%w: %s is not a Workflow", ErrWrongProcessClass, describe(call)))
 	}
@@ -184,20 +196,20 @@ func runSubworkflow(ctx context.Context, call *StepCall) (Result, error) {
 	}
 
 	env := subworkflowsFrom(ctx)
-	if slices.Contains(env.ancestors, workflow) {
+	if slices.Contains(env.ancestors, sc) {
 		return PermanentFail(fmt.Errorf("%w: %s", ErrSubworkflowCycle, describe(call)))
 	}
 
 	cfg := env.childConfig(call)
 
-	child, err := NewRunner(ctx, inheritRequirements(workflow, call.Requirements), env.registry, cfg)
+	child, err := NewRunner(ctx, inheritRequirements(sc, call.Requirements), env.registry, cfg)
 	if err != nil {
 		return PermanentFail(fmt.Errorf("%s: %w", describe(call), err))
 	}
 
-	call.Log().Debug("running subworkflow", "step", call.StepID, "workflow", workflow.ID, "dir", cfg.OutDir)
+	call.Log().Debug("running subworkflow", "step", call.StepID, "workflow", sc.Base().ID, "dir", cfg.OutDir)
 
-	nested := context.WithValue(ctx, subworkflowKey{}, env.descend(workflow, cfg))
+	nested := context.WithValue(ctx, subworkflowKey{}, env.descend(sc, cfg))
 
 	run, err := child.Run(nested, call.Inputs)
 
@@ -237,16 +249,30 @@ func subworkflowsEnabled(scope *cwlcore.RequirementScope) bool {
 //
 // The copy is shallow, and never mutates the decoded document: a scattered subworkflow step's
 // sub-jobs plan concurrently over the same steps.
-func inheritRequirements(workflow *cwlcore.Workflow, scope *cwlcore.RequirementScope) *cwlcore.Workflow {
+func inheritRequirements(sc cwlcore.StepContainer, scope *cwlcore.RequirementScope) cwlcore.StepContainer {
 	if scope == nil {
-		return workflow
+		return sc
 	}
 
-	view := *workflow
-	view.Requirements = scope.EffectiveRequirements()
-	view.Hints = scope.EffectiveHints()
+	reqs := scope.EffectiveRequirements()
+	hints := scope.EffectiveHints()
 
-	return &view
+	switch w := sc.(type) {
+	case *cwlcore.Workflow:
+		view := *w
+		view.Requirements = reqs
+		view.Hints = hints
+
+		return &view
+	case *cwlcore.ExtensionWorkflow:
+		view := *w
+		view.Requirements = reqs
+		view.Hints = hints
+
+		return &view
+	default:
+		return sc
+	}
 }
 
 // subResult maps a nested run's outcome onto the outcome of the step that ran it.
@@ -290,7 +316,7 @@ func nestedError(call *StepCall, status Status, err error) error {
 // this does not do.
 func suspendNested(call *StepCall, run RunResult) (Result, error) {
 	payload, err := json.Marshal(subworkflowPayload{
-		State:       run.State,
+		State:       &run.State,
 		Suspensions: wireSuspensions(run.Suspensions),
 	})
 	if err != nil {
@@ -303,7 +329,7 @@ func suspendNested(call *StepCall, run RunResult) (Result, error) {
 // subworkflowPayload is the wire shape of a nested suspension's payload. Every field is named
 // explicitly, because what a caller persists is part of this package's contract.
 type subworkflowPayload struct {
-	State       RunState         `json:"state"`
+	State       *RunState        `json:"state"`
 	Suspensions []suspensionJSON `json:"suspensions,omitempty"`
 }
 
@@ -383,7 +409,7 @@ func DecodeSubworkflowSuspension(payload []byte) (SubworkflowSuspension, error) 
 	}
 
 	decoded := SubworkflowSuspension{
-		State:       wire.State,
+		State:       *wire.State,
 		Suspensions: make([]Suspension, 0, len(wire.Suspensions)),
 	}
 

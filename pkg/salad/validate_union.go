@@ -67,7 +67,18 @@ func (v *validator) explainAlternatives(alts []Type, n Node, header string) *Err
 			continue
 		}
 
-		children = append(children, Group(SourceLine{}, msgTriedPrefix+typeLabel(alt)+msgTriedSuffix, e))
+		children = append(
+			children,
+			Group(
+				SourceLine{
+					File:  "",
+					Start: Position{Line: 0, Column: 0, Offset: 0},
+					End:   Position{Line: 0, Column: 0, Offset: 0},
+				},
+				msgTriedPrefix+typeLabel(alt)+msgTriedSuffix,
+				e,
+			),
+		)
 	}
 
 	if len(children) == 0 {

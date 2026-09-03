@@ -7,6 +7,7 @@ import "testing"
 const (
 	testFile    = "a.yml"
 	typeTool    = "Tool"
+	fieldClass  = "class"
 	fieldInputs = "inputs"
 	litGreen    = "green"
 )
@@ -15,7 +16,20 @@ const (
 func entries(pairs ...string) []MapEntry {
 	out := make([]MapEntry, 0, len(pairs)/2)
 	for i := 0; i+1 < len(pairs); i += 2 {
-		out = append(out, MapEntry{Key: pairs[i], Value: NewStringNode(SourceLine{}, pairs[i+1])})
+		out = append(
+			out,
+			MapEntry{
+				Key: pairs[i],
+				Value: NewStringNode(
+					SourceLine{
+						File:  "",
+						Start: Position{Line: 0, Column: 0, Offset: 0},
+						End:   Position{Line: 0, Column: 0, Offset: 0},
+					},
+					pairs[i+1],
+				),
+			},
+		)
 	}
 
 	return out

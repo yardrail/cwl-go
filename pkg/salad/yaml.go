@@ -54,7 +54,11 @@ func Parse(name string, src []byte) (Node, error) {
 
 	if len(file.Docs) > 1 {
 		return nil, Errorf(
-			SourceLine{File: name},
+			SourceLine{
+				File:  name,
+				Start: Position{Line: 0, Column: 0, Offset: 0},
+				End:   Position{Line: 0, Column: 0, Offset: 0},
+			},
 			"a Schema Salad document must contain a single YAML document, found %d",
 			len(file.Docs),
 		)
@@ -64,7 +68,13 @@ func Parse(name string, src []byte) (Node, error) {
 		// Defensive: goccy's parser.ParseBytes has always returned at least
 		// one *ast.DocumentNode for every input tried against it, empty byte
 		// slices included, so this has no known way to be driven to true.
-		return NewNullNode(SourceLine{File: name}), nil
+		return NewNullNode(
+			SourceLine{
+				File:  name,
+				Start: Position{Line: 0, Column: 0, Offset: 0},
+				End:   Position{Line: 0, Column: 0, Offset: 0},
+			},
+		), nil
 	}
 
 	c := &yamlConverter{
@@ -79,29 +89,40 @@ func Parse(name string, src []byte) (Node, error) {
 // parseError converts a goccy parse failure into a *Error, recovering the
 // position from the offending token when the parser reports one.
 func parseError(name string, err error) *Error {
-	var syntax *yaml.SyntaxError
-	if errors.As(err, &syntax) {
-		return &Error{Msg: syntax.Message, Loc: tokenLoc(name, syntax.Token)}
+	if syntax, ok := errors.AsType[*yaml.SyntaxError](err); ok {
+		return &Error{Msg: syntax.Message, Children: nil, Loc: tokenLoc(name, syntax.Token), Warning: false}
 	}
 
 	// Verified dead against goccy v1.19.2: a duplicate mapping key is always
 	// reported as a *yaml.SyntaxError, caught above, never as this distinct
 	// error type. Kept for whichever goccy version does use it.
-	var dup *yaml.DuplicateKeyError
-	if errors.As(err, &dup) {
-		return &Error{Msg: dup.Message, Loc: tokenLoc(name, dup.Token)}
+	if dup, ok := errors.AsType[*yaml.DuplicateKeyError](err); ok {
+		return &Error{Msg: dup.Message, Children: nil, Loc: tokenLoc(name, dup.Token), Warning: false}
 	}
 
 	// Unreachable alongside it, for the same reason: every parser.ParseBytes
 	// failure this package has been able to produce is a *yaml.SyntaxError.
-	return &Error{Msg: err.Error(), Loc: SourceLine{File: name}}
+	return &Error{
+		Msg:      err.Error(),
+		Children: nil,
+		Loc: SourceLine{
+			File:  name,
+			Start: Position{Line: 0, Column: 0, Offset: 0},
+			End:   Position{Line: 0, Column: 0, Offset: 0},
+		},
+		Warning: false,
+	}
 }
 
 // tokenLoc converts a goccy token position into a SourceLine. goccy reports
 // 1-based byte offsets; SourceLine.Offset is 0-based.
 func tokenLoc(file string, tk *token.Token) SourceLine {
 	if tk == nil || tk.Position == nil {
-		return SourceLine{File: file}
+		return SourceLine{
+			File:  file,
+			Start: Position{Line: 0, Column: 0, Offset: 0},
+			End:   Position{Line: 0, Column: 0, Offset: 0},
+		}
 	}
 
 	pos := Position{
@@ -126,7 +147,13 @@ type yamlConverter struct {
 func (c *yamlConverter) node(n ast.Node) (Node, error) {
 	switch v := n.(type) {
 	case nil:
-		return NewNullNode(SourceLine{File: c.file}), nil
+		return NewNullNode(
+			SourceLine{
+				File:  c.file,
+				Start: Position{Line: 0, Column: 0, Offset: 0},
+				End:   Position{Line: 0, Column: 0, Offset: 0},
+			},
+		), nil
 	case *ast.DocumentNode:
 		return c.node(v.Body)
 	case *ast.MappingNode:
@@ -435,7 +462,11 @@ func (c *yamlConverter) mapKey(k ast.MapKeyNode) (string, error) {
 // nodeLoc returns the source location of an AST node.
 func (c *yamlConverter) nodeLoc(n ast.Node) SourceLine {
 	if n == nil {
-		return SourceLine{File: c.file}
+		return SourceLine{
+			File:  c.file,
+			Start: Position{Line: 0, Column: 0, Offset: 0},
+			End:   Position{Line: 0, Column: 0, Offset: 0},
+		}
 	}
 
 	return tokenLoc(c.file, n.GetToken())

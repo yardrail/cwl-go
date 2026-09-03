@@ -284,6 +284,7 @@ func resolveInput(step *plannedStep, in *cwlcore.WorkflowStepInput, lookup sourc
 		LinkMerge: in.LinkMerge,
 		PickValue: in.PickValue,
 		Sources:   in.Source,
+		Type:      cwlcore.TypeRef{},
 		StepInput: true,
 	}
 
@@ -472,6 +473,7 @@ func newProcessValues(
 		loadContents:   make(map[string]bool, len(decls)),
 		stepBase:       base,
 		runBase:        base,
+		secondary:      nil,
 		listingDefault: listing,
 	}
 
@@ -499,10 +501,10 @@ func newProcessValues(
 // A step's own requests do not reach the run process's parameter defaults, and cannot: those fill
 // parameters the step wired no `in` entry for at all, so there is no step declaration in play.
 func newPendingValues(
-	ctx context.Context, workflow *cwlcore.Workflow, step *plannedStep, decls []portDecl,
+	ctx context.Context, sc cwlcore.StepContainer, step *plannedStep, decls []portDecl,
 ) *pendingValues {
 	pending := newProcessValues(ctx, step.run, step.scope, decls)
-	pending.stepBase = documentDir(workflow)
+	pending.stepBase = documentDir(sc)
 	pending.secondary = stepSecondaryDecls(step.run, step.scope)
 
 	ins := step.step.In
@@ -582,21 +584,28 @@ func (p *pendingValues) fillProcessDefaults(object map[string]any) error {
 // value conversion and not a second format-checking pass: a `default` belongs to a parameter whose
 // format constraint the handler checks against the input object as a whole, once.
 func (p *pendingValues) materialize(ctx context.Context, node salad.Node, base, name string) deferredValue {
-	loader := &joLoader{jobDir: base, docDir: base}
+	loader := &joLoader{
+		vocab:   joVocabulary{namespaces: nil, hasOntology: false},
+		log:     nil,
+		jobDir:  base,
+		docDir:  base,
+		listing: "",
+	}
 	position := &joValueCtx{
 		typ:          p.types[name],
 		base:         base,
 		path:         name,
+		format:       nil,
 		listing:      p.listingFor(name),
 		loadContents: p.loadContents[name],
 	}
 
 	value, err := loader.value(ctx, node, position)
 	if err != nil {
-		return deferredValue{err: err}
+		return deferredValue{value: nil, err: err}
 	}
 
-	return deferredValue{value: value}
+	return deferredValue{value: value, err: nil}
 }
 
 // load gives one resolved input value the reads its declaration asked for: loadContents on a File,
@@ -753,7 +762,22 @@ func applyValueFrom(step *plannedStep, object map[string]any) (map[string]any, e
 
 		name := ShortName(in.ID)
 
-		value, err := step.eval.Eval(string(in.ValueFrom), &cwlcore.EvalContext{Inputs: object, Self: object[name]})
+		value, err := step.eval.Eval(
+			string(in.ValueFrom),
+			&cwlcore.EvalContext{
+				Inputs: object,
+				Self:   object[name],
+				Runtime: cwlcore.RuntimeContext{
+					Cores:      nil,
+					RAM:        nil,
+					OutdirSize: nil,
+					TmpdirSize: nil,
+					ExitCode:   nil,
+					Outdir:     "",
+					Tmpdir:     "",
+				},
+			},
+		)
 		if err != nil {
 			return nil, fmt.Errorf("%w: step %q input %q: %w", ErrValueFrom, step.id, name, err)
 		}

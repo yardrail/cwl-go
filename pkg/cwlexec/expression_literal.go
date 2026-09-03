@@ -56,7 +56,7 @@ func materializeExpressionOutputs(
 		return nil, err
 	}
 
-	scan := &literalScan{roots: make([]cwlcore.FileOrDirectory, 0)}
+	scan := &literalScan{err: nil, roots: make([]cwlcore.FileOrDirectory, 0)}
 	for _, value := range typed {
 		scan.value(value)
 	}

@@ -264,21 +264,21 @@ type Suspension struct {
 // Success returns a successful Result carrying outputs, in the two-result shape a handler returns.
 // A handler writes `return cwlexec.Success(out)`.
 func Success(outputs map[string]any) (Result, error) {
-	return Result{Status: StatusSuccess, Outputs: outputs}, nil
+	return Result{Status: StatusSuccess, Outputs: outputs, Suspension: nil}, nil
 }
 
 // PermanentFail returns a permanently failed Result carrying err, in the two-result shape a handler
 // returns. Use it for a failure that retrying cannot fix: a malformed document, a tool that exited
 // with a permanent failure code, an expression that will fail the same way every time.
 func PermanentFail(err error) (Result, error) {
-	return Result{Status: StatusPermanentFail}, err
+	return Result{Status: StatusPermanentFail, Outputs: nil, Suspension: nil}, err
 }
 
 // TemporaryFail returns a temporarily failed Result carrying err, in the two-result shape a handler
 // returns. cwlexec never retries it — see [StatusTemporaryFail] — so this reports to the caller
 // that a retry is permitted, not that one has happened.
 func TemporaryFail(err error) (Result, error) {
-	return Result{Status: StatusTemporaryFail}, err
+	return Result{Status: StatusTemporaryFail, Outputs: nil, Suspension: nil}, err
 }
 
 // Suspend returns a suspended Result addressed to this invocation, in the two-result shape a
@@ -294,7 +294,7 @@ func (c *StepCall) Suspend(token string, payload []byte) (Result, error) {
 		Payload:      payload,
 	}
 
-	return Result{Status: StatusSuspended, Suspension: suspension}, nil
+	return Result{Status: StatusSuspended, Outputs: nil, Suspension: suspension}, nil
 }
 
 // Evaluator returns the expression evaluator for this call: [StepCall.Eval] when the scheduler
@@ -333,7 +333,15 @@ func (c *StepCall) Log() *slog.Logger {
 // Cores is rounded up to a whole core, because the specification's runtime.cores is an integer
 // while ResourceRequirement's coresMin may be fractional.
 func (c *StepCall) RuntimeContext() cwlcore.RuntimeContext {
-	runtime := cwlcore.RuntimeContext{Outdir: c.OutDir, Tmpdir: c.TmpDir}
+	runtime := cwlcore.RuntimeContext{
+		Cores:      nil,
+		RAM:        nil,
+		OutdirSize: nil,
+		TmpdirSize: nil,
+		ExitCode:   nil,
+		Outdir:     c.OutDir,
+		Tmpdir:     c.TmpDir,
+	}
 
 	if c.Resources.Cores > 0 {
 		cores := int64(math.Ceil(c.Resources.Cores))
@@ -377,15 +385,15 @@ func (c *StepCall) RuntimeContext() cwlcore.RuntimeContext {
 func Outcome(result Result, err error) (Result, error) {
 	if err != nil {
 		if result.Status == StatusPermanentFail || result.Status == StatusTemporaryFail {
-			return Result{Status: result.Status}, err
+			return Result{Status: result.Status, Outputs: nil, Suspension: nil}, err
 		}
 
-		return Result{Status: StatusPermanentFail}, err
+		return Result{Status: StatusPermanentFail, Outputs: nil, Suspension: nil}, err
 	}
 
 	invalid := result.validate()
 	if invalid != nil {
-		return Result{Status: StatusPermanentFail}, invalid
+		return Result{Status: StatusPermanentFail, Outputs: nil, Suspension: nil}, invalid
 	}
 
 	return result, nil

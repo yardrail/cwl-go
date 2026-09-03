@@ -109,6 +109,78 @@ func (d *decoder) rawProcess(m *salad.MapNode, class string) *RawProcess {
 	}
 }
 
+// extensionWorkflow decodes an extension class that extends Workflow: full
+// workflow structure (steps, typed inputs/outputs) plus the raw node and
+// extension class name.
+func (d *decoder) extensionWorkflow(m *salad.MapNode, class string) *ExtensionWorkflow {
+	return &ExtensionWorkflow{
+		ProcessBase: d.processBase(m),
+		ClassIRI:    class,
+		Node:        m,
+		Steps:       decodeEach(d.listItems(m, keySteps, keyID, ""), d.workflowStep),
+		Inputs:      decodeEach(d.parameterItems(m, keyInputs), d.workflowInputParameter),
+		Outputs:     decodeEach(d.parameterItems(m, keyOutputs), d.workflowOutputParameter),
+	}
+}
+
+const cwlWorkflowIRI = "https://w3id.org/cwl/cwl#Workflow"
+
+// extendsWorkflow reports whether class transitively extends Workflow according
+// to the schema, when one is available.
+func (d *decoder) extendsWorkflow(class string) bool {
+	if d.loaded == nil || d.loaded.Schema == nil {
+		return false
+	}
+
+	iri := class
+	if d.loaded.Context != nil {
+		if expanded, ok := d.loaded.Context.Vocab()[class]; ok {
+			iri = expanded
+		}
+	}
+
+	t, ok := d.loaded.Schema.Type(iri)
+	if !ok {
+		return false
+	}
+
+	rec, ok := t.(*salad.RecordType)
+	if !ok {
+		return false
+	}
+
+	return d.extendsTransitively(rec, cwlWorkflowIRI)
+}
+
+// extendsTransitively walks the extends chain of rec looking for target.
+func (d *decoder) extendsTransitively(rec *salad.RecordType, target string) bool {
+	seen := make(map[string]bool, len(rec.Extends))
+	queue := append(make([]string, 0, len(rec.Extends)), rec.Extends...)
+
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+
+		if seen[name] {
+			continue
+		}
+
+		seen[name] = true
+
+		if name == target {
+			return true
+		}
+
+		if t, ok := d.loaded.Schema.Type(name); ok {
+			if r, ok := t.(*salad.RecordType); ok {
+				queue = append(queue, r.Extends...)
+			}
+		}
+	}
+
+	return false
+}
+
 // parameterItems returns the items of an inputs or outputs field, expanding the
 // identifier-map form the schema's mapSubject/mapPredicate pair allows.
 func (d *decoder) parameterItems(m *salad.MapNode, key string) []salad.Node {

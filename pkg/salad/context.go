@@ -128,10 +128,70 @@ func BuildContext(schemaDoc Node, metadata *MapNode) (*Context, error) {
 	return c, nil
 }
 
+// MergeContexts combines two already-finished contexts into one. The base
+// context's vocabulary entries take precedence on collision, matching the
+// first-writer-wins semantics of putVocab. Extension namespaces, terms, and
+// schemas are added on top.
+func MergeContexts(base, ext *Context) *Context {
+	c := newContext()
+
+	maps.Copy(c.namespaces, base.namespaces)
+	maps.Copy(c.namespaces, ext.namespaces)
+
+	// Base wins on vocab collision: copy ext first, then overwrite with base.
+	maps.Copy(c.vocab, ext.vocab)
+	maps.Copy(c.vocab, base.vocab)
+
+	for term, iri := range c.vocab {
+		if _, taken := c.rvocab[iri]; !taken {
+			c.rvocab[iri] = term
+		}
+	}
+
+	maps.Copy(c.terms, base.terms)
+	maps.Copy(c.terms, ext.terms)
+
+	seen := make(map[string]bool)
+	for _, id := range base.identifiers {
+		if !seen[id] {
+			c.identifiers = append(c.identifiers, id)
+			seen[id] = true
+		}
+	}
+
+	for _, id := range ext.identifiers {
+		if !seen[id] {
+			c.identifiers = append(c.identifiers, id)
+			seen[id] = true
+		}
+	}
+
+	slices.Sort(c.identifiers)
+
+	c.schemas = append(c.schemas, base.schemas...)
+	c.schemas = append(c.schemas, ext.schemas...)
+
+	return c
+}
+
 // emptyTerm is what Term reports for a field the schema says nothing about. It
 // is shared and must never be mutated; term definitions are only ever written
 // while a Context is being built, onto values freshly allocated there.
-var emptyTerm = &TermDef{}
+var emptyTerm = &TermDef{
+	ID:                "",
+	Type:              "",
+	Subscope:          "",
+	MapSubject:        "",
+	MapPredicate:      "",
+	RefScope:          0,
+	Identity:          false,
+	Noconvert:         false,
+	NoLinkCheck:       false,
+	TypeDSL:           false,
+	SecondaryFilesDSL: false,
+	ScopedRef:         false,
+	IsIdentifier:      false,
+}
 
 // Term returns the term definition for a resolved field name, and whether the
 // schema defines one. The returned pointer is never nil, so a caller that does

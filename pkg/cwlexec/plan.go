@@ -119,30 +119,34 @@ type plan struct {
 // of the conformance suite takes — reaches the same registry, the same requirement scoping and the
 // same outcome normalization as a step of a workflow.
 func newPlan(ctx context.Context, process cwlcore.Process, cfg *Config) (*plan, error) {
-	workflow, isWorkflow := process.(*cwlcore.Workflow)
+	sc, isWorkflow := process.(cwlcore.StepContainer)
 	if !isWorkflow {
 		return bareProcessPlan(ctx, process, cfg)
 	}
 
+	steps := sc.WorkflowSteps()
+	inputs := sc.WorkflowInputs()
+	outputs := sc.WorkflowOutputs()
+
 	built := &plan{
-		byID:    make(map[string]*plannedStep, len(workflow.Steps)),
-		sources: make(map[string]sourceRef, len(workflow.Steps)),
+		byID:    make(map[string]*plannedStep, len(steps)),
+		sources: make(map[string]sourceRef, len(steps)),
 		inputs:  inputDecls(process),
-		outputs: make([]sink, 0, len(workflow.Outputs)),
-		steps:   make([]*plannedStep, 0, len(workflow.Steps)),
+		outputs: make([]sink, 0, len(outputs)),
+		steps:   make([]*plannedStep, 0, len(steps)),
 	}
 
-	for index := range workflow.Inputs {
-		id := workflow.Inputs[index].IDField
-		built.sources[id] = sourceRef{Port: ShortName(id)}
+	for index := range inputs {
+		id := inputs[index].IDField
+		built.sources[id] = sourceRef{Step: "", Port: ShortName(id)}
 	}
 
-	err := built.addSteps(ctx, workflow, cfg)
+	err := built.addSteps(ctx, sc, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	err = built.addWorkflowOutputs(workflow)
+	err = built.addWorkflowOutputs(sc)
 	if err != nil {
 		return nil, err
 	}
@@ -168,16 +172,22 @@ func bareProcessPlan(ctx context.Context, process cwlcore.Process, cfg *Config) 
 	ins := inputDecls(process)
 
 	step := &plannedStep{
+		step:       nil,
 		run:        process,
 		scope:      scope,
 		eval:       EvaluatorFor(scope, cfg.evalOptions()...),
+		handler:    nil,
 		outTypes:   declaredTypes(outs),
 		defaults:   declaredDefaults(ins),
 		declaredIn: declaredInputs(ins),
 		pending:    newProcessValues(ctx, process, scope, ins),
 		id:         processStepID(process),
 		class:      Class(process.Class()),
+		when:       "",
+		method:     "",
 		out:        declaredNames(outs),
+		scatter:    nil,
+		deps:       nil,
 		implicit:   true,
 	}
 
@@ -192,7 +202,17 @@ func bareProcessPlan(ctx context.Context, process cwlcore.Process, cfg *Config) 
 	for _, port := range step.out {
 		id := step.id + "/" + port
 		built.sources[id] = sourceRef{Step: step.id, Port: port}
-		built.outputs = append(built.outputs, sink{Name: port, Sources: []string{id}})
+		built.outputs = append(
+			built.outputs,
+			sink{
+				Name:      port,
+				LinkMerge: "",
+				PickValue: "",
+				Sources:   []string{id},
+				Type:      cwlcore.TypeRef{},
+				StepInput: false,
+			},
+		)
 	}
 
 	return built, nil
@@ -209,12 +229,13 @@ func processStepID(process cwlcore.Process) string {
 	return id
 }
 
-// addSteps plans every step of workflow, in document order, and indexes the outputs they publish.
-func (p *plan) addSteps(ctx context.Context, workflow *cwlcore.Workflow, cfg *Config) error {
-	for index := range workflow.Steps {
-		step := &workflow.Steps[index]
+// addSteps plans every step of the workflow, in document order, and indexes the outputs they publish.
+func (p *plan) addSteps(ctx context.Context, sc cwlcore.StepContainer, cfg *Config) error {
+	steps := sc.WorkflowSteps()
+	for index := range steps {
+		step := &steps[index]
 
-		planned, err := planStep(ctx, workflow, step, cfg)
+		planned, err := planStep(ctx, sc, step, cfg)
 		if err != nil {
 			return err
 		}
@@ -235,12 +256,13 @@ func (p *plan) addSteps(ctx context.Context, workflow *cwlcore.Workflow, cfg *Co
 }
 
 // addWorkflowOutputs records the wiring of each of the workflow's own output parameters.
-func (p *plan) addWorkflowOutputs(workflow *cwlcore.Workflow) error {
-	for index := range workflow.Outputs {
-		param := &workflow.Outputs[index]
+func (p *plan) addWorkflowOutputs(sc cwlcore.StepContainer) error {
+	outputs := sc.WorkflowOutputs()
+	for index := range outputs {
+		param := &outputs[index]
 
 		if len(param.OutputSource) > 1 &&
-			!inScope(cwlcore.NewScope(workflow), cwlcore.ClassMultipleInputFeatureRequirement) {
+			!inScope(cwlcore.NewScope(sc), cwlcore.ClassMultipleInputFeatureRequirement) {
 			return fmt.Errorf(
 				"%w: workflow output %q draws on %d sources but MultipleInputFeatureRequirement is not in scope",
 				ErrRequirementNotInScope,
@@ -255,6 +277,7 @@ func (p *plan) addWorkflowOutputs(workflow *cwlcore.Workflow) error {
 			PickValue: param.PickValue,
 			Sources:   param.OutputSource,
 			Type:      param.Type,
+			StepInput: false,
 		})
 	}
 

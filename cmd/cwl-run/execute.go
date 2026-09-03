@@ -15,7 +15,6 @@ import (
 	"github.com/yardrail/cwl-go/cmd/internal/cwlcli"
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 	"github.com/yardrail/cwl-go/pkg/cwlexec"
-	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
 // reportIndent nests a rendered error tree under the heading naming the
@@ -100,7 +99,7 @@ func execute(ctx context.Context, cfg *config, stdout, stderr io.Writer) error {
 // now lives inside the loader, so it covers every document a run touches — the
 // tools a workflow's steps run included — and not merely the one named here.
 func produce(ctx context.Context, cfg *config, stderr io.Writer) (map[string]any, error) {
-	process, err := cwlcore.LoadFile(ctx, cfg.process, salad.Strict(true))
+	process, err := cwlcore.LoadFile(ctx, cfg.process, cwlcore.Strict(true))
 	if err != nil {
 		return nil, unsupportedVersion(cfg.process, err)
 	}
@@ -224,9 +223,17 @@ func (c *config) execConfig(stderr io.Writer) (*cwlexec.Config, error) {
 	}
 
 	return &cwlexec.Config{
-		Logger:     c.logger(stderr),
-		OutDir:     outdir,
-		Containers: c.containerPolicy(),
+		Logger:              c.logger(stderr),
+		SelectResources:     nil,
+		AllowRequirements:   nil,
+		OutDir:              outdir,
+		TmpDirPrefix:        "",
+		OnError:             "",
+		Containers:          c.containerPolicy(),
+		Resources:           cwlexec.ResourceBudget{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
+		EvalTimeout:         0,
+		MaxParallel:         0,
+		LenientRequirements: false,
 	}, nil
 }
 
@@ -286,7 +293,7 @@ func (c *config) logger(stderr io.Writer) *slog.Logger {
 		level = slog.LevelError
 	}
 
-	return slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
+	return slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{AddSource: false, Level: level, ReplaceAttr: nil}))
 }
 
 // reportFailure writes a failed run to stderr as a heading naming the document

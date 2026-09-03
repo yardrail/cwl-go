@@ -57,7 +57,7 @@ const (
 //
 // Validation is permissive by default: a field the schema does not declare is an
 // advisory rather than a failure, because the loader has already done the strict
-// part of the job by resolving every link. Pass salad.Strict(true) to turn those
+// part of the job by resolving every link. Pass Strict(true) to turn those
 // advisories into errors — which is what a runner should do, since CWL v1.0 and
 // v1.1 type a requirement's class as a plain string, and under permissive
 // validation a requirement whose fields do not typecheck simply matches some
@@ -67,13 +67,15 @@ const (
 // schema and then rewritten forwards, so nothing this returns describes anything
 // but v1.2. A version there is no vendored schema for is refused with
 // ErrUnsupportedVersion. See DeclaredVersion and Upgrade.
-func Load(ctx context.Context, src []byte, baseURI string, opts ...salad.ValidateOption) (Process, error) {
-	doc, err := LoadDocument(ctx, src, baseURI, opts...)
+func Load(ctx context.Context, src []byte, baseURI string, opts ...LoadOption) (Process, error) {
+	cfg := buildLoadConfig(opts)
+
+	resolved, err := loadDocumentResolved(ctx, src, baseURI, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	return decodeAndResolve(ctx, doc, "", opts)
+	return decodeAndResolve(ctx, resolved, "", cfg)
 }
 
 // LoadFile is Load reading from a file or URL, resolving $import and $include
@@ -85,29 +87,31 @@ func Load(ctx context.Context, src []byte, baseURI string, opts ...salad.Validat
 //	cwlcore.LoadFile(ctx, "pack.cwl#count-lines")
 //
 // Without a fragment, the entry-point rules described on Load apply.
-func LoadFile(ctx context.Context, uri string, opts ...salad.ValidateOption) (Process, error) {
-	doc, err := LoadFileDocument(ctx, uri, opts...)
+func LoadFile(ctx context.Context, uri string, opts ...LoadOption) (Process, error) {
+	cfg := buildLoadConfig(opts)
+
+	resolved, err := loadFileDocumentResolved(ctx, uri, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	return decodeAndResolve(ctx, doc, fragmentPart(uri), opts)
+	return decodeAndResolve(ctx, resolved, fragmentPart(uri), cfg)
 }
 
 // decodeAndResolve decodes a loaded document and follows the run references that
 // decoding could not, which are the ones naming other documents.
 func decodeAndResolve(
 	ctx context.Context,
-	doc *salad.Document,
+	resolved resolvedDocument,
 	fragment string,
-	opts []salad.ValidateOption,
+	cfg *loadConfig,
 ) (Process, error) {
-	process, err := decodeTarget(doc, fragment)
+	process, err := decodeTargetWithSchema(resolved.doc, fragment, resolved.loaded)
 	if err != nil {
 		return nil, err
 	}
 
-	err = resolveExternalRuns(ctx, process, doc.BaseURI, fragment, opts)
+	err = resolveExternalRuns(ctx, process, resolved.doc.BaseURI, fragment, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -132,41 +136,77 @@ func LoadDocument(
 	ctx context.Context,
 	src []byte,
 	baseURI string,
-	opts ...salad.ValidateOption,
+	opts ...LoadOption,
 ) (*salad.Document, error) {
-	err := ctx.Err()
+	return loadDocument(ctx, src, baseURI, buildLoadConfig(opts))
+}
+
+func loadDocument(
+	ctx context.Context,
+	src []byte,
+	baseURI string,
+	cfg *loadConfig,
+) (*salad.Document, error) {
+	resolved, err := loadDocumentResolved(ctx, src, baseURI, cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	return resolved.doc, nil
+}
+
+func loadDocumentResolved(
+	ctx context.Context,
+	src []byte,
+	baseURI string,
+	cfg *loadConfig,
+) (resolvedDocument, error) {
+	err := ctx.Err()
+	if err != nil {
+		return resolvedDocument{}, err
 	}
 
 	parsed, err := salad.Parse(baseURI, src)
 	if err != nil {
-		return nil, err
+		return resolvedDocument{}, err
 	}
 
-	return resolveDocument(parsed, baseURI, opts)
+	return resolveDocument(parsed, baseURI, cfg)
 }
 
 // LoadFileDocument is LoadDocument reading from a file or URL. A fragment
 // identifier on uri is ignored, because a fragment selects one object inside a
 // document and this returns the whole document.
-func LoadFileDocument(ctx context.Context, uri string, opts ...salad.ValidateOption) (*salad.Document, error) {
-	err := ctx.Err()
+func LoadFileDocument(ctx context.Context, uri string, opts ...LoadOption) (*salad.Document, error) {
+	return loadFileDocument(ctx, uri, buildLoadConfig(opts))
+}
+
+func loadFileDocument(ctx context.Context, uri string, cfg *loadConfig) (*salad.Document, error) {
+	resolved, err := loadFileDocumentResolved(ctx, uri, cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	return resolved.doc, nil
+}
+
+func loadFileDocumentResolved(ctx context.Context, uri string, cfg *loadConfig) (resolvedDocument, error) {
+	err := ctx.Err()
+	if err != nil {
+		return resolvedDocument{}, err
 	}
 
 	url, src, err := fetchDocument(documentPart(uri))
 	if err != nil {
-		return nil, err
+		return resolvedDocument{}, err
 	}
 
 	parsed, err := salad.Parse(url, src)
 	if err != nil {
-		return nil, err
+		return resolvedDocument{}, err
 	}
 
-	return resolveDocument(parsed, url, opts)
+	return resolveDocument(parsed, url, cfg)
 }
 
 // resolveDocument carries one parsed document through the whole of the
@@ -180,36 +220,51 @@ func LoadFileDocument(ctx context.Context, uri string, opts ...salad.ValidateOpt
 // wrong one — an upgrade is not required to produce a document that satisfies
 // the newer schema in every field, only one this implementation can execute with
 // the older document's meaning intact.
-func resolveDocument(parsed salad.Node, baseURI string, opts []salad.ValidateOption) (*salad.Document, error) {
+type resolvedDocument struct {
+	doc    *salad.Document
+	loaded *salad.LoadedSchema
+}
+
+func resolveDocument(parsed salad.Node, baseURI string, cfg *loadConfig) (resolvedDocument, error) {
 	version := DeclaredVersion(parsed)
 
 	loaded, err := schemaFor(version)
 	if err != nil {
-		return nil, err
+		return resolvedDocument{}, err
+	}
+
+	for _, ext := range cfg.extensions {
+		loaded, err = salad.MergeSchemas(loaded, ext)
+		if err != nil {
+			return resolvedDocument{}, fmt.Errorf("merging extension schema: %w", err)
+		}
 	}
 
 	doc, err := loaded.Loader.LoadNode(parsed, baseURI)
 	if err != nil {
-		return nil, err
+		return resolvedDocument{}, err
 	}
 
-	invalid := loaded.Schema.Validate(doc.Root, opts...)
+	invalid := loaded.Schema.Validate(doc.Root, cfg.validateOpts...)
 	if invalid != nil {
-		return nil, invalidDocument(baseURI, version, invalid)
+		return resolvedDocument{}, invalidDocument(baseURI, version, invalid)
 	}
 
-	return Upgrade(doc, version), nil
+	return resolvedDocument{doc: Upgrade(doc, version), loaded: loaded}, nil
 }
 
 // invalidDocument heads a failed validation with the document that failed and
 // the version it was judged against, so that a report never leaves the reader
 // wondering which schema said no.
 func invalidDocument(baseURI, version string, invalid error) error {
-	where := salad.SourceLine{File: baseURI}
+	where := salad.SourceLine{
+		File:  baseURI,
+		Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+		End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+	}
 	heading := fmt.Sprintf("%s is not valid CWL %s, because", baseURI, cmp.Or(version, CWLVersionV12))
 
-	var nested *salad.Error
-	if errors.As(invalid, &nested) {
+	if nested, ok := errors.AsType[*salad.Error](invalid); ok {
 		return salad.Group(where, heading, nested)
 	}
 
@@ -238,12 +293,30 @@ func fetchDocument(ref string) (_ string, _ []byte, _ error) {
 
 	url, err := fetcher.Normalize("", ref)
 	if err != nil {
-		return "", nil, salad.Errorf(salad.SourceLine{}, "cannot resolve document reference %q: %s", ref, err)
+		return "", nil, salad.Errorf(
+			salad.SourceLine{
+				File:  "",
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"cannot resolve document reference %q: %s",
+			ref,
+			err,
+		)
 	}
 
 	src, err := fetcher.FetchText(url)
 	if err != nil {
-		return url, nil, salad.Errorf(salad.SourceLine{File: url}, "cannot fetch %s: %s", url, err)
+		return url, nil, salad.Errorf(
+			salad.SourceLine{
+				File:  url,
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"cannot fetch %s: %s",
+			url,
+			err,
+		)
 	}
 
 	return url, src, nil
@@ -286,7 +359,14 @@ func fragmentPart(uri string) string {
 // needs I/O — Load and LoadFile do it.
 func Decode(doc *salad.Document) (Process, error) {
 	if doc == nil {
-		return nil, salad.Errorf(salad.SourceLine{}, "there is no document to decode")
+		return nil, salad.Errorf(
+			salad.SourceLine{
+				File:  "",
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"there is no document to decode",
+		)
 	}
 
 	nodes, isGraph := graphNodes(doc.Root)
@@ -311,8 +391,8 @@ func Decode(doc *salad.Document) (Process, error) {
 // Every process is decoded, not only the one asked for, because that is what a
 // sibling reference resolves against: a $graph's entry point is rarely usable
 // without the tools declared alongside it.
-func decodeLinked(nodes []salad.Node, entry salad.Node) (Process, error) {
-	d := newDecoder()
+func decodeLinked(nodes []salad.Node, entry salad.Node, opts ...decoderOption) (Process, error) {
+	d := newDecoder(opts...)
 
 	decoded := d.decodeProcesses(nodes, entry)
 	if decoded.selected == nil {
@@ -344,7 +424,7 @@ type decodedDocument struct {
 // decodeProcesses decodes every node, keeping the processes in document order
 // and noting the one decoded from entry.
 func (d *decoder) decodeProcesses(nodes []salad.Node, entry salad.Node) decodedDocument {
-	decoded := decodedDocument{procs: make([]Process, 0, len(nodes))}
+	decoded := decodedDocument{selected: nil, procs: make([]Process, 0, len(nodes))}
 
 	for _, node := range nodes {
 		process := d.process(node)
@@ -390,7 +470,14 @@ func DecodeNode(node salad.Node) (Process, error) {
 // decoding assigned them.
 func DecodeAll(doc *salad.Document) (map[string]Process, error) {
 	if doc == nil {
-		return nil, salad.Errorf(salad.SourceLine{}, "there is no document to decode")
+		return nil, salad.Errorf(
+			salad.SourceLine{
+				File:  "",
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"there is no document to decode",
+		)
 	}
 
 	nodes, _ := graphNodes(doc.Root)
@@ -493,9 +580,17 @@ func selectMain(nodes []salad.Node, baseURI string) (salad.Node, error) {
 		found = append(found, strconv.Quote(id))
 	}
 
-	return nil, salad.Errorf(salad.SourceLine{File: baseURI},
+	return nil, salad.Errorf(
+		salad.SourceLine{
+			File:  baseURI,
+			Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+			End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+		},
 		"the document declares no process with an id of %q or %q, so there is nothing to run; it declares %s",
-		graphMainFragment, graphMainName, joinOrNone(found))
+		graphMainFragment,
+		graphMainName,
+		joinOrNone(found),
+	)
 }
 
 // decodeFragment decodes the object a document reference's fragment names.
@@ -506,7 +601,7 @@ func selectMain(nodes []salad.Node, baseURI string) (salad.Node, error) {
 // workflow — "pack.cwl#main" — and such a workflow almost always runs the tools
 // packed alongside it, so decoding it alone would leave every one of those
 // references pointing at nothing.
-func decodeFragment(doc *salad.Document, fragment string) (Process, error) {
+func decodeFragment(doc *salad.Document, fragment string, opts ...decoderOption) (Process, error) {
 	nodes, _ := graphNodes(doc.Root)
 
 	selected, err := selectFragment(nodes, fragment, doc.BaseURI)
@@ -514,7 +609,7 @@ func decodeFragment(doc *salad.Document, fragment string) (Process, error) {
 		return nil, err
 	}
 
-	return decodeLinked(nodes, selected)
+	return decodeLinked(nodes, selected, opts...)
 }
 
 // selectFragment picks the process a fragment identifier names, out of a
@@ -536,9 +631,16 @@ func selectFragment(nodes []salad.Node, fragment, baseURI string) (salad.Node, e
 		found = append(found, strconv.Quote(id))
 	}
 
-	return nil, salad.Errorf(salad.SourceLine{File: baseURI},
+	return nil, salad.Errorf(
+		salad.SourceLine{
+			File:  baseURI,
+			Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+			End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+		},
 		"the document declares no object with the identifier %q; it declares %s",
-		"#"+fragment, joinOrNone(found))
+		"#"+fragment,
+		joinOrNone(found),
+	)
 }
 
 // isMainID reports whether id names the graph's entry point, in any of the
@@ -571,10 +673,11 @@ func joinOrNone(ids []string) string {
 
 // process decodes one process node, dispatching on its class.
 //
-// The four core classes get their own typed decoding; every other class becomes
-// a RawProcess. That is the whole extension mechanism: this package never
-// consults a registry, so a downstream package recognizes its own classes by
-// switching on RawProcess.Class and decoding RawProcess.Node itself.
+// The four core classes get their own typed decoding; an extension class that
+// transitively extends Workflow becomes an ExtensionWorkflow; every other class
+// becomes a RawProcess. A downstream package recognizes its own classes by
+// switching on RawProcess.Class/ExtensionWorkflow.ClassIRI and decoding the
+// Node itself.
 func (d *decoder) process(node salad.Node) Process {
 	m := d.mapping(node, "a process")
 	if m == nil {
@@ -598,6 +701,10 @@ func (d *decoder) process(node salad.Node) Process {
 	case ClassOperation:
 		return d.operation(m)
 	default:
+		if d.extendsWorkflow(class) {
+			return d.extensionWorkflow(m, class)
+		}
+
 		return d.rawProcess(m, class)
 	}
 }

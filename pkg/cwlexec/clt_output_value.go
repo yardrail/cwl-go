@@ -162,14 +162,18 @@ func (c *outputCollector) retypeFile(object map[string]any) (*cwlcore.File, erro
 	parts := outSplitName(ref.basename)
 
 	file := &cwlcore.File{
-		Location: ref.location,
-		Path:     ref.local,
-		Basename: ref.basename,
-		Dirname:  outDirname(ref.local),
-		Nameroot: parts.root,
-		Nameext:  parts.ext,
-		Checksum: outTextField(object, outKeyChecksum),
-		Format:   outTextField(object, outKeyFormat),
+		Node:           nil,
+		Location:       ref.location,
+		Path:           ref.local,
+		Basename:       ref.basename,
+		Dirname:        outDirname(ref.local),
+		Nameroot:       parts.root,
+		Nameext:        parts.ext,
+		Checksum:       outTextField(object, outKeyChecksum),
+		Format:         outTextField(object, outKeyFormat),
+		Size:           cwlcore.OptInt{},
+		Contents:       cwlcore.OptString{},
+		SecondaryFiles: nil,
 	}
 
 	if contents, ok := object[outKeyContents].(string); ok {
@@ -227,6 +231,7 @@ func (c *outputCollector) retypeDirectory(object map[string]any) (*cwlcore.Direc
 	}
 
 	return &cwlcore.Directory{
+		Node:     nil,
 		Location: ref.location,
 		Path:     ref.local,
 		Basename: ref.basename,
@@ -364,7 +369,7 @@ func outSplitName(basename string) outNameParts {
 
 	last := strings.LastIndexByte(basename[dots:], '.')
 	if last < 0 {
-		return outNameParts{root: basename}
+		return outNameParts{root: basename, ext: ""}
 	}
 
 	return outNameParts{root: basename[:dots+last], ext: basename[dots+last:]}
@@ -373,7 +378,19 @@ func outSplitName(basename string) outNameParts {
 // outFileURI renders an absolute local path as a file:// IRI, percent-escaping as the URL syntax
 // requires.
 func outFileURI(local string) string {
-	uri := url.URL{Scheme: joSchemeFile, Path: local}
+	uri := url.URL{
+		Scheme:      joSchemeFile,
+		Opaque:      "",
+		User:        nil,
+		Host:        "",
+		Path:        local,
+		RawPath:     "",
+		OmitHost:    false,
+		ForceQuery:  false,
+		RawQuery:    "",
+		Fragment:    "",
+		RawFragment: "",
+	}
 
 	return uri.String()
 }

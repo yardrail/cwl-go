@@ -290,7 +290,7 @@ $graph:
 
 	doc := parseDoc(t, "graph.cwl", src)
 
-	_, err := decodeAndResolve(t.Context(), doc, "wf", nil)
+	_, err := decodeAndResolve(t.Context(), resolvedDocument{doc: doc}, "wf", nil)
 	if err == nil {
 		t.Fatal("a step running an undeclared sibling was accepted, want an error")
 	}

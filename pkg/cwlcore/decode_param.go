@@ -187,7 +187,7 @@ func (d *decoder) secondaryFiles(m *salad.MapNode) []SecondaryFileSchema {
 // pattern itself, which is what the schema's secondaryFilesDSL expands to.
 func (d *decoder) secondaryFile(node salad.Node) SecondaryFileSchema {
 	if pattern, ok := salad.AsString(node); ok {
-		return SecondaryFileSchema{Pattern: Expression(pattern)}
+		return SecondaryFileSchema{Pattern: Expression(pattern), Required: ExprBool{expr: "", kind: 0, value: false}}
 	}
 
 	m := d.mapping(node, "a secondary file pattern")

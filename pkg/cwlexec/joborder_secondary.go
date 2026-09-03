@@ -275,7 +275,16 @@ func (s *joSecondaryPass) evaluatedPolicy(
 ) (outSecondaryPolicy, *salad.Error) {
 	value, err := s.eval.Eval(string(expr), s.context(self))
 	if err != nil {
-		return outSecondaryOptional, salad.Errorf(salad.SourceLine{}, "%s: %v", path, err)
+		return outSecondaryOptional, salad.Errorf(
+			salad.SourceLine{
+				File:  "",
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
+			"%s: %v",
+			path,
+			err,
+		)
 	}
 
 	if value == nil {
@@ -284,9 +293,17 @@ func (s *joSecondaryPass) evaluatedPolicy(
 
 	required, ok := value.(bool)
 	if !ok {
-		return outSecondaryOptional, salad.Errorf(salad.SourceLine{},
+		return outSecondaryOptional, salad.Errorf(
+			salad.SourceLine{
+				File:  "",
+				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+			},
 			"%s: a secondaryFiles `required` must evaluate to a boolean or null, but %s produced %s",
-			path, expr, cwlcore.TypeName(value))
+			path,
+			expr,
+			cwlcore.TypeName(value),
+		)
 	}
 
 	return outPolicies[required], nil
@@ -331,7 +348,19 @@ func (s *joSecondaryPass) candidates(
 // runtime.* is undefined, for the same reason it is undefined during a step's `when`: the input
 // object is settled before any resources are reserved, so there is nothing truthful to bind.
 func (s *joSecondaryPass) context(self any) *cwlcore.EvalContext {
-	return &cwlcore.EvalContext{Inputs: s.inputs, Self: self}
+	return &cwlcore.EvalContext{
+		Inputs: s.inputs,
+		Self:   self,
+		Runtime: cwlcore.RuntimeContext{
+			Cores:      nil,
+			RAM:        nil,
+			OutdirSize: nil,
+			TmpdirSize: nil,
+			ExitCode:   nil,
+			Outdir:     "",
+			Tmpdir:     "",
+		},
+	}
 }
 
 // appendCandidate resolves one candidate and appends the value it names, leaving found untouched

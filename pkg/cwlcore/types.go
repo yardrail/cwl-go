@@ -79,6 +79,18 @@ type Process interface {
 	isProcess()
 }
 
+// StepContainer is a Process whose execution is a DAG of steps: a Workflow, or
+// an extension class that extends Workflow. The execution layer dispatches on
+// this interface rather than *Workflow so that extension workflow classes
+// participate in step planning, subworkflow handling, and run-reference linking
+// without losing their extension class identity or fields.
+type StepContainer interface {
+	Process
+	WorkflowSteps() []WorkflowStep
+	WorkflowInputs() []WorkflowInputParameter
+	WorkflowOutputs() []WorkflowOutputParameter
+}
+
 // ProcessRequirement is a declared prerequisite of a process, step or workflow:
 // a "requirements" entry. The seventeen core v1.2 requirement classes each have
 // a concrete type in types_requirement.go; a schema-valid entry whose class this

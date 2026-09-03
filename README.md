@@ -1,70 +1,86 @@
 # cwl-go
 
-A feature-complete Go implementation of the [Common Workflow Language v1.2](https://www.commonwl.org/v1.2/)
-(v1.2.1) and [Schema Salad v1.2](https://www.commonwl.org/v1.2/SchemaSalad.html) specs.
+[![Go Reference](https://pkg.go.dev/badge/github.com/yardrail/cwl-go.svg)](https://pkg.go.dev/github.com/yardrail/cwl-go)
+[![CI](https://github.com/yardrail/cwl-go/actions/workflows/ci.yml/badge.svg)](https://github.com/yardrail/cwl-go/actions/workflows/ci.yml)
 
-`cwl-go` is a general-purpose, spec-compliant CWL engine — it has no knowledge of any
-downstream vocabulary. It exists as a standalone module so it can be depended on by
-anything that needs to parse or run CWL documents.
+A Go implementation of [CWL v1.2](https://www.commonwl.org/v1.2/) and
+[Schema Salad v1.2](https://www.commonwl.org/v1.2/SchemaSalad.html).
 
-## Prerequisites
+`cwl-go` is a spec-compliant CWL engine that can parse, validate, and execute
+CWL documents. It ships as a standalone Go module with no baked-in downstream
+vocabulary, so it can be imported by anything that needs to work with CWL.
 
-- Go (see `go.mod` for the version)
-- [`task`](https://taskfile.dev)
-- [`golangci-lint`](https://golangci-lint.run) v2, [`go-arch-lint`](https://github.com/fe3dback/go-arch-lint),
-  [`govulncheck`](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck),
-  [`go.uber.org/nilaway`](https://github.com/uber-go/nilaway) — for `task lint`
+## Features
 
-## Package layout
+- **100% CWL v1.2 conformance** — 378/378 tests passing, including the
+  required subset
+- **CWL v1.0, v1.1, and v1.2** — documents declaring an older version are
+  validated against that version's schema, then upgraded to v1.2 for execution
+- **Full execution engine** — scatter (all three methods), conditionals
+  (`when:`), subworkflows, Docker containers, CWL expressions, loops
+- **Suspension and resume** — durable workflow execution with serializable run
+  state
+- **Standalone Schema Salad engine** — `pkg/salad` is CWL-agnostic and
+  reusable for any Schema Salad-defined schema
 
-```
-pkg/
-├── salad/     generic Schema Salad engine — zero knowledge of CWL
-├── cwlcore/   CWL v1.2 typed object model, built on salad
-│   └── schema/  vendored CWL v1.2 schema, go:embed'd into the binary
-└── cwlexec/   runtime/scheduler, built on cwlcore
-cmd/
-├── cwl-run/       cwl-runner-compatible CLI entrypoint (drives the conformance suite)
-├── cwl-validate/  validate a document against the embedded schema (dev/CI tool)
-└── cwl-inspect/   dump the parsed intermediate representation for debugging
-```
+## Installation
 
-Dependencies form a strict DAG: `salad` → `cwlcore` → `cwlexec`, enforced by
-`.go-arch-lint.yml` (`task lint` runs `go-arch-lint check`). `salad` stays fully
-CWL-agnostic and is reusable outside CWL, mirroring upstream `schema_salad`.
-
-This is scaffolding: the packages above are stubs (a package doc comment each). The
-full design — public interfaces, the parsed-document value representation, the error
-model, extension points for engines built on top of `cwl-go` — is tracked in
-[yardrail/yardrail#91](https://github.com/yardrail/yardrail/issues/91).
-
-## Testing & linting
+### CLI tools
 
 ```sh
-task test   # go test ./...
-task lint   # golangci-lint, go-arch-lint, govulncheck, nilaway
+go install github.com/yardrail/cwl-go/cmd/cwl-run@latest
+go install github.com/yardrail/cwl-go/cmd/cwl-validate@latest
+go install github.com/yardrail/cwl-go/cmd/cwl-inspect@latest
 ```
 
-Both also run in CI (`.github/workflows/ci.yml`) on every pull request and push to
-`main`.
-
-## Generating code
-
-`pkg/cwlcore/schema` will hold a vendored, `go:embed`'d snapshot of the upstream CWL
-schema once it's added (see that directory's README). After adding or updating
-generated code:
+### As a library
 
 ```sh
-task generate
+go get github.com/yardrail/cwl-go
 ```
 
-## Docs
+## CLI tools
 
-`AGENTS.md` (and its `CLAUDE.md` symlink) are generated from
-`scripts/gen-agents-md/AGENTS.md.tmpl` plus the current package docs and Taskfile
-targets:
+### cwl-run
+
+A [cwl-runner](https://www.commonwl.org/v1.2/CommandLineTool.html#Executing_CWL_documents_and_tools)-compatible
+entrypoint: execute a CWL document and print the output object to stdout.
+This is the binary the `cwltest` conformance harness drives.
 
 ```sh
-task docs:agents         # regenerate
-task docs:agents:check   # fail if out of date (used in CI)
+cwl-run workflow.cwl job.json
+cwl-run -outdir results/ workflow.cwl job.json
+cwl-run -no-container tool.cwl          # skip Docker, run commands on the host
 ```
+
+### cwl-validate
+
+Validate one or more CWL documents against the embedded schema for the CWL
+version they declare. Useful in CI pipelines and editor integrations.
+
+```sh
+cwl-validate tool.cwl workflow.cwl
+cwl-validate -strict tool.cwl           # promote advisory diagnostics to errors
+```
+
+`-strict` is recommended for CI — without it, typo'd field names are silently
+discarded per the CWL spec.
+
+### cwl-inspect
+
+Dump the parsed intermediate representation of a CWL document at any stage of
+the loading pipeline. Output is deterministic (byte-identical across runs), so
+diffs work.
+
+```sh
+cwl-inspect tool.cwl                    # default: typed cwlcore model (JSON)
+cwl-inspect -stage parsed tool.cwl      # raw YAML parse tree
+cwl-inspect -stage resolved tool.cwl    # after $import/$include and identifier resolution
+cwl-inspect -stage graph tool.cwl       # all top-level processes
+cwl-inspect -stage scope tool.cwl       # requirements/hints with provenance
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test, lint, and run
+the conformance suite.

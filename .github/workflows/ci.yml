@@ -89,6 +89,11 @@ jobs:
           # Upgrading is a deliberate PR that reconciles .golangci.yml with the
           # new names, not something that happens to a Tuesday.
           version: v2.13.2
+          # Build from source so gofmt inside the binary matches the project's
+          # Go version (setup-go honours go.mod). The pre-built release binary
+          # is compiled with Go 1.27, whose gofmt changed struct-literal
+          # indentation rules and now conflicts with gofumpt.
+          install-mode: goinstall
           args: --max-same-issues 50
 
       - run: golangci-lint config verify

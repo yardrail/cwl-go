@@ -258,18 +258,18 @@ func runTargetOf(base, ref string) (runTarget, error) {
 	uri, err := documentFetcher().Normalize(documentPart(base), document)
 	if err != nil {
 		return runTarget{
-			uri:      "",
-			fragment: "",
-		}, salad.Errorf(
-			salad.SourceLine{
-				File:  base,
-				Start: salad.Position{Line: 0, Column: 0, Offset: 0},
-				End:   salad.Position{Line: 0, Column: 0, Offset: 0},
-			},
-			"the reference cannot be resolved against %s: %s",
-			base,
-			err,
-		)
+				uri:      "",
+				fragment: "",
+			}, salad.Errorf(
+				salad.SourceLine{
+					File:  base,
+					Start: salad.Position{Line: 0, Column: 0, Offset: 0},
+					End:   salad.Position{Line: 0, Column: 0, Offset: 0},
+				},
+				"the reference cannot be resolved against %s: %s",
+				base,
+				err,
+			)
 	}
 
 	return runTarget{uri: uri, fragment: fragmentPart(ref)}, nil

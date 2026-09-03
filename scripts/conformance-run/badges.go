@@ -24,9 +24,7 @@ const (
 // allTag is the synthetic tag cwltest computes over every test.
 const allTag = "all"
 
-// badgeExt is the per-tag listing this command reads. cwltest writes a .json
-// badge beside it carrying only a rounded percentage, which is not enough to
-// ratchet against.
+// badgeExt is the per-tag listing this command reads.
 const badgeExt = ".md"
 
 // errNoBadges reports a badge directory cwltest left empty, which means the
@@ -129,7 +127,7 @@ func readBadge(path string) (*tagResult, error) {
 		default:
 			// A heading the pattern matched but sectionStatus does not know.
 			// Unreachable while the two agree; ignored rather than fatal so a
-			// new cwltest section cannot break the ratchet.
+			// new cwltest section cannot break the build.
 		}
 	}
 

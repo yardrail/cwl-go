@@ -23,7 +23,6 @@ const (
 	manifestName = "conformance_tests.yaml"
 	versionPath  = "pkg/cwlcore/schema/VERSION"
 	corpusPrefix = "cwl-v1.2-"
-	ratchetName  = "scripts/conformance-run/stage1-ratchet.json"
 	runnerPath   = "bin/cwl-run"
 	defaultOut   = ".task/conformance"
 	harnessName  = "cwltest"
@@ -53,7 +52,6 @@ type config struct {
 	outDir       string
 	timeout      time.Duration
 	jobs         int
-	update       bool
 	gateRequired bool
 }
 

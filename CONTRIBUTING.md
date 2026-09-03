@@ -56,11 +56,9 @@ task test:conformance                     # Stage 0: parse/validate sweep
 task test:conformance:inprocess           # Stage 1 via in-process driver (no Python needed)
 task test:conformance:inprocess:compare   # assert in-process driver matches cwltest
 task test:conformance:run                 # Stage 1 via cwltest (requires Python + cwltest)
-task test:conformance:run:update          # rewrite the Stage 1 ratchet from a run
 ```
 
-Results are ratcheted: the ratchet files record every passing test ID, so a
-one-for-one swap (new pass replacing a different old pass) is still caught.
+CI fails if any conformance test regresses.
 
 ## Generating code
 

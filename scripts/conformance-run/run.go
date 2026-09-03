@@ -55,20 +55,6 @@ func gather(ctx context.Context, cfg *config) (*report, error) {
 
 // recorded reads a badge directory a previous run left behind, instead of
 // producing one.
-//
-// Re-recording the ratchet needs a machine that can run the whole execution
-// suite: cwltest, a python on PATH for the corpus documents that call one, and
-// a container engine that can bind-mount this filesystem. The machine holding
-// the working tree often has none of the three, and the one whose result the
-// ratchet is guarding is CI -- which already uploads its badge directory. So
-// the record can be rewritten from a run that really happened, on the machine
-// it is meant to describe, rather than from a second run somewhere else that
-// would have to be trusted to agree.
-//
-// The suite is not re-run and nothing is checked against the corpus, so a badge
-// directory naming tests the corpus no longer has would be recorded as-is. That
-// is the price of not running it, and it is why the flag is spelled out in a
-// commit rather than wired into a task.
 func recorded(cfg *config) (*report, error) {
 	dir, err := filepath.Abs(cfg.badges)
 	if err != nil {

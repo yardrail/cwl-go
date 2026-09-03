@@ -22,7 +22,6 @@ const (
 	envEnable = "CWL_CONFORMANCE"
 	envCorpus = "CWL_CONFORMANCE_CORPUS"
 	envCache  = "CWL_CONFORMANCE_CACHE"
-	envUpdate = "CWL_CONFORMANCE_UPDATE"
 )
 
 // Layout of the upstream corpus, relative to its root directory.

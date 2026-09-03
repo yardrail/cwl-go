@@ -1,40 +1,17 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 )
 
-// writeFixtureRatchet drops a record where a test can point compare at it.
-// writeRatchet itself always writes the checked-in file, which a test must not
-// touch, so the fixture is encoded here instead.
-func writeFixtureRatchet(t *testing.T, r *ratchet) string {
-	t.Helper()
-
-	raw, err := json.Marshal(r)
-	if err != nil {
-		t.Fatalf("marshalling the fixture record: %v", err)
-	}
-
-	path := filepath.Join(t.TempDir(), "ratchet.json")
-
-	err = os.WriteFile(path, raw, 0o600)
-	if err != nil {
-		t.Fatalf("writing the fixture record: %v", err)
-	}
-
-	return path
-}
-
 // Test ids used across the fixtures, named so goconst does not see a literal
 // repeated in every assertion.
 const (
 	idAlpha = "alpha"
 	idBeta  = "beta"
-	idGamma = "gamma"
 )
 
 // badgeFixture is one tag listing in the shape cwltest writes.
@@ -107,48 +84,6 @@ func TestTagResultRateIsZeroForAnEmptyTag(t *testing.T) {
 	empty := &tagResult{}
 	if empty.rate() != 0 {
 		t.Fatalf("rate = %v, want 0", empty.rate())
-	}
-}
-
-func TestCompareReportsEveryKindOfRegression(t *testing.T) {
-	t.Parallel()
-
-	path := writeFixtureRatchet(t, &ratchet{
-		Overall:  tagRecord{Total: 4, Passed: 2},
-		Required: tagRecord{Total: 2, Passed: 2},
-		Passing:  []string{idAlpha, idBeta},
-	})
-
-	observed := &report{
-		overall:  &tagResult{passed: 1, failed: 3, passing: []string{idAlpha}},
-		required: &tagResult{passed: 1, failed: 1},
-		tags:     make(map[string]*tagResult),
-	}
-
-	problems := compare(path, observed)
-	if len(problems) != 3 {
-		t.Fatalf("compare reported %d problems (%v), want 3", len(problems), problems)
-	}
-}
-
-func TestCompareIsSilentWhenNothingRegressed(t *testing.T) {
-	t.Parallel()
-
-	path := writeFixtureRatchet(t, &ratchet{
-		Overall:  tagRecord{Total: 4, Passed: 2},
-		Required: tagRecord{Total: 2, Passed: 1},
-		Passing:  []string{idAlpha, idBeta},
-	})
-
-	observed := &report{
-		overall:  &tagResult{passed: 3, passing: []string{idAlpha, idBeta, idGamma}},
-		required: &tagResult{passed: 2},
-		tags:     make(map[string]*tagResult),
-	}
-
-	problems := compare(path, observed)
-	if len(problems) != 0 {
-		t.Fatalf("compare reported %v, want none", problems)
 	}
 }
 

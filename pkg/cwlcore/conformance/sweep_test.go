@@ -126,7 +126,11 @@ func TestStage0Sweep(t *testing.T) {
 		t.Logf("failing documents by feature tag: %s", strings.Join(tagBreakdown(failures), " "))
 	}
 
-	checkRatchet(t, result, clusters)
+	for _, f := range failures {
+		if !strings.HasPrefix(f.path, "tests/mixed-versions/invalid-") {
+			t.Errorf("unexpected failure: %s: %v", f.path, f.err)
+		}
+	}
 }
 
 // TestStage0ManifestIndexesTheCorpus is a sanity check on the manifest reader itself: if
@@ -157,34 +161,6 @@ func TestStage0ManifestIndexesTheCorpus(t *testing.T) {
 
 	if len(entry.tags) == 0 || len(entry.ids) == 0 {
 		t.Errorf("entry for %s carries no ids/tags: %+v", nested, entry)
-	}
-}
-
-// checkRatchet compares the observed sweep against the committed record, rewriting it
-// instead when CWL_CONFORMANCE_UPDATE=1.
-func checkRatchet(t *testing.T, result *sweep, clusters []*cluster) {
-	t.Helper()
-
-	got := observed(result, clusters)
-
-	if os.Getenv(envUpdate) == "1" {
-		err := writeRatchet(got)
-		if err != nil {
-			t.Fatalf("rewriting %s: %v", ratchetPath, err)
-		}
-
-		t.Logf("rewrote %s: %d/%d documents loaded", ratchetPath, got.Passing, got.Documents)
-
-		return
-	}
-
-	want, err := readRatchet()
-	if err != nil {
-		t.Fatalf("%v -- create it by running with %s=1", err, envUpdate)
-	}
-
-	for _, problem := range compare(want, got) {
-		t.Errorf("Stage 0 ratchet: %s", problem)
 	}
 }
 

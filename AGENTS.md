@@ -19,8 +19,7 @@ This project uses [Task](https://taskfile.dev) (`Taskfile.yml`) to run common wo
 - `test:conformance` — Run the Stage 0 CWL parse/validate sweep (fetches the pinned cwl-v1.2 corpus; skips if unavailable)
 - `test:conformance:inprocess` — Run the CWL execution suite through the in-process driver -- the fast dev loop, no Python (skips if the corpus is absent)
 - `test:conformance:inprocess:compare` — Assert the in-process driver's pass/fail/skip sets equal cwltest's (skips if cwltest is absent)
-- `test:conformance:run` — Run the Stage 1 CWL execution suite through cwltest and ratchet the result (skips if cwltest is absent)
-- `test:conformance:run:update` — Rewrite scripts/conformance-run/stage1-ratchet.json from an execution-suite run
+- `test:conformance:run` — Run the Stage 1 CWL execution suite through cwltest (skips if cwltest is absent)
 - `docs:agents` — Regenerate AGENTS.md from scripts/gen-agents-md/AGENTS.md.tmpl and the current package docs
 - `docs:agents:check` — Fail if AGENTS.md is out of date with the template or the package docs (used in CI)
 ## Package map
@@ -32,7 +31,7 @@ Package doc comments for everything under `cmd/` and `pkg/`, scraped via `go lis
 - `cmd/cwl-validate` — Command cwl-validate validates a CWL document against the embedded schema for the CWL version it declares, and reports whether a document written against an earlier version also upgrades cleanly into the v1.2 form this implementation runs.
 - `cmd/internal/cwlcli` — Package cwlcli holds the plumbing the cwl-go developer command-line tools share: a deterministic ordered value model, JSON and text renderers for it, one place where an error becomes something a human can act on, and the version banner.
 - `pkg/cwlcore` — Package cwlcore implements the CWL v1.2 (https://www.commonwl.org/v1.2/) typed object model: the vendored CWL schemas for v1.0, v1.1 and v1.2 with the upgrade chain that carries an older document forwards, decoding a validated github.com/yardrail/cwl-go/pkg/salad document tree into typed Process/CommandLineTool/ Workflow/ExpressionTool/Operation structs, requirements/hints scoping, file format validation, and CWL expression evaluation.
-- `pkg/cwlcore/conformance` — Package conformance is the Stage 0 conformance sweep: every CWL document in the pinned common-workflow-language/cwl-v1.2 corpus is loaded through pkg/salad and decoded by pkg/cwlcore, and the resulting pass count is ratcheted so a regression fails the build.
+- `pkg/cwlcore/conformance` — Package conformance is the Stage 0 conformance sweep: every CWL document in the pinned common-workflow-language/cwl-v1.2 corpus is loaded through pkg/salad and decoded by pkg/cwlcore, and any unexpected failure fails the build.
 - `pkg/cwlexec` — Package cwlexec implements the CWL execution engine: a reactive ready-queue scheduler, scatter (dotproduct / nested_crossproduct / flat_crossproduct) expansion, when: conditional-skip propagation, and the StepHandler registry that dispatches execution by a step's `class:` value.
 - `pkg/cwlexec/conformance` — Package conformance is the in-process CWL conformance driver: it reads the pinned cwl-v1.2 suite through the manifest reader in pkg/cwlcore/conformance and runs every entry through github.com/yardrail/cwl-go/pkg/cwlexec, comparing each output object by cwltest's own rules.
 - `pkg/salad` — Package salad implements a generic Schema Salad (https://www.commonwl.org/v1.2/SchemaSalad.html) engine: document loading with $import/$include resolution, jsonldPredicate-driven context/vocab resolution, extends/specialize flattening into a typed schema graph, and validation of instance documents against that graph.

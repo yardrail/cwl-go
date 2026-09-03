@@ -15,7 +15,7 @@ const requiredTag = "required"
 // of one- and two-test tags stays in the badge directory.
 const minTagSize = 3
 
-// report is one conformance run, ready to print, ratchet and compare.
+// report is one conformance run, ready to print and evaluate.
 type report struct {
 	tags     map[string]*tagResult
 	overall  *tagResult

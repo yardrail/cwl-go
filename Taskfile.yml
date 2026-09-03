@@ -55,14 +55,9 @@ tasks:
     cmd: CWL_CONFORMANCE=1 go test -count=1 -timeout 90m -v -run 'TestInProcessMatchesCwltest' ./pkg/cwlexec/conformance/ {{.CLI_ARGS}}
 
   test:conformance:run:
-    desc: Run the Stage 1 CWL execution suite through cwltest and ratchet the result (skips if cwltest is absent)
+    desc: Run the Stage 1 CWL execution suite through cwltest (skips if cwltest is absent)
     deps: [build, test:conformance]
     cmd: go run ./scripts/conformance-run {{.CLI_ARGS}}
-
-  test:conformance:run:update:
-    desc: Rewrite scripts/conformance-run/stage1-ratchet.json from an execution-suite run
-    deps: [build, test:conformance]
-    cmd: go run ./scripts/conformance-run -update {{.CLI_ARGS}}
 
   docs:agents:
     desc: Regenerate AGENTS.md from scripts/gen-agents-md/AGENTS.md.tmpl and the current package docs

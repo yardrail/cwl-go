@@ -1,16 +1,15 @@
 // Command conformance-run drives the official CWL v1.2 conformance suite
-// (Stage 1+) against the cwl-run binary and ratchets the result.
+// (Stage 1+) against the cwl-run binary.
 //
 // The authoritative harness is cwltest, the engine-agnostic runner the
 // specification repository ships. This command locates it, points it at the
-// pinned corpus the Stage 0 sweep already fetches, turns its per-tag badge
-// output into a machine-readable report, and compares that report against the
-// checked-in record in stage1-ratchet.json.
+// pinned corpus the Stage 0 sweep already fetches, and turns its per-tag badge
+// output into a machine-readable report.
 //
 // It is deliberately hard to fail for the wrong reason. A missing cwltest, a
 // missing corpus or a missing runner is reported and exits 0, because none of
-// them is evidence that the engine regressed; only a test that used to pass and
-// no longer does fails the build.
+// them is evidence that the engine regressed; only a failing test fails the
+// build.
 //
 // cwltest itself is taken from PATH by name, so a virtualenv install is
 // selected by activating it rather than by a flag.
@@ -27,7 +26,6 @@
 //	-badges DIR    read a previous run's badge directory instead of running
 //	-jobs N        how many tests cwltest runs at once
 //	-timeout D     per-test timeout
-//	-update        rewrite stage1-ratchet.json from this run instead of comparing
 //	-gate-required fail when the required subset is not at 100%
 package main
 
@@ -80,26 +78,12 @@ func dispatch(ctx context.Context, cfg *config) int {
 	return settle(cfg, report)
 }
 
-// settle applies the ratchet and the optional required-subset gate.
+// settle checks the run for failures and applies the optional required-subset gate.
 func settle(cfg *config, report *report) int {
-	if cfg.update {
-		err := writeRatchet(report.asRatchet())
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "conformance-run: %v\n", err)
-
-			return exitRegress
-		}
-
-		fmt.Fprintf(os.Stderr, "conformance-run: rewrote %s\n", ratchetName)
-
-		return exitOK
-	}
-
 	status := exitOK
 
-	problems := compare(ratchetName, report)
-	for _, problem := range problems {
-		fmt.Fprintf(os.Stderr, "conformance-run: %s\n", problem)
+	if report.overall.failed > 0 {
+		fmt.Fprintf(os.Stderr, "conformance-run: %d test(s) failed\n", report.overall.failed)
 
 		status = exitRegress
 	}
@@ -128,7 +112,6 @@ func parseFlags(args []string, stderr *os.File) (*config, error) {
 	set.DurationVar(&cfg.timeout, "timeout", cfg.timeout, "per-test timeout")
 	set.StringVar(&cfg.badges, "badges", "",
 		"read a badge directory a previous run left behind instead of running the suite")
-	set.BoolVar(&cfg.update, "update", false, "rewrite the ratchet record from this run")
 	set.BoolVar(&cfg.gateRequired, "gate-required", false, "fail when the required subset is not at 100%")
 
 	err := set.Parse(args)

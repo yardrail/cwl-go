@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -44,11 +44,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -56,7 +56,7 @@ jobs:
         run: pip install cwltest
 
       - name: Install Task
-        run: sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+        run: sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin v3.53.1
 
       # test:conformance:run depends on build and on the Stage 0 sweep, so this
       # one step fetches the pinned corpus, gates Stage 0 and ratchets Stage 1.
@@ -66,7 +66,7 @@ jobs:
 
       - name: Upload conformance results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: conformance
           path: |
@@ -79,12 +79,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           # Pinned, not "latest". This project runs every linter golangci-lint
           # has and bans //nolint, so a floating version can turn the build red
@@ -99,18 +99,18 @@ jobs:
       - run: golangci-lint config verify
 
       - name: go-arch-lint
-        run: go run github.com/fe3dback/go-arch-lint@latest check
+        run: go run github.com/fe3dback/go-arch-lint@v1.18.0 check
 
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
 
       - name: nilaway
         run: >
-          go run go.uber.org/nilaway/cmd/nilaway@latest
+          go run go.uber.org/nilaway/cmd/nilaway@v0.0.0-20260808063849-8649a03c818a
           -exclude-file-docstrings "Code generated" -exclude-test-files ./...
 
       - name: Install Task
-        run: sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+        run: sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin v3.53.1
 
       - name: docs:agents:check
         run: task docs:agents:check

@@ -7,21 +7,21 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-func TestValidateInputs(t *testing.T) {
+var stringDefault = salad.NewStringNode(salad.SourceLine{}, "world")
+
+func validationProc(params ...cwlcore.WorkflowInputParameter) cwlcore.Process {
+	return &cwlcore.ExpressionTool{Inputs: params}
+}
+
+func validationParam(name string, typ cwlcore.TypeRef, def salad.Node) cwlcore.WorkflowInputParameter {
+	return cwlcore.WorkflowInputParameter{
+		ParameterBase: cwlcore.ParameterBase{IDField: name, Type: typ},
+		Default:       def,
+	}
+}
+
+func TestValidateInputsAccepts(t *testing.T) {
 	t.Parallel()
-
-	proc := func(params ...cwlcore.WorkflowInputParameter) cwlcore.Process {
-		return &cwlcore.ExpressionTool{Inputs: params}
-	}
-
-	param := func(name string, typ cwlcore.TypeRef, def salad.Node) cwlcore.WorkflowInputParameter {
-		return cwlcore.WorkflowInputParameter{
-			ParameterBase: cwlcore.ParameterBase{IDField: name, Type: typ},
-			Default:       def,
-		}
-	}
-
-	stringDefault := salad.NewStringNode(salad.SourceLine{}, "world")
 
 	cases := []struct {
 		name    string
@@ -29,69 +29,40 @@ func TestValidateInputs(t *testing.T) {
 		inputs  map[string]any
 		opts    []ValidateOption
 		want    map[string]any
-		wantErr error
 	}{
 		{
 			name:    "valid inputs",
-			process: proc(param("message", primitive(cwlcore.PrimitiveString), nil)),
+			process: validationProc(validationParam("message", primitive(cwlcore.PrimitiveString), nil)),
 			inputs:  object("message", "hello"),
 			want:    object("message", "hello"),
 		},
 		{
-			name:    "missing required input",
-			process: proc(param("message", primitive(cwlcore.PrimitiveString), nil)),
-			inputs:  make(map[string]any),
-			wantErr: ErrInputRequired,
-		},
-		{
-			name:    "wrong type",
-			process: proc(param("message", primitive(cwlcore.PrimitiveString), nil)),
-			inputs:  object("message", 42),
-			wantErr: ErrOutputType,
-		},
-		{
-			name:    "unknown input rejected",
-			process: proc(param("message", primitive(cwlcore.PrimitiveString), nil)),
-			inputs:  object("message", "hi", "extra", 1),
-			opts:    []ValidateOption{WithRejectUnknown()},
-			wantErr: ErrInputUnknown,
-		},
-		{
 			name:    "unknown input accepted by default",
-			process: proc(param("message", primitive(cwlcore.PrimitiveString), nil)),
+			process: validationProc(validationParam("message", primitive(cwlcore.PrimitiveString), nil)),
 			inputs:  object("message", "hi", "extra", 1),
 			want:    object("message", "hi"),
 		},
 		{
 			name:    "optional input omitted",
-			process: proc(param("message", optional(primitive(cwlcore.PrimitiveString)), nil)),
+			process: validationProc(validationParam("message", optional(primitive(cwlcore.PrimitiveString)), nil)),
 			inputs:  make(map[string]any),
 			want:    object("message", nil),
 		},
 		{
 			name:    "default fills in",
-			process: proc(param("message", primitive(cwlcore.PrimitiveString), stringDefault)),
+			process: validationProc(validationParam("message", primitive(cwlcore.PrimitiveString), stringDefault)),
 			inputs:  make(map[string]any),
 			want:    object("message", "world"),
 		},
 		{
-			name: "multiple errors collected",
-			process: proc(
-				param("a", primitive(cwlcore.PrimitiveString), nil),
-				param("b", primitive(cwlcore.PrimitiveInt), nil),
-			),
-			inputs:  make(map[string]any),
-			wantErr: ErrInputRequired,
-		},
-		{
 			name:    "nil inputs map with default",
-			process: proc(param("message", primitive(cwlcore.PrimitiveString), stringDefault)),
+			process: validationProc(validationParam("message", primitive(cwlcore.PrimitiveString), stringDefault)),
 			inputs:  nil,
 			want:    object("message", "world"),
 		},
 		{
 			name:    "nil value treated as absent with default",
-			process: proc(param("message", primitive(cwlcore.PrimitiveString), stringDefault)),
+			process: validationProc(validationParam("message", primitive(cwlcore.PrimitiveString), stringDefault)),
 			inputs:  object("message", nil),
 			want:    object("message", "world"),
 		},
@@ -102,18 +73,61 @@ func TestValidateInputs(t *testing.T) {
 			t.Parallel()
 
 			merged, err := ValidateInputs(tc.process, tc.inputs, tc.opts...)
-
-			if tc.wantErr != nil {
-				assertErrorIs(t, "ValidateInputs", err, tc.wantErr)
-
-				return
-			}
-
 			if err != nil {
 				t.Fatalf("ValidateInputs: unexpected error: %v", err)
 			}
 
 			assertDeepEqual(t, "merged", merged, tc.want)
+		})
+	}
+}
+
+func TestValidateInputsRejects(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		process cwlcore.Process
+		inputs  map[string]any
+		opts    []ValidateOption
+		wantErr error
+	}{
+		{
+			name:    "missing required input",
+			process: validationProc(validationParam("message", primitive(cwlcore.PrimitiveString), nil)),
+			inputs:  make(map[string]any),
+			wantErr: ErrInputRequired,
+		},
+		{
+			name:    "wrong type",
+			process: validationProc(validationParam("message", primitive(cwlcore.PrimitiveString), nil)),
+			inputs:  object("message", 42),
+			wantErr: ErrOutputType,
+		},
+		{
+			name:    "unknown input rejected",
+			process: validationProc(validationParam("message", primitive(cwlcore.PrimitiveString), nil)),
+			inputs:  object("message", "hi", "extra", 1),
+			opts:    []ValidateOption{WithRejectUnknown()},
+			wantErr: ErrInputUnknown,
+		},
+		{
+			name: "multiple errors collected",
+			process: validationProc(
+				validationParam("a", primitive(cwlcore.PrimitiveString), nil),
+				validationParam("b", primitive(cwlcore.PrimitiveInt), nil),
+			),
+			inputs:  make(map[string]any),
+			wantErr: ErrInputRequired,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := ValidateInputs(tc.process, tc.inputs, tc.opts...)
+			assertErrorIs(t, "ValidateInputs", err, tc.wantErr)
 		})
 	}
 }

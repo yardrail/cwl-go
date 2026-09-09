@@ -64,53 +64,22 @@ func ValidateInputs(
 	var problems []error
 
 	if settings.rejectUnknown {
-		unknown := make([]string, 0)
-
-		for key := range inputs {
-			if !declared[key] {
-				unknown = append(unknown, key)
-			}
-		}
-
-		slices.Sort(unknown)
-
-		for _, key := range unknown {
-			problems = append(problems, fmt.Errorf("%w: %q", ErrInputUnknown, key))
-		}
+		problems = append(problems, rejectUnknownInputs(inputs, declared)...)
 	}
 
 	merged := make(map[string]any, len(decls))
 
 	for i := range decls {
 		decl := &decls[i]
-		value, supplied := inputs[decl.Name]
 
-		if supplied && value != nil {
-			err := checkValueType(value, decl.Type)
-			if err != nil {
-				problems = append(problems, fmt.Errorf("input %q: %w", decl.Name, err))
-
-				continue
-			}
-
-			merged[decl.Name] = value
+		value, err := resolveInputValue(decl, inputs)
+		if err != nil {
+			problems = append(problems, err)
 
 			continue
 		}
 
-		if decl.Default != nil {
-			merged[decl.Name] = decl.Default
-
-			continue
-		}
-
-		if decl.Type.IsOptional() || decl.Type.IsNull() {
-			merged[decl.Name] = nil
-
-			continue
-		}
-
-		problems = append(problems, fmt.Errorf("input %q: %w: type is %s", decl.Name, ErrInputRequired, decl.Type))
+		merged[decl.Name] = value
 	}
 
 	if len(problems) > 0 {
@@ -118,4 +87,50 @@ func ValidateInputs(
 	}
 
 	return merged, nil
+}
+
+// rejectUnknownInputs returns an error for each key in inputs that does not appear in declared.
+func rejectUnknownInputs(inputs map[string]any, declared map[string]bool) []error {
+	unknown := make([]string, 0)
+
+	for key := range inputs {
+		if !declared[key] {
+			unknown = append(unknown, key)
+		}
+	}
+
+	slices.Sort(unknown)
+
+	errs := make([]error, 0, len(unknown))
+	for _, key := range unknown {
+		errs = append(errs, fmt.Errorf("%w: %q", ErrInputUnknown, key))
+	}
+
+	return errs
+}
+
+// resolveInputValue resolves a single declared input against the supplied inputs map: it
+// type-checks a supplied value, falls back to the declared default, accepts nil for optional
+// types, or reports a missing required input.
+func resolveInputValue(decl *portDecl, inputs map[string]any) (any, error) {
+	value, supplied := inputs[decl.Name]
+
+	if supplied && value != nil {
+		err := checkValueType(value, decl.Type)
+		if err != nil {
+			return nil, fmt.Errorf("input %q: %w", decl.Name, err)
+		}
+
+		return value, nil
+	}
+
+	if decl.Default != nil {
+		return decl.Default, nil
+	}
+
+	if decl.Type.IsOptional() || decl.Type.IsNull() {
+		return nil, nil
+	}
+
+	return nil, fmt.Errorf("input %q: %w: type is %s", decl.Name, ErrInputRequired, decl.Type)
 }

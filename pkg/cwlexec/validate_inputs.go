@@ -86,7 +86,8 @@ func ValidateInputs(
 		value, supplied := inputs[decl.Name]
 
 		if supplied && value != nil {
-			if err := checkValueType(value, decl.Type); err != nil {
+			err := checkValueType(value, decl.Type)
+			if err != nil {
 				problems = append(problems, fmt.Errorf("input %q: %w", decl.Name, err))
 
 				continue

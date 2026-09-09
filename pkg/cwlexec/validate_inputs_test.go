@@ -40,7 +40,7 @@ func TestValidateInputs(t *testing.T) {
 		{
 			name:    "missing required input",
 			process: proc(param("message", primitive(cwlcore.PrimitiveString), nil)),
-			inputs:  map[string]any{},
+			inputs:  make(map[string]any),
 			wantErr: ErrInputRequired,
 		},
 		{
@@ -65,13 +65,13 @@ func TestValidateInputs(t *testing.T) {
 		{
 			name:    "optional input omitted",
 			process: proc(param("message", optional(primitive(cwlcore.PrimitiveString)), nil)),
-			inputs:  map[string]any{},
+			inputs:  make(map[string]any),
 			want:    object("message", nil),
 		},
 		{
 			name:    "default fills in",
 			process: proc(param("message", primitive(cwlcore.PrimitiveString), stringDefault)),
-			inputs:  map[string]any{},
+			inputs:  make(map[string]any),
 			want:    object("message", "world"),
 		},
 		{
@@ -80,7 +80,7 @@ func TestValidateInputs(t *testing.T) {
 				param("a", primitive(cwlcore.PrimitiveString), nil),
 				param("b", primitive(cwlcore.PrimitiveInt), nil),
 			),
-			inputs:  map[string]any{},
+			inputs:  make(map[string]any),
 			wantErr: ErrInputRequired,
 		},
 		{
@@ -126,7 +126,7 @@ func TestValidateInputsMultipleErrorsMentionsBothInputs(t *testing.T) {
 		{ParameterBase: cwlcore.ParameterBase{IDField: "b", Type: primitive(cwlcore.PrimitiveInt)}},
 	}}
 
-	_, err := ValidateInputs(process, map[string]any{})
+	_, err := ValidateInputs(process, make(map[string]any))
 	if err == nil {
 		t.Fatal("expected error")
 	}

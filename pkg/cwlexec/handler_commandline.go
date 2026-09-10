@@ -322,6 +322,7 @@ func (i *invocation) setupContainerContext() error {
 		return err
 	}
 
+	i.runtime = i.call.RuntimeContext()
 	i.runtime.Outdir, i.runtime.Tmpdir = i.box.toolOutdir, containerTmpdir
 
 	return nil

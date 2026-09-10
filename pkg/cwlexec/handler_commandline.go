@@ -135,17 +135,18 @@ func newInvocation(call *StepCall) (*invocation, error) {
 		return nil, fmt.Errorf("%s: %w", describe(call), err)
 	}
 
-	if run.inv == nil {
-		local, localErr := newLocalInvocation(call.OutDir, call.TmpDir)
-		if localErr != nil {
-			return nil, fmt.Errorf("%s: %w", describe(call), localErr)
-		}
-
-		run.inv = local
-		run.outdir = local.OutDir()
-		run.tmpdir = local.TmpDir()
+	if run.docker != nil {
+		return run, nil
 	}
 
+	local, localErr := newLocalInvocation(call.OutDir, call.TmpDir)
+	if localErr != nil {
+		return nil, fmt.Errorf("%s: %w", describe(call), localErr)
+	}
+
+	run.inv = local
+	run.outdir = local.OutDir()
+	run.tmpdir = local.TmpDir()
 	run.runtime = call.RuntimeContext()
 	run.runtime.Outdir, run.runtime.Tmpdir = run.outdir, run.tmpdir
 

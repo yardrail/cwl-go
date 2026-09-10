@@ -106,7 +106,30 @@ func newInvocation(call *StepCall) (*invocation, error) {
 		return nil, fmt.Errorf("%w: %s is not a CommandLineTool", ErrWrongProcessClass, describe(call))
 	}
 
-	run := &invocation{
+	docker, absolute, err := resolveDocker(call)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", describe(call), err)
+	}
+
+	if docker != nil {
+		return newContainedInvocation(call, tool, docker, absolute)
+	}
+
+	return newHostInvocation(call, tool)
+}
+
+// newHostInvocation constructs an invocation for a tool running on this host (no container).
+func newHostInvocation(call *StepCall, tool *cwlcore.CommandLineTool) (*invocation, error) {
+	local, err := newLocalInvocation(call.OutDir, call.TmpDir)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", describe(call), err)
+	}
+
+	rt := call.RuntimeContext()
+	rt.Outdir = local.OutDir()
+	rt.Tmpdir = local.TmpDir()
+
+	return &invocation{
 		call:     call,
 		tool:     tool,
 		eval:     call.Evaluator(),
@@ -115,70 +138,81 @@ func newInvocation(call *StepCall) (*invocation, error) {
 		docker:   nil,
 		box:      nil,
 		executor: call.ContainerExecutor,
-		inv:      nil,
-		runtime: cwlcore.RuntimeContext{
-			Cores:      nil,
-			RAM:        nil,
-			OutdirSize: nil,
-			TmpdirSize: nil,
-			ExitCode:   nil,
-			Outdir:     "",
-			Tmpdir:     "",
-		},
-		outdir:   "",
-		tmpdir:   "",
+		inv:      local,
+		runtime:  rt,
+		outdir:   local.OutDir(),
+		tmpdir:   local.TmpDir(),
 		absolute: false,
-	}
+	}, nil
+}
 
-	err := run.useContainer()
+// newContainedInvocation constructs an invocation for a tool running inside a container. It
+// allocates the host directories and builds the container struct; the [Invocation] itself is created
+// later in [invocation.createContainerInvocation] once the staging plan is ready.
+func newContainedInvocation(
+	call *StepCall, tool *cwlcore.CommandLineTool,
+	docker *cwlcore.DockerRequirement, absolute bool,
+) (*invocation, error) {
+	outdir, err := ensureDir(call.OutDir, "cwl-out-")
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", describe(call), err)
 	}
 
-	if run.docker != nil {
-		return run, nil
+	tmpdir, err := ensureDir(call.TmpDir, "cwl-tmp-")
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", describe(call), err)
 	}
 
-	local, localErr := newLocalInvocation(call.OutDir, call.TmpDir)
-	if localErr != nil {
-		return nil, fmt.Errorf("%s: %w", describe(call), localErr)
+	box := newContainer(docker, outdir, tmpdir, call.Containers)
+
+	err = box.dirs()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", describe(call), err)
 	}
 
-	run.inv = local
-	run.outdir = local.OutDir()
-	run.tmpdir = local.TmpDir()
-	run.runtime = call.RuntimeContext()
-	run.runtime.Outdir, run.runtime.Tmpdir = run.outdir, run.tmpdir
+	rt := call.RuntimeContext()
+	rt.Outdir = box.toolOutdir
+	rt.Tmpdir = containerTmpdir
 
-	return run, nil
+	return &invocation{
+		call:     call,
+		tool:     tool,
+		eval:     call.Evaluator(),
+		mapper:   nil,
+		inputs:   nil,
+		docker:   docker,
+		box:      box,
+		executor: call.ContainerExecutor,
+		inv:      nil,
+		runtime:  rt,
+		outdir:   outdir,
+		tmpdir:   tmpdir,
+		absolute: absolute,
+	}, nil
 }
 
-// useContainer settles whether the tool runs in a container, and if it does, moves the runtime
-// context onto the paths it will see.
+// resolveDocker decides whether a DockerRequirement is in scope, whether it should be honoured, and
+// returns the requirement and whether absolute entrynames are allowed.
 //
-// A caller may have asked for no containers at all, which is [ContainerPolicy.Disabled]; that answer
-// is [invocation.declineContainer]'s, and it is not always "run it here".
-//
-// Moving them is the whole of what the rest of the handler needs to know. runtime.outdir and
-// runtime.tmpdir are what the document's own expressions read, and a tool inside a container must be
-// told the directories *it* has, not the ones this process allocated for it: an argv built from
-// $(runtime.outdir), a HOME and a TMPDIR, a glob pattern. Everything that touches a real file goes
-// on using the invocation's own outdir and tmpdir, which are the host side of the same two mounts.
-func (i *invocation) useContainer() error {
-	declared, origin, found := dockerRequirement(i.call.Requirements)
+// A nil return means the tool runs on this host. A non-nil return means it runs in a container. An
+// error means a requirement is in scope but cannot be honoured (containers disabled for a
+// requirement-level declaration).
+func resolveDocker(
+	call *StepCall,
+) (*cwlcore.DockerRequirement, bool, error) {
+	declared, origin, found := dockerRequirement(call.Requirements)
 	if !found {
-		return nil
+		return nil, false, nil
 	}
 
-	if i.call.Containers.Disabled {
-		return i.declineContainer(origin)
+	if call.Containers.Disabled || call.ContainerExecutor == nil {
+		return nil, false, declineContainer(call, origin)
 	}
 
-	if i.executor == nil {
-		return i.declineContainer(origin)
-	}
+	call.Log().Debug("running in a container", "step", call.StepID,
+		"image", imageReference(declared), "origin", origin)
 
-	return i.enterContainer(declared, origin)
+	return declared, origin == cwlcore.OriginRequirements, nil
 }
 
 // declineContainer settles what a DockerRequirement means to a caller who asked for no containers.
@@ -195,27 +229,14 @@ func (i *invocation) useContainer() error {
 // cwltool raises UnsupportedRequirement — "--no-container, but this CommandLineTool has
 // DockerRequirement under 'requirements'" — which is its exit status 33, so [ErrUnsupportedFeature]
 // is both the matching verdict and the same status out of cmd/cwl-run.
-func (i *invocation) declineContainer(origin cwlcore.RequirementOrigin) error {
+func declineContainer(call *StepCall, origin cwlcore.RequirementOrigin) error {
 	if origin == cwlcore.OriginRequirements {
 		return fmt.Errorf("%w: containers are disabled, but %s is declared under requirements",
 			ErrUnsupportedFeature, cwlcore.ClassDockerRequirement)
 	}
 
-	i.call.Log().Debug("containers are disabled; declining the DockerRequirement hint",
-		"step", i.call.StepID, "origin", origin)
-
-	return nil
-}
-
-// enterContainer resolves the DockerRequirement into the container this invocation runs in, and
-// moves the runtime context onto the paths the tool will see.
-func (i *invocation) enterContainer(declared *cwlcore.DockerRequirement, origin cwlcore.RequirementOrigin) error {
-	i.docker = declared
-	i.absolute = origin == cwlcore.OriginRequirements
-	i.box = newContainer(declared, "", "", i.call.Containers)
-
-	i.call.Log().Debug("running in a container", "step", i.call.StepID,
-		"image", i.box.image, "origin", origin)
+	call.Log().Debug("containers are disabled; declining the DockerRequirement hint",
+		"step", call.StepID, "origin", origin)
 
 	return nil
 }
@@ -263,11 +284,6 @@ func (i *invocation) prepare(ctx context.Context) error {
 		return err
 	}
 
-	err = i.setupContainerContext()
-	if err != nil {
-		return err
-	}
-
 	i.mapper = i.newMapper()
 
 	err = materializeLiterals(i.mapper, i.call.Inputs)
@@ -295,44 +311,11 @@ func (i *invocation) prepare(ctx context.Context) error {
 	return nil
 }
 
-// setupContainerContext creates the container struct and allocates host directories when a
-// container is needed. It does not create the [Invocation] — that requires the staging plan,
-// which is not built yet.
-func (i *invocation) setupContainerContext() error {
-	if i.docker == nil || i.executor == nil {
-		return nil
-	}
-
-	outdir, err := ensureDir(i.call.OutDir, "cwl-out-")
-	if err != nil {
-		return err
-	}
-
-	tmpdir, err := ensureDir(i.call.TmpDir, "cwl-tmp-")
-	if err != nil {
-		return err
-	}
-
-	i.outdir = outdir
-	i.tmpdir = tmpdir
-	i.box = newContainer(i.docker, outdir, tmpdir, i.call.Containers)
-
-	err = i.box.dirs()
-	if err != nil {
-		return err
-	}
-
-	i.runtime = i.call.RuntimeContext()
-	i.runtime.Outdir, i.runtime.Tmpdir = i.box.toolOutdir, containerTmpdir
-
-	return nil
-}
-
 // createContainerInvocation calls [ContainerExecutor.NewInvocation] with the full [ContainerSpec]
-// including plan-derived mounts. For non-container tools the invocation was already created in
-// [newInvocation].
+// including plan-derived mounts. For non-container tools the [Invocation] was already set in
+// [newHostInvocation].
 func (i *invocation) createContainerInvocation(ctx context.Context) error {
-	if i.docker == nil || i.executor == nil {
+	if i.docker == nil {
 		return nil
 	}
 

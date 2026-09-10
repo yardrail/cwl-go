@@ -146,6 +146,11 @@ type StepCall struct {
 	// registered with [Unbudgeted].
 	Resources Resources
 
+	// ContainerExecutor is the executor configured on [Config.ContainerExecutor], carried here
+	// for the same reason [StepCall.Containers] is: a handler is told about its own invocation
+	// and nothing about the run around it.
+	ContainerExecutor ContainerExecutor
+
 	// Containers is the container policy the caller configured on [Config.Containers], carried
 	// here because a handler is told about its own invocation and nothing about the run around
 	// it — the same route [StepCall.Logger] travels, and for the same reason.

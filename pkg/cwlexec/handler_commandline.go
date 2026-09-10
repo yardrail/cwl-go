@@ -79,17 +79,18 @@ func runCommandLineTool(ctx context.Context, call *StepCall) (Result, error) {
 // invocation is the resolved context of one CommandLineTool run: the directories it works in, the
 // plan for filling them, and the input object every later stage reads.
 type invocation struct {
-	call    *StepCall
-	tool    *cwlcore.CommandLineTool
-	eval    *cwlcore.Evaluator
-	mapper  *PathMap
-	inputs  map[string]any
-	docker  *cwlcore.DockerRequirement
-	box     *container
-	runtime cwlcore.RuntimeContext
-	outdir  string
-	tmpdir  string
-	scratch string
+	call     *StepCall
+	tool     *cwlcore.CommandLineTool
+	eval     *cwlcore.Evaluator
+	mapper   *PathMap
+	inputs   map[string]any
+	docker   *cwlcore.DockerRequirement
+	box      *container
+	executor ContainerExecutor
+	runtime  cwlcore.RuntimeContext
+	outdir   string
+	tmpdir   string
+	scratch  string
 
 	// absolute records that a listing entry may name a target outside the working directory,
 	// which a DockerRequirement in *requirements* is what licenses. See
@@ -106,13 +107,14 @@ func newInvocation(call *StepCall) (*invocation, error) {
 	}
 
 	run := &invocation{
-		call:   call,
-		tool:   tool,
-		eval:   call.Evaluator(),
-		mapper: nil,
-		inputs: nil,
-		docker: nil,
-		box:    nil,
+		call:     call,
+		tool:     tool,
+		eval:     call.Evaluator(),
+		mapper:   nil,
+		inputs:   nil,
+		docker:   nil,
+		box:      nil,
+		executor: call.ContainerExecutor,
 		runtime: cwlcore.RuntimeContext{
 			Cores:      nil,
 			RAM:        nil,
@@ -162,6 +164,10 @@ func (i *invocation) useContainer() error {
 	}
 
 	if i.call.Containers.Disabled {
+		return i.declineContainer(origin)
+	}
+
+	if i.executor == nil {
 		return i.declineContainer(origin)
 	}
 
@@ -343,7 +349,7 @@ func (i *invocation) acquireImage(ctx context.Context) error {
 		return nil
 	}
 
-	return i.box.acquire(ctx, i.docker)
+	return i.executor.EnsureImage(ctx, i.docker)
 }
 
 // newMapper builds the path map this invocation plans with: the plain one when the tool runs here,
@@ -412,7 +418,7 @@ func (i *invocation) execute(ctx context.Context) (Result, error) {
 
 	i.call.Log().Debug("running tool", "step", i.call.StepID, "argv", spec.argv(), "dir", spec.Dir)
 
-	code, err := RunProcess(ctx, spec)
+	code, err := i.run(ctx, spec)
 	if err != nil {
 		return PermanentFail(fmt.Errorf("%s: %w", describe(i.call), err))
 	}
@@ -449,6 +455,10 @@ func (i *invocation) execute(ctx context.Context) (Result, error) {
 
 // spec resolves everything the process needs: its argv, its environment, its redirections and its
 // time limit.
+//
+// The returned spec is the tool's own command — the argv it sees, the environment the specification
+// prescribes, the stream redirections resolved onto this host — and nothing about how a container
+// carries it. Wrapping into a container is [invocation.run]'s concern.
 func (i *invocation) spec() (*ProcessSpec, error) {
 	line, err := BuildCommandLine(i.tool, i.inputs, i.eval, i.call.Requirements, i.runtime)
 	if err != nil {
@@ -472,30 +482,27 @@ func (i *invocation) spec() (*ProcessSpec, error) {
 		return nil, err
 	}
 
-	return i.contain(spec)
+	return spec, nil
 }
 
-// contain rewrites a resolved spec into the `docker run` invocation that runs the same argv inside a
-// container, and returns it untouched when no DockerRequirement is in scope.
-//
-// It is the last step deliberately. Everything before it resolved the argv, the environment, the
-// redirections and the time limit against the paths the *tool* sees, and none of that changes for
-// being wrapped — which is why there is no second executor here, only a different program to hand
-// the same finished spec to.
-func (i *invocation) contain(spec *ProcessSpec) (*ProcessSpec, error) {
+// run dispatches execution to the [ContainerExecutor] when a DockerRequirement is in scope, and to
+// [RunProcess] when the tool runs on this host.
+func (i *invocation) run(ctx context.Context, spec *ProcessSpec) (int, error) {
 	if i.box == nil {
-		return spec, nil
+		return RunProcess(ctx, spec)
 	}
 
 	network, err := ToolNetworkAccess(i.call.Requirements, i.inputs, i.eval, i.runtime)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	inner := *spec
-	inner.Env = withoutInheritedPath(spec.Env, i.call.Requirements)
+	spec.Env = withoutInheritedPath(spec.Env, i.call.Requirements)
 
-	return i.box.wrap(&inner, i.mapper.Plan(), network), nil
+	ctr := i.box.containerSpec(i.mapper.Plan(), network)
+	ctr.Stdout = spec.Stdout
+
+	return i.executor.Run(ctx, ctr, spec)
 }
 
 // redirect resolves the three standard-stream redirections onto a spec.

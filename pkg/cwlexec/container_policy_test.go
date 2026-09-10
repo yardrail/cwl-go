@@ -46,6 +46,7 @@ func TestADockerRequirementHintStillRunsAContainerByDefault(t *testing.T) {
 	// honoured. Resolving the container is enough to say so — newInvocation names an image
 	// rather than fetching one — so this needs no engine either.
 	call := execCall(t, execTool([]string{execTrue}))
+	call.ContainerExecutor = NewDockerCLIExecutor()
 	call.Requirements = execHintScope(&cwlcore.DockerRequirement{DockerPull: ctrImage})
 
 	run := runInvocation(t, call)
@@ -61,6 +62,37 @@ func TestADockerRequirementHintStillRunsAContainerByDefault(t *testing.T) {
 	// which the opt-out does not change.
 	if run.absolute {
 		t.Error("absolute targets are allowed, want them refused under a hint")
+	}
+}
+
+func TestNoExecutorDeclinesADockerRequirementHint(t *testing.T) {
+	t.Parallel()
+	execSkipUnless(t, execShell)
+
+	// A nil ContainerExecutor without Containers.Disabled behaves the same way for hints:
+	// the hint is declined and the tool runs on this host.
+	call := execCall(t, execScript(execWriteScript, execFileOut(execOutName)))
+	call.Requirements = execHintScope(&cwlcore.DockerRequirement{DockerPull: ctrImage})
+
+	execWantContent(t, execSucceed(t, call), execGreeting)
+
+	run := runInvocation(t, call)
+	if run.box != nil || run.docker != nil {
+		t.Errorf("container = %+v, want none resolved when no executor is configured", run.box)
+	}
+}
+
+func TestNoExecutorRefusesADockerRequirementUnderRequirements(t *testing.T) {
+	t.Parallel()
+
+	// A nil ContainerExecutor with a DockerRequirement under requirements is the same failure
+	// as --no-container: the document says the tool must run in that image, but no executor
+	// can carry that out.
+	call := execCall(t, execTool([]string{execTrue}))
+	call.Requirements = execScope(&cwlcore.DockerRequirement{DockerPull: ctrImage})
+
+	if got := execFail(t, call, ErrUnsupportedFeature); got != StatusPermanentFail {
+		t.Errorf("status = %q, want a permanent failure", got)
 	}
 }
 
@@ -84,10 +116,11 @@ func TestContainerPolicyReachesTheContainer(t *testing.T) {
 	t.Parallel()
 
 	// The three argv-level opt-outs travel from the call to the container the invocation
-	// resolves, which is where [container.wrap] reads them.
+	// resolves, which is where the executor reads them.
 	policy := ContainerPolicy{NoMatchUser: true, NoReadOnly: true, Keep: true}
 
 	call := execCall(t, execTool([]string{execTrue}))
+	call.ContainerExecutor = NewDockerCLIExecutor()
 	call.Requirements = execScope(&cwlcore.DockerRequirement{DockerPull: ctrImage})
 	call.Containers = policy
 
@@ -109,10 +142,23 @@ func TestContainerPolicyDescendsIntoANestedRun(t *testing.T) {
 	// WithSubworkflows would otherwise get a subworkflow that started the containers it had
 	// forbidden one level up, which is worse than not having the setting at all.
 	policy := ContainerPolicy{Disabled: true, NoMatchUser: true}
+	executor := NewDockerCLIExecutor()
 
-	call := &StepCall{StepID: stepID, OutDir: "/out", TmpDir: "/tmp", Containers: policy}
+	call := &StepCall{
+		StepID:            stepID,
+		OutDir:            "/out",
+		TmpDir:            "/tmp",
+		ContainerExecutor: executor,
+		Containers:        policy,
+	}
 
-	if got := (subworkflowEnv{}).childConfig(call).Containers; got != policy {
-		t.Errorf("nested Containers = %+v, want %+v", got, policy)
+	child := (subworkflowEnv{}).childConfig(call)
+
+	if child.Containers != policy {
+		t.Errorf("nested Containers = %+v, want %+v", child.Containers, policy)
+	}
+
+	if child.ContainerExecutor != executor {
+		t.Errorf("nested ContainerExecutor = %v, want the one from the call", child.ContainerExecutor)
 	}
 }

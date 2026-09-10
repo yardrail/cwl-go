@@ -33,6 +33,9 @@ const (
 	// ctrOtherDir is the output directory a dockerOutputDirectory row moves the tool's to.
 	ctrOtherDir = "/other"
 
+	// ctrAbsoluteEntry is the path an absolute entryname test mounts at.
+	ctrAbsoluteEntry = "/etc/tool.conf"
+
 	// ctrWorkdirArg, ctrRmArg and ctrReadOnlyArg are argv elements several rows look for by name.
 	ctrWorkdirArg  = "--workdir=" + ctrToolOut
 	ctrRmArg       = "--rm"
@@ -56,15 +59,20 @@ func ctrBoxUnder(policy ContainerPolicy) *container {
 // ctrSpec returns the resolved host spec the container wraps: a two-element argv and one variable.
 func ctrSpec() *ProcessSpec {
 	return &ProcessSpec{
-		Command: &CommandLine{Args: plainArgs([]string{execEcho, execGreeting})},
+		Command: &CommandLine{Args: dockerPlainArgs([]string{execEcho, execGreeting})},
 		Dir:     ctrHostOut,
 		Env:     []string{envHome + "=" + ctrToolOut},
 	}
 }
 
-// ctrArgv wraps a spec and returns the argument vector it would be run as.
-func ctrArgv(box *container, spec *ProcessSpec, network bool) []string {
-	return box.wrap(spec, nil, network).argv()
+// ctrContainerSpec builds a ContainerSpec from the fixture container and network setting.
+func ctrContainerSpec(box *container, network bool) *ContainerSpec {
+	return box.containerSpec(nil, network)
+}
+
+// ctrArgv builds the docker run argv from a ContainerSpec and ProcessSpec.
+func ctrArgv(ctr *ContainerSpec, spec *ProcessSpec) []string {
+	return NewDockerCLIExecutor().dockerArgv(ctr, spec)
 }
 
 // ctrIndex returns the position of an argv element, or -1.
@@ -75,7 +83,8 @@ func ctrIndex(argv []string, want string) int {
 func TestContainerArgvShape(t *testing.T) {
 	t.Parallel()
 
-	argv := ctrArgv(ctrBox(), ctrSpec(), false)
+	ctr := ctrContainerSpec(ctrBox(), false)
+	argv := ctrArgv(ctr, ctrSpec())
 
 	cases := []struct {
 		name string
@@ -84,7 +93,7 @@ func TestContainerArgvShape(t *testing.T) {
 		name: "the engine, its subcommand and an attached stdin come first",
 		// -i is what keeps a redirected standard input connected; cwltool passes it for the
 		// same reason. Conformance test stdin_shorcut is the one that needs it.
-		ok: func(a []string) bool { return slices.Equal(a[:3], []string{containerEngine, containerRun, "-i"}) },
+		ok: func(a []string) bool { return slices.Equal(a[:3], []string{dockerEngine, dockerRun, "-i"}) },
 	}, {
 		name: "the working directory is the one the tool sees",
 		ok:   func(a []string) bool { return ctrIndex(a, ctrWorkdirArg) > 0 },
@@ -134,9 +143,10 @@ func TestContainerArgvCarriesTheShellItself(t *testing.T) {
 	// has to be the *container's*. Wrapping the rendered argv rather than CommandLine.Argv is
 	// what puts it there; conformance test filesarray_secondaryfiles is one that needs it.
 	spec := ctrSpec()
-	spec.Command = &CommandLine{Args: plainArgs([]string{execEcho, cltHello}), Shell: true}
+	spec.Command = &CommandLine{Args: dockerPlainArgs([]string{execEcho, cltHello}), Shell: true}
 
-	argv := ctrArgv(ctrBox(), spec, false)
+	ctr := ctrContainerSpec(ctrBox(), false)
+	argv := ctrArgv(ctr, spec)
 	image := ctrIndex(argv, ctrImage)
 
 	if !slices.Equal(argv[image+1:], []string{shellPath, execDashC, execEcho + " " + cltHello}) {
@@ -160,19 +170,19 @@ func TestContainerMountsPairHostAndToolPaths(t *testing.T) {
 		t.Fatalf("StageContents: %v", err)
 	}
 
-	want := []string{
+	want := []Mount{
 		// The three directories mounted whole come first, so that a placement's own mount
 		// is applied over the one it falls inside rather than under it.
-		"--mount=type=bind,source=" + ctrHostOut + ",target=" + ctrToolOut,
-		"--mount=type=bind,source=" + ctrHostTmp + ",target=" + containerTmpdir,
-		"--mount=type=bind,source=" + ctrHostStage + ",target=" + containerStagedir,
+		{Source: ctrHostOut, Target: ctrToolOut},
+		{Source: ctrHostTmp, Target: containerTmpdir},
+		{Source: ctrHostStage, Target: containerStagedir},
 		// The staged file keeps its bytes where they are, so it needs one of its own.
-		"--mount=type=bind,source=" + ctrSource + ",target=" + ctrToolOut + "/reads.bam,readonly",
+		{Source: ctrSource, Target: ctrToolOut + "/reads.bam", ReadOnly: true},
 		// The literal was written inside the output directory, which is already mounted.
 	}
 
-	if got := box.mounts(mapper.Plan()); !slices.Equal(got, want) {
-		t.Errorf("mounts = %q, want %q", got, want)
+	if got := box.containerMounts(mapper.Plan()); !slices.Equal(got, want) {
+		t.Errorf("mounts = %v, want %v", got, want)
 	}
 }
 
@@ -192,9 +202,9 @@ func TestContainerMountsAWritableLinkReadWrite(t *testing.T) {
 		t.Fatalf("Stage: %v", err)
 	}
 
-	want := "--mount=type=bind,source=" + ctrSource + ",target=/elsewhere/reads.bam"
-	if got := box.mounts(mapper.Plan()); !slices.Contains(got, want) {
-		t.Errorf("mounts = %q, want one reading %q", got, want)
+	want := Mount{Source: ctrSource, Target: "/elsewhere/reads.bam", ReadOnly: false}
+	if got := box.containerMounts(mapper.Plan()); !slices.Contains(got, want) {
+		t.Errorf("mounts = %v, want one reading %v", got, want)
 	}
 }
 
@@ -208,16 +218,19 @@ func TestContainerMountsAnOutsideLiteral(t *testing.T) {
 	mapper := box.mapper()
 	mapper.AllowAbsoluteTargets()
 
-	_, err := mapper.StageContents("/etc/tool.conf", execGreeting)
+	_, err := mapper.StageContents(ctrAbsoluteEntry, execGreeting)
 	if err != nil {
 		t.Fatalf("StageContents: %v", err)
 	}
 
-	want := "--mount=type=bind,source=" + ctrHostStage + "/" + outsideName +
-		"/etc/tool.conf,target=/etc/tool.conf,readonly"
+	want := Mount{
+		Source:   ctrHostStage + "/" + outsideName + ctrAbsoluteEntry,
+		Target:   ctrAbsoluteEntry,
+		ReadOnly: true,
+	}
 
-	if got := box.mounts(mapper.Plan()); !slices.Contains(got, want) {
-		t.Errorf("mounts = %q, want one reading %q", got, want)
+	if got := box.containerMounts(mapper.Plan()); !slices.Contains(got, want) {
+		t.Errorf("mounts = %v, want one reading %v", got, want)
 	}
 }
 
@@ -226,11 +239,11 @@ func TestContainerMountQuotesASeparatorInAPath(t *testing.T) {
 
 	// The options are a CSV record. A path holding a comma would otherwise be read as two
 	// options, and a mount would be built from something the document never named.
-	got := mountArg(`/data/a,b`, `/tool/"q"`, mountModes[false]...)
+	got := dockerMountArg(`/data/a,b`, `/tool/"q"`, "readonly")
 
 	want := `--mount=type=bind,"source=/data/a,b","target=/tool/""q""",readonly`
 	if got != want {
-		t.Errorf("mountArg = %q, want %q", got, want)
+		t.Errorf("dockerMountArg = %q, want %q", got, want)
 	}
 }
 
@@ -240,16 +253,16 @@ func TestContainerUserDefaultsToInvoker(t *testing.T) {
 	// Without it the tool runs as the image's user, normally root, and every file it leaves in
 	// the mounted output directory is owned by root on this host — unreadable and undeletable by
 	// the process that has to collect it.
-	box := ctrBox()
+	ctr := ctrContainerSpec(ctrBox(), false)
 
 	want := fmt.Sprintf("--user=%d:%d", os.Geteuid(), os.Getgid())
-	if got := ctrArgv(box, ctrSpec(), false); !slices.Contains(got, want) {
+	if got := ctrArgv(ctr, ctrSpec()); !slices.Contains(got, want) {
 		t.Errorf("argv = %q, want one element %q", got, want)
 	}
 
-	box = ctrBoxUnder(ContainerPolicy{NoMatchUser: true})
+	ctr = ctrContainerSpec(ctrBoxUnder(ContainerPolicy{NoMatchUser: true}), false)
 
-	if got := ctrArgv(box, ctrSpec(), false); slices.ContainsFunc(got, ctrIsUser) {
+	if got := ctrArgv(ctr, ctrSpec()); slices.ContainsFunc(got, ctrIsUser) {
 		t.Errorf("argv = %q, want no --user under the opt-out", got)
 	}
 }
@@ -291,7 +304,9 @@ func TestContainerPolicyOptOutsReachTheArgv(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			argv := ctrArgv(ctrBoxUnder(testCase.policy), ctrSpec(), false)
+			ctr := ctrContainerSpec(ctrBoxUnder(testCase.policy), false)
+
+			argv := ctrArgv(ctr, ctrSpec())
 			if slices.Contains(argv, testCase.arg) != testCase.want {
 				t.Errorf("argv = %q; %q present = %v, want %v",
 					argv, testCase.arg, !testCase.want, testCase.want)
@@ -317,11 +332,13 @@ func TestContainerNetworkIsOffByDefault(t *testing.T) {
 	// NetworkAccess: "If networkAccess is false or not specified, tools must not assume network
 	// access". Conformance test networkaccess_disabled is a should_fail test whose tool declares
 	// nothing and opens a connection, so the default has to be enforced rather than assumed.
-	if got := ctrArgv(ctrBox(), ctrSpec(), false); !slices.Contains(got, "--net=none") {
+	ctr := ctrContainerSpec(ctrBox(), false)
+	if got := ctrArgv(ctr, ctrSpec()); !slices.Contains(got, "--net=none") {
 		t.Errorf("argv = %q, want --net=none with no NetworkAccess requirement", got)
 	}
 
-	if got := ctrArgv(ctrBox(), ctrSpec(), true); slices.Contains(got, "--net=none") {
+	ctr = ctrContainerSpec(ctrBox(), true)
+	if got := ctrArgv(ctr, ctrSpec()); slices.Contains(got, "--net=none") {
 		t.Errorf("argv = %q, want the network left alone when NetworkAccess grants it", got)
 	}
 }
@@ -329,28 +346,16 @@ func TestContainerNetworkIsOffByDefault(t *testing.T) {
 func TestContainerSilencesTheEngineLogWhenStdoutIsCaptured(t *testing.T) {
 	t.Parallel()
 
-	if got := ctrArgv(ctrBox(), ctrSpec(), false); slices.Contains(got, "--log-driver=none") {
+	ctr := ctrContainerSpec(ctrBox(), false)
+	if got := ctrArgv(ctr, ctrSpec()); slices.Contains(got, "--log-driver=none") {
 		t.Errorf("argv = %q, want no log driver argument with nothing captured", got)
 	}
 
-	spec := ctrSpec()
-	spec.Stdout = ctrHostOut + "/" + execOutName
+	ctr = ctrContainerSpec(ctrBox(), false)
+	ctr.Stdout = ctrHostOut + "/" + execOutName
 
-	if got := ctrArgv(ctrBox(), spec, false); !slices.Contains(got, "--log-driver=none") {
+	if got := ctrArgv(ctr, ctrSpec()); !slices.Contains(got, "--log-driver=none") {
 		t.Errorf("argv = %q, want the engine's own log turned off", got)
-	}
-}
-
-func TestContainerClientKeepsThisProcessEnvironment(t *testing.T) {
-	t.Parallel()
-
-	// The wrapped spec's Env belongs to the engine's *client*, which needs this machine's own —
-	// a DOCKER_HOST, a certificate directory, a PATH to find nothing else by. The tool's
-	// environment travels as --env arguments instead.
-	wrapped := ctrBox().wrap(ctrSpec(), nil, false)
-
-	if !slices.Equal(wrapped.Env, os.Environ()) {
-		t.Errorf("Env = %q, want this process's own", wrapped.Env)
 	}
 }
 

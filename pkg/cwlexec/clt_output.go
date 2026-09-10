@@ -83,10 +83,8 @@ func CollectOutputs(tool *cwlcore.CommandLineTool, outdir string, outfs WriteFS,
 		return nil, fmt.Errorf("%w: %q", ErrOutputDir, outdir)
 	}
 
-	collector := newOutputCollector(tool, outdir, outfs, inputs)
-	collector.eval = eval
-	collector.runtime = rt
-	collector.exitCode = exitCode
+	collector := newOutputCollector(tool, outdir, outfs, inputs,
+		withEvaluator(eval), withRuntime(rt), withExitCode(exitCode))
 
 	outputs := make(map[string]any, len(tool.Outputs))
 
@@ -247,8 +245,29 @@ type outputCollector struct {
 // independently-assembled root sets is how the two answers drift apart.
 //
 // outdir need not be clean; the collector's is.
+type outputCollectorOption func(*outputCollector)
+
+func withEvaluator(eval *cwlcore.Evaluator) outputCollectorOption {
+	return func(c *outputCollector) {
+		c.eval = eval
+	}
+}
+
+func withRuntime(rt cwlcore.RuntimeContext) outputCollectorOption {
+	return func(c *outputCollector) {
+		c.runtime = rt
+	}
+}
+
+func withExitCode(code int) outputCollectorOption {
+	return func(c *outputCollector) {
+		c.exitCode = code
+	}
+}
+
 func newOutputCollector(
 	tool *cwlcore.CommandLineTool, outdir string, outfs WriteFS, inputs map[string]any,
+	opts ...outputCollectorOption,
 ) *outputCollector {
 	dir := filepath.Clean(outdir)
 	rendered := outExpressionObject(inputs)
@@ -258,7 +277,7 @@ func newOutputCollector(
 		outfs = NewLocalDirFS(dir)
 	}
 
-	return &outputCollector{
+	collector := &outputCollector{
 		tool:   tool,
 		eval:   nil,
 		scope:  scope,
@@ -278,6 +297,12 @@ func newOutputCollector(
 		outroot:  outResolvePath(dir),
 		exitCode: 0,
 	}
+
+	for _, opt := range opts {
+		opt(collector)
+	}
+
+	return collector
 }
 
 // relOutPath converts an absolute host path to a relative path within the output directory.

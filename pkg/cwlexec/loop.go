@@ -557,18 +557,19 @@ func (l *runLoop) newCall(job *runJob, step *plannedStep) (*StepCall, error) {
 	dirs := l.runner.cfg.dirsFor(step.id, job.index)
 
 	call := &StepCall{
-		StepID:       step.id,
-		Process:      step.run,
-		Class:        step.class,
-		Inputs:       projectDeclaredInputs(step, job.inputs),
-		ScatterIndex: job.index,
-		Requirements: step.scope,
-		Resources:    Resources{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
-		Containers:   l.runner.cfg.Containers,
-		OutDir:       dirs.OutDir,
-		TmpDir:       dirs.TmpDir,
-		Eval:         step.eval,
-		Logger:       l.runner.cfg.Logger,
+		StepID:            step.id,
+		Process:           step.run,
+		Class:             step.class,
+		Inputs:            projectDeclaredInputs(step, job.inputs),
+		ScatterIndex:      job.index,
+		Requirements:      step.scope,
+		Resources:         Resources{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
+		ContainerExecutor: l.runner.cfg.ContainerExecutor,
+		Containers:        l.runner.cfg.Containers,
+		OutDir:            dirs.OutDir,
+		TmpDir:            dirs.TmpDir,
+		Eval:              step.eval,
+		Logger:            l.runner.cfg.Logger,
 	}
 
 	if l.runner.registry.IsUnbudgeted(step.class) {

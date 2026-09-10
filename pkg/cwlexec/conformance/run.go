@@ -104,6 +104,7 @@ func execute(
 		OutDir:            outDir,
 		TmpDirPrefix:      "",
 		OnError:           "",
+		ContainerExecutor: nil,
 		Containers: cwlexec.ContainerPolicy{
 			Disabled:    false,
 			NoMatchUser: false,

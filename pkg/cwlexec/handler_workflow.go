@@ -150,6 +150,7 @@ func (e subworkflowEnv) childConfig(call *StepCall) *Config {
 		OutDir:              "",
 		TmpDirPrefix:        "",
 		OnError:             "",
+		ContainerExecutor:   nil,
 		Containers:          ContainerPolicy{Disabled: false, NoMatchUser: false, NoReadOnly: false, Keep: false},
 		Resources:           ResourceBudget{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
 		EvalTimeout:         0,
@@ -161,6 +162,7 @@ func (e subworkflowEnv) childConfig(call *StepCall) *Config {
 	}
 
 	cfg.Logger = call.Logger
+	cfg.ContainerExecutor = call.ContainerExecutor
 	cfg.Containers = call.Containers
 	cfg.OutDir = call.OutDir
 	cfg.TmpDirPrefix = call.TmpDir

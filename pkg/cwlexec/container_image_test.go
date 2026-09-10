@@ -21,10 +21,8 @@ const (
 	imgAbsent   = "cwl-go-test-absent:latest"
 )
 
-// imgBox returns a container that would run the given requirement's image.
-func imgBox(declared *cwlcore.DockerRequirement) *container {
-	return newContainer(declared, ctrHostOut, ctrHostTmp, ContainerPolicy{})
-}
+// imgExecutor returns a DockerCLIExecutor for image acquisition tests.
+func imgExecutor() *DockerCLIExecutor { return NewDockerCLIExecutor() }
 
 // imgRemove schedules an image for removal when the test ends, so that a rerun asks the engine the
 // same question this run did.
@@ -39,9 +37,9 @@ func imgRemove(t *testing.T, image string) {
 	ctx := context.WithoutCancel(t.Context())
 
 	t.Cleanup(func() {
-		containerImages.Delete(image)
+		dockerImages.Delete(image)
 
-		err := exec.CommandContext(ctx, containerEngine, "rmi", "--force", image).Run()
+		err := exec.CommandContext(ctx, dockerEngine, "rmi", "--force", image).Run()
 		if err != nil {
 			t.Logf("removing %s: %v", image, err)
 		}
@@ -94,22 +92,22 @@ func TestDockerImagePullRoundTrips(t *testing.T) {
 	// Daemon-required by design. A container test that skips itself when no engine is reachable
 	// reports the same thing whether the feature works or was never exercised.
 	declared := &cwlcore.DockerRequirement{DockerPull: ctrImage}
-	box := imgBox(declared)
+	executor := imgExecutor()
 
-	err := box.acquire(t.Context(), declared)
+	err := executor.EnsureImage(t.Context(), declared)
 	if err != nil {
-		t.Fatalf("acquire: %v", err)
+		t.Fatalf("EnsureImage: %v", err)
 	}
 
-	if _, cached := containerImages.Load(ctrImage); !cached {
+	if _, cached := dockerImages.Load(ctrImage); !cached {
 		t.Error("the image was acquired but not remembered, so a rerun would ask again")
 	}
 
 	// The second call is the cache, and must not reach the engine at all — which is what makes a
 	// hundred scattered sub-jobs one question rather than a hundred.
-	err = box.acquire(t.Context(), declared)
+	err = executor.EnsureImage(t.Context(), declared)
 	if err != nil {
-		t.Fatalf("acquire again: %v", err)
+		t.Fatalf("EnsureImage again: %v", err)
 	}
 }
 
@@ -126,14 +124,14 @@ func TestDockerImageBuildsFromADockerfile(t *testing.T) {
 		DockerImageID: imgBuilt,
 	}
 
-	box := imgBox(declared)
+	executor := imgExecutor()
 
-	err := box.acquire(t.Context(), declared)
+	err := executor.EnsureImage(t.Context(), declared)
 	if err != nil {
-		t.Fatalf("acquire: %v", err)
+		t.Fatalf("EnsureImage: %v", err)
 	}
 
-	if !box.present(t.Context()) {
+	if !executor.present(t.Context(), imgBuilt) {
 		t.Errorf("%s was built but the engine does not have it", imgBuilt)
 	}
 }
@@ -148,14 +146,14 @@ func TestDockerImageImportsATarball(t *testing.T) {
 		DockerImageID: imgImported,
 	}
 
-	box := imgBox(declared)
+	executor := imgExecutor()
 
-	err := box.acquire(t.Context(), declared)
+	err := executor.EnsureImage(t.Context(), declared)
 	if err != nil {
-		t.Fatalf("acquire: %v", err)
+		t.Fatalf("EnsureImage: %v", err)
 	}
 
-	if !box.present(t.Context()) {
+	if !executor.present(t.Context(), imgImported) {
 		t.Errorf("%s was imported but the engine does not have it", imgImported)
 	}
 }
@@ -251,9 +249,9 @@ func TestDockerImageAcquisitionFailures(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := imgBox(testCase.declared).acquire(t.Context(), testCase.declared)
+			err := imgExecutor().EnsureImage(t.Context(), testCase.declared)
 			if !errors.Is(err, testCase.want) {
-				t.Errorf("acquire: error %v does not wrap %v", err, testCase.want)
+				t.Errorf("EnsureImage: error %v does not wrap %v", err, testCase.want)
 			}
 		})
 	}
@@ -268,9 +266,9 @@ func TestDockerImageNeedsAnEngineOnPath(t *testing.T) {
 
 	declared := &cwlcore.DockerRequirement{DockerPull: "cwl-go-test/no-engine:here"}
 
-	err := imgBox(declared).acquire(t.Context(), declared)
+	err := imgExecutor().EnsureImage(t.Context(), declared)
 	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Errorf("acquire: error %v does not wrap %v", err, ErrUnsupportedFeature)
+		t.Errorf("EnsureImage: error %v does not wrap %v", err, ErrUnsupportedFeature)
 	}
 }
 
@@ -284,8 +282,8 @@ func TestDockerImageBuildNeedsAContextDirectory(t *testing.T) {
 		DockerFile:    "FROM " + ctrImage + "\n",
 	}
 
-	err := imgBox(declared).acquire(t.Context(), declared)
+	err := imgExecutor().EnsureImage(t.Context(), declared)
 	if err == nil {
-		t.Error("acquire succeeded with nowhere to write the Dockerfile")
+		t.Error("EnsureImage succeeded with nowhere to write the Dockerfile")
 	}
 }

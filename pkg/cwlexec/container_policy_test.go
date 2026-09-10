@@ -109,10 +109,23 @@ func TestContainerPolicyDescendsIntoANestedRun(t *testing.T) {
 	// WithSubworkflows would otherwise get a subworkflow that started the containers it had
 	// forbidden one level up, which is worse than not having the setting at all.
 	policy := ContainerPolicy{Disabled: true, NoMatchUser: true}
+	executor := NewDockerCLIExecutor()
 
-	call := &StepCall{StepID: stepID, OutDir: "/out", TmpDir: "/tmp", Containers: policy}
+	call := &StepCall{
+		StepID:            stepID,
+		OutDir:            "/out",
+		TmpDir:            "/tmp",
+		ContainerExecutor: executor,
+		Containers:        policy,
+	}
 
-	if got := (subworkflowEnv{}).childConfig(call).Containers; got != policy {
-		t.Errorf("nested Containers = %+v, want %+v", got, policy)
+	child := (subworkflowEnv{}).childConfig(call)
+
+	if child.Containers != policy {
+		t.Errorf("nested Containers = %+v, want %+v", child.Containers, policy)
+	}
+
+	if child.ContainerExecutor != executor {
+		t.Errorf("nested ContainerExecutor = %v, want the one from the call", child.ContainerExecutor)
 	}
 }

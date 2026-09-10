@@ -143,11 +143,11 @@ func TestContainerStagesAnAbsoluteEntryname(t *testing.T) {
 	// gives is the one that makes it work: inside a container "the root filesystem is not shared
 	// with any other user or running program", so a mount at /etc/tool.conf disturbs nothing.
 	staged := cwlcore.NewInitialWorkDirDirent(&cwlcore.Dirent{
-		Entryname: "/etc/tool.conf",
+		Entryname: ctrAbsoluteEntry,
 		Entry:     cwlcore.Expression(execGreeting),
 	})
 
-	tool := execScript("cat /etc/tool.conf > "+execOutName, execFileOut(execOutName))
+	tool := execScript("cat "+ctrAbsoluteEntry+" > "+execOutName, execFileOut(execOutName))
 
 	call := ctrRunCall(t, tool, ctrPulled(),
 		&cwlcore.InitialWorkDirRequirement{Listing: stgEntries(staged)})

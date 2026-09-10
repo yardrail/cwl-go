@@ -2,10 +2,8 @@ package cwlexec
 
 import (
 	"crypto/rand"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
@@ -15,9 +13,9 @@ import (
 //
 // A DockerRequirement does not change what a CommandLineTool is asked to do; it changes which
 // filesystem and which process namespace the doing happens in. So nothing here rebuilds an argv or
-// re-plans a working directory. What it does is take the finished [ProcessSpec] the host path runs
-// and wrap it: the same argv, handed to `docker run` instead of to the operating system, with the
-// bind mounts that make the paths in it mean something on the other side.
+// re-plans a working directory. What it does is resolve the requirement into a [ContainerSpec] — the
+// structured description a [ContainerExecutor] consumes — and assemble the mounts that make the
+// paths in it mean something on the other side.
 //
 // The behavioural authority is cwltool's DockerCommandLineJob — create_runtime, add_volumes and
 // get_image — because the specification says almost nothing about how a container is to be started
@@ -41,17 +39,6 @@ const (
 	// containerTmpdir is the container's $TMPDIR, and what runtime.tmpdir evaluates to.
 	containerTmpdir = "/tmp"
 )
-
-// containerRun is the engine subcommand that starts a container.
-const containerRun = "run"
-
-// containerEngine is the program a DockerRequirement is carried out with.
-//
-// It is a constant, and looked up from one, because a program name that has travelled through a
-// struct field is one gosec cannot prove safe to execute. Podman is deliberately out of scope: it
-// is a second runtime for the same argv rather than a second thing to model, and adding it means
-// choosing between them, not teaching this file anything new.
-const containerEngine = "docker"
 
 // containerOutdirLetters is how many random characters [containerOutdir] names a directory with.
 // cwltool's random_outdir uses six.
@@ -103,7 +90,7 @@ type ContainerPolicy struct {
 
 	// NoMatchUser runs the tool as the image's own user rather than as this engine's, which is
 	// cwltool's --no-match-user: "Disable passing the current uid to `docker run --user`". See
-	// [container.userArgs] for what that costs.
+	// [DockerCLIExecutor] for what that costs.
 	NoMatchUser bool
 
 	// NoReadOnly leaves the container's root filesystem writable, which is cwltool's
@@ -144,7 +131,8 @@ type container struct {
 // newContainer resolves a DockerRequirement into the configuration one invocation runs under.
 //
 // It performs no I/O: the image is named, not fetched, so that an argv can be assembled and
-// asserted without a container engine anywhere near. [container.acquire] is the half that needs one.
+// asserted without a container engine anywhere near. [ContainerExecutor.EnsureImage] is the half
+// that needs one.
 func newContainer(
 	declared *cwlcore.DockerRequirement, hostOutdir, hostTmpdir string, policy ContainerPolicy,
 ) *container {
@@ -195,56 +183,33 @@ func (c *container) dirs() error {
 	return os.MkdirAll(c.hostStage, stageDirPerm)
 }
 
-// wrap rewrites a resolved host ProcessSpec into one that runs the same argv inside a container.
-//
-// The redirections are deliberately untouched. [RunProcess] opens them on this host and
-// processStreams.attach hands the [os.File] values to the child, which is now the engine's client
-// rather than the tool; the client passes the container's own standard streams straight through, so
-// the tool's output reaches the same file whether or not a container is in the way. That is also
-// what `-i` is for, and why cwltool passes it: without it the client does not connect a standard
-// input at all, and a tool reading a redirected stdin would see end-of-file.
-//
-// network says whether a NetworkAccess requirement in scope turned outgoing access on. It is a
-// parameter rather than a field because it may be written as an expression over the invocation's
-// inputs, which are not resolved when the container is.
-//
-// The one thing that is weaker through a container is the time limit. [RunProcess] kills the child
-// it started, which is now the engine's client rather than the tool, and killing a client does not
-// by itself stop the container it started; the run is reported as having exceeded its ToolTimeLimit
-// either way, and `--rm` collects the container when it does end — unless [ContainerPolicy.Keep]
-// asked for it to be left there. cwltool is in the same position.
-func (c *container) wrap(spec *ProcessSpec, plan []PathMapping, network bool) *ProcessSpec {
-	argv := []string{containerEngine, containerRun, "-i"}
-	argv = append(argv, c.mounts(plan)...)
-	argv = append(argv, "--workdir="+c.toolOutdir)
-	argv = append(argv, readOnlyModes[c.policy.NoReadOnly]...)
-	argv = append(argv, networkModes[network]...)
-	argv = append(argv, logArgs(spec)...)
-	argv = append(argv, c.userArgs()...)
-	argv = append(argv, removeModes[c.policy.Keep]...)
-	argv = append(argv, envArgs(spec.Env)...)
-	argv = append(argv, c.image)
-	argv = append(argv, spec.argv()...)
-
-	wrapped := *spec
-	wrapped.Command = &CommandLine{Args: plainArgs(argv), Shell: false}
-	wrapped.Env = os.Environ()
-
-	return &wrapped
+// containerSpec builds the structured container description from the resolved configuration and the
+// path map's planned placements.
+func (c *container) containerSpec(plan []PathMapping, network bool) *ContainerSpec {
+	return &ContainerSpec{
+		Image:         c.image,
+		Mounts:        c.containerMounts(plan),
+		WorkDir:       c.toolOutdir,
+		NetworkAccess: network,
+		ReadOnlyRoot:  !c.policy.NoReadOnly,
+		MatchUser:     !c.policy.NoMatchUser,
+		Remove:        !c.policy.Keep,
+		Stdout:        "",
+	}
 }
 
-// mounts derives the bind mounts one invocation needs: the three directories that are mounted
-// whole, and then whatever a planned placement could not be satisfied by.
+// containerMounts derives the bind mounts one invocation needs: the three directories that are
+// mounted whole, and then whatever a planned placement could not be satisfied by.
 //
 // The three come first, as they do in cwltool's create_runtime, so that a placement's own mount is
 // applied over the directory it falls inside rather than under it.
-func (c *container) mounts(plan []PathMapping) []string {
-	args := make([]string, 0, len(plan)+containerWholeMounts)
+func (c *container) containerMounts(plan []PathMapping) []Mount {
+	mounts := make([]Mount, 0, len(plan)+containerWholeMounts)
 
-	args = append(args,
-		mountArg(c.hostOutdir, c.toolOutdir),
-		mountArg(c.hostTmpdir, containerTmpdir),
-		mountArg(c.hostStage, containerStagedir))
+	mounts = append(mounts,
+		Mount{Source: c.hostOutdir, Target: c.toolOutdir, ReadOnly: false},
+		Mount{Source: c.hostTmpdir, Target: containerTmpdir, ReadOnly: false},
+		Mount{Source: c.hostStage, Target: containerStagedir, ReadOnly: false})
 
 	for index := range plan {
 		mapping := &plan[index]
@@ -254,13 +219,15 @@ func (c *container) mounts(plan []PathMapping) []string {
 			continue
 		}
 
-		args = append(args, mountArg(source, mapping.Target, mountModes[mapping.Writable]...))
+		mounts = append(mounts, Mount{
+			Source: source, Target: mapping.Target, ReadOnly: !mapping.Writable,
+		})
 	}
 
-	return args
+	return mounts
 }
 
-// containerWholeMounts is how many directories are mounted whole; see [container.mounts].
+// containerWholeMounts is how many directories are mounted whole; see [container.containerMounts].
 const containerWholeMounts = 3
 
 // mountSource returns the host path one planned placement must be bind-mounted from, and whether it
@@ -299,116 +266,4 @@ func (c *container) encloses(target string) bool {
 	}
 
 	return false
-}
-
-// mountModes maps "the document asked for an entry the tool may modify" onto the options a bind
-// mount for it carries. cwltool's append_volume appends "readonly" unless the entry is writable,
-// and this is that decision as a table rather than as a branch.
-var mountModes = map[bool][]string{true: nil, false: {"readonly"}}
-
-// mountArg renders one bind mount.
-//
-// The `--mount` spelling is cwltool's append_volume, and its comment is the reason: "Unlike
-// `--volume`, `--mount` will fail if the volume doesn't already exist". A mount that fails loudly
-// beats one that quietly invents an empty directory where a staged input was supposed to be.
-//
-// The options are a CSV record, which is how the engine parses them and how cwltool writes them —
-// through csv.writer, so that a path holding a comma or a quote survives.
-func mountArg(source, target string, mode ...string) string {
-	options := append([]string{"type=bind", "source=" + source, "target=" + target}, mode...)
-
-	quoted := make([]string, 0, len(options))
-	for _, option := range options {
-		quoted = append(quoted, csvField(option))
-	}
-
-	return "--mount=" + strings.Join(quoted, ",")
-}
-
-// csvField quotes one field of a CSV record, as encoding/csv would: a field holding a separator or
-// a quote is wrapped in quotes, and its own quotes are doubled.
-func csvField(field string) string {
-	if !strings.ContainsAny(field, `,"`) {
-		return field
-	}
-
-	return `"` + strings.ReplaceAll(field, `"`, `""`) + `"`
-}
-
-// networkModes maps "a NetworkAccess requirement granted outgoing access" onto the arguments that
-// hold the container to the answer.
-//
-// CommandLineTool.yml, NetworkAccess: "Indicate whether a process requires outgoing IPv4/IPv6
-// network access... If networkAccess is false or not specified, tools must not assume network
-// access, except for localhost." cwltool turns "must not assume" into "must not have", appending
-// `--net=none` whenever the requirement is absent or off, and conformance test
-// networkaccess_disabled is a should_fail test that only fails if it is.
-var networkModes = map[bool][]string{true: nil, false: {"--net=none"}}
-
-// readOnlyModes maps [ContainerPolicy.NoReadOnly] onto the argument that holds the container's root
-// filesystem read-only, so that the only writable paths a tool has are the three mounted
-// directories it is supposed to write into. It is cwltool's `--read-only=true` and its
-// --no-read-only opt-out.
-var readOnlyModes = map[bool][]string{true: nil, false: {"--read-only=true"}}
-
-// removeModes maps [ContainerPolicy.Keep] onto the argument that collects the container once the
-// tool has exited. It is cwltool's `--rm` and its --leave-container opt-out.
-//
-// Nothing else collects it: a kept container stays on the machine until somebody removes it, which
-// is what makes this a debugging aid rather than a setting to leave on.
-var removeModes = map[bool][]string{true: nil, false: {"--rm"}}
-
-// logArgs turns off the engine's own log capture when the tool's standard output is already being
-// written to a file, which is cwltool's `--log-driver=none`. Storing every byte a second time in
-// the daemon's log serves nothing, and for a tool whose output *is* its result it can be a lot of
-// bytes.
-func logArgs(spec *ProcessSpec) []string {
-	if spec.Stdout == "" {
-		return nil
-	}
-
-	return []string{"--log-driver=none"}
-}
-
-// userArgs runs the tool as the user that started this engine rather than as the image's own.
-//
-// Without it a tool writing into the mounted output directory leaves files this process cannot read
-// back or delete, because the image's user is usually root and the mount carries its ownership onto
-// this host. cwltool passes `--user=euid:egid` for the same reason, and its opt-out — no_match_user
-// — is the seam an engine offers a caller who wants the image's user honoured instead, which is
-// [ContainerPolicy.NoMatchUser] here.
-func (c *container) userArgs() []string {
-	if c.policy.NoMatchUser {
-		return nil
-	}
-
-	return []string{fmt.Sprintf("--user=%d:%d", os.Geteuid(), os.Getgid())}
-}
-
-// envArgs hands the tool's resolved environment to the container.
-//
-// [ToolEnvironment] has already built the whole of it, so nothing is added here and nothing is
-// inherited: the specification's "new, empty environment" is the same requirement inside a container
-// as outside one, and `docker run` starts from the image's environment plus exactly these.
-func envArgs(env []string) []string {
-	args := make([]string, 0, len(env))
-	for _, variable := range env {
-		args = append(args, "--env="+variable)
-	}
-
-	return args
-}
-
-// plainArgs renders an argument vector as command-line elements no shell will ever see.
-//
-// [Arg.Quote] is meaningless on them: a ShellCommandRequirement's shell is now *inside* the
-// container, spelled out at the front of the tool's own argv by [ProcessSpec.argv], and the engine's
-// client is executed directly.
-func plainArgs(argv []string) []Arg {
-	args := make([]Arg, 0, len(argv))
-	for _, value := range argv {
-		args = append(args, Arg{Value: value, Quote: false})
-	}
-
-	return args
 }

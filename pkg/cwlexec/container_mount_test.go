@@ -47,7 +47,7 @@ func TestContainerBindMountsNeverLandOnASymlink(t *testing.T) {
 	t.Parallel()
 
 	staged := cwlcore.NewInitialWorkDirDirent(&cwlcore.Dirent{
-		Entryname: "/etc/tool.conf",
+		Entryname: ctrAbsoluteEntry,
 		Entry:     cwlcore.Expression(execGreeting),
 	})
 

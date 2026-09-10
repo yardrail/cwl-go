@@ -153,7 +153,7 @@ func TestCollectOutputsSecondaryFileRequiredByExpression(t *testing.T) {
 		Required: cwlcore.NewExprBoolExpression("$(self.nameext == '.bam')"),
 	}))
 
-	_, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	_, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	assertErrorIs(t, "required by expression", err, ErrSecondaryMissing)
 }
@@ -198,7 +198,7 @@ func TestCollectOutputsSecondaryFilesFromAnExpression(t *testing.T) {
 	tool := outTestTool(outSecondaryParam(
 		cwlcore.SecondaryFileSchema{Pattern: "$(self.nameroot + '.idx')"}))
 
-	outputs, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -218,7 +218,7 @@ func TestCollectOutputsSecondaryFilesExpressionReturningAnArrayAndNull(t *testin
 	tool := outTestTool(outSecondaryParam(
 		cwlcore.SecondaryFileSchema{Pattern: "${ return ['one.idx', null, 'two.idx']; }"}))
 
-	outputs, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -240,7 +240,7 @@ func TestCollectOutputsSecondaryFilesExpressionReturningAFileObject(t *testing.T
 	tool := outTestTool(outSecondaryParam(
 		cwlcore.SecondaryFileSchema{Pattern: "${ return {class: 'File', location: '" + outIndexName + "'}; }"}))
 
-	outputs, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -269,7 +269,7 @@ func TestCollectOutputsSecondaryFilesExpressionReturningADirectory(t *testing.T)
 
 	tool := outTestTool(outSecondaryParam(cwlcore.SecondaryFileSchema{Pattern: "$(inputs.aux)"}))
 
-	outputs, err := CollectOutputs(tool, dir, 0, map[string]any{outAuxName: outAuxName},
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, map[string]any{outAuxName: outAuxName},
 		cwlcore.NewEvaluator(), cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -301,7 +301,7 @@ func TestCollectOutputsSecondaryFilesExpressionReturningANumber(t *testing.T) {
 
 	tool := outTestTool(outSecondaryParam(cwlcore.SecondaryFileSchema{Pattern: outRefN}))
 
-	_, err := CollectOutputs(tool, dir, 0, map[string]any{"n": int64(3)},
+	_, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, map[string]any{"n": int64(3)},
 		cwlcore.NewEvaluator(), cwlcore.RuntimeContext{Outdir: dir})
 	assertErrorIs(t, "numeric secondaryFiles", err, ErrSecondaryValue)
 }
@@ -401,7 +401,7 @@ func TestCollectOutputsFormatFromAnExpression(t *testing.T) {
 	param := outTestParam("#tool/result", outTypeFile, outGlobBinding("out.txt"))
 	param.Format = []cwlcore.Expression{"$(inputs.fmt)"}
 
-	outputs, err := CollectOutputs(outTestTool(param), dir, 0,
+	outputs, err := CollectOutputs(outTestTool(param), dir, NewLocalDirFS(dir), 0,
 		map[string]any{"fmt": "http://edamontology.org/format_2330"},
 		cwlcore.NewEvaluator(), cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {

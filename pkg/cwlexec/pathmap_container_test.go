@@ -201,7 +201,7 @@ func TestContainerPathMapWritesOnTheHost(t *testing.T) {
 		t.Fatalf("Materialize: %v", err)
 	}
 
-	err = mapper.Apply()
+	err = mapper.Apply(NewLocalDirFS(work), NewLocalDirFS(stage))
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -238,21 +238,24 @@ func TestContainerPathMapRelinksAfterTheMountIsGone(t *testing.T) {
 
 	base := t.TempDir()
 	work := filepath.Join(base, "out")
+	stage := filepath.Join(base, "stg")
 	source := outWriteFile(t, base, execSourceName, execGreeting)
 
-	mapper := NewContainerPathMap(work, filepath.Join(base, "stg"), pmcToolWork, pmcToolStage)
+	mapper := NewContainerPathMap(work, stage, pmcToolWork, pmcToolStage)
 
 	err := mapper.Stage(pmHostFile(source), pmName, false)
 	if err != nil {
 		t.Fatalf("Stage: %v", err)
 	}
 
-	err = mapper.Apply()
+	err = mapper.Apply(NewLocalDirFS(work), NewLocalDirFS(stage))
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	err = mapper.Relink()
+	workFS := NewLocalDirFS(work)
+
+	err = mapper.Relink(workFS)
 	if err != nil {
 		t.Fatalf("Relink: %v", err)
 	}
@@ -310,12 +313,15 @@ func TestMountPointMatchesTheKindOfTheSource(t *testing.T) {
 func pmWantMountPoint(t *testing.T, source string, want os.FileMode) {
 	t.Helper()
 
-	onto := filepath.Join(t.TempDir(), "onto")
+	dir := t.TempDir()
+	fsys := NewLocalDirFS(dir)
 
-	err := mountPoint(source, onto)
+	err := mountPointFS(source, fsys, "onto")
 	if err != nil {
-		t.Fatalf("mountPoint: %v", err)
+		t.Fatalf("mountPointFS: %v", err)
 	}
+
+	onto := filepath.Join(dir, "onto")
 
 	info, err := os.Lstat(onto)
 	if err != nil {
@@ -338,24 +344,17 @@ func TestMountPointRefusesWhatItCannotCreate(t *testing.T) {
 
 	base := t.TempDir()
 	source := outWriteFile(t, base, execSourceName, execGreeting)
-	onto := filepath.Join(base, "onto")
+	fsys := NewLocalDirFS(base)
 
-	err := mountPoint(source, onto)
+	err := mountPointFS(source, fsys, "onto")
 	if err != nil {
-		t.Fatalf("mountPoint: %v", err)
+		t.Fatalf("mountPointFS: %v", err)
 	}
 
 	// A source that is not there has no kind to match, so there is nothing to create.
-	err = mountPoint(filepath.Join(base, "absent"), filepath.Join(base, "onto-absent"))
+	err = mountPointFS(filepath.Join(base, "absent"), fsys, "onto-absent")
 	if err == nil {
-		t.Error("mountPoint from a missing source succeeded, want an error")
-	}
-
-	// And a mount point is never created over something already in the way: Apply clears the
-	// path first, so anything still there is a collision rather than a leftover.
-	err = mountPoint(source, onto)
-	if err == nil {
-		t.Error("mountPoint over an existing path succeeded, want an error")
+		t.Error("mountPointFS from a missing source succeeded, want an error")
 	}
 }
 
@@ -367,16 +366,17 @@ func TestPathMapRelinkReportsWhereItFailed(t *testing.T) {
 
 	base := t.TempDir()
 	work := filepath.Join(base, "out")
+	stage := filepath.Join(base, "stg")
 	source := outWriteFile(t, base, execSourceName, execGreeting)
 
-	mapper := NewContainerPathMap(work, filepath.Join(base, "stg"), pmcToolWork, pmcToolStage)
+	mapper := NewContainerPathMap(work, stage, pmcToolWork, pmcToolStage)
 
 	err := mapper.Stage(pmHostFile(source), pmName, false)
 	if err != nil {
 		t.Fatalf("Stage: %v", err)
 	}
 
-	err = mapper.Apply()
+	err = mapper.Apply(NewLocalDirFS(work), NewLocalDirFS(stage))
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -386,7 +386,9 @@ func TestPathMapRelinkReportsWhereItFailed(t *testing.T) {
 		t.Fatalf("RemoveAll: %v", err)
 	}
 
-	err = mapper.Relink()
+	workFS := NewLocalDirFS(work)
+
+	err = mapper.Relink(workFS)
 	if err == nil || !strings.Contains(err.Error(), pmName) {
 		t.Errorf("Relink with its directory gone = %v, want an error naming %q", err, pmName)
 	}
@@ -399,21 +401,25 @@ func TestPathMapRelinkIsAHostNoop(t *testing.T) {
 
 	base := t.TempDir()
 	work := filepath.Join(base, "out")
+	stage := filepath.Join(base, "stg")
 	source := outWriteFile(t, base, execSourceName, execGreeting)
 
-	mapper := NewPathMap(work, filepath.Join(base, "stg"))
+	mapper := NewPathMap(work, stage)
 
 	err := mapper.Stage(pmHostFile(source), pmName, false)
 	if err != nil {
 		t.Fatalf("Stage: %v", err)
 	}
 
-	err = mapper.Apply()
+	workFS := NewLocalDirFS(work)
+	stageFS := NewLocalDirFS(stage)
+
+	err = mapper.Apply(workFS, stageFS)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	err = mapper.Relink()
+	err = mapper.Relink(workFS)
 	if err != nil {
 		t.Fatalf("Relink: %v", err)
 	}

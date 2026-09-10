@@ -167,7 +167,7 @@ func TestStageInitialWorkDirKeepsTrailingWhitespace(t *testing.T) {
 		Entry:     "CONFIGVAR=$(inputs.name)\n",
 	}))
 
-	pmWantPlan(t, stgPlan(t, listing, map[string]any{namePort: "hello"}), []PathMapping{
+	pmWantPlan(t, stgPlan(t, listing, map[string]any{namePort: jobHello}), []PathMapping{
 		{Target: "/work/example.conf", Contents: "CONFIGVAR=hello\n", Action: StageWrite},
 	})
 }
@@ -383,8 +383,10 @@ func TestApplyCarriesOutThePlan(t *testing.T) {
 
 	// Applied twice, because a resumed invocation re-runs over a directory a first attempt
 	// half-filled.
+	workFS := NewLocalDirFS(work)
+
 	for attempt := range 2 {
-		err := mapper.Apply()
+		err := mapper.Apply(workFS, workFS)
 		if err != nil {
 			t.Fatalf("Apply attempt %d: %v", attempt, err)
 		}
@@ -448,7 +450,9 @@ func TestApplyFailures(t *testing.T) {
 			mapper := NewPathMap(work, work)
 			mapper.add(&testCase.mapping, nil)
 
-			err := mapper.Apply()
+			wFS := NewLocalDirFS(work)
+
+			err := mapper.Apply(wFS, wFS)
 			if err == nil {
 				t.Error("Apply succeeded, want an error")
 			}
@@ -465,7 +469,9 @@ func TestApplySkipsAValueAlreadyInPlace(t *testing.T) {
 	mapper := NewPathMap(work, work)
 	mapper.add(&PathMapping{Resolved: local, Target: local, Action: StageLink}, nil)
 
-	err := mapper.Apply()
+	wFS := NewLocalDirFS(work)
+
+	err := mapper.Apply(wFS, wFS)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -478,11 +484,13 @@ func TestApplySkipsAValueAlreadyInPlace(t *testing.T) {
 func TestReplaceWithReportsAnUnclearableTarget(t *testing.T) {
 	t.Parallel()
 
-	blocker := outWriteFile(t, t.TempDir(), "blocker", execGreeting)
+	dir := t.TempDir()
+	blocker := outWriteFile(t, dir, "blocker", execGreeting)
+	fsys := NewLocalDirFS(dir)
 
-	err := replaceWith(filepath.Join(blocker, "child"), func() error { return nil })
+	err := replaceWithFS(fsys, "blocker/child", func() error { return nil })
 	if err == nil {
-		t.Error("replaceWith succeeded over a target it could not clear")
+		t.Errorf("replaceWithFS succeeded over a target it could not clear (blocker=%s)", blocker)
 	}
 }
 
@@ -493,18 +501,19 @@ func TestCopyToReportsAnUnwritableTarget(t *testing.T) {
 	dir := t.TempDir()
 	source := outWriteFile(t, dir, execSourceName, execGreeting)
 	locked := stgLockedDir(t, dir, "locked")
+	lockedFS := NewLocalDirFS(locked)
 
-	err := copyTo(source, filepath.Join(locked, "copied"))
+	err := copyToFS(source, lockedFS, "copied")
 	if err == nil {
-		t.Error("copyTo succeeded into a read-only directory")
+		t.Error("copyToFS succeeded into a read-only directory")
 	}
 
 	tree := filepath.Join(dir, stgTreeName)
 	outWriteFile(t, tree, "inner.txt", execGreeting)
 
-	err = copyTo(tree, filepath.Join(locked, stgTreeName))
+	err = copyToFS(tree, lockedFS, stgTreeName)
 	if err == nil {
-		t.Error("copyTo succeeded copying a tree into a read-only directory")
+		t.Error("copyToFS succeeded copying a tree into a read-only directory")
 	}
 }
 
@@ -514,6 +523,7 @@ func TestCopyToReportsAnUnreadableSource(t *testing.T) {
 
 	dir := t.TempDir()
 	tree := filepath.Join(dir, stgTreeName)
+	dirFS := NewLocalDirFS(dir)
 
 	secret := outWriteFile(t, tree, "secret.txt", execGreeting)
 
@@ -524,9 +534,9 @@ func TestCopyToReportsAnUnreadableSource(t *testing.T) {
 
 	t.Cleanup(func() { stgRestore(t, secret, 0o600) })
 
-	err = copyTo(tree, filepath.Join(dir, "copied"))
+	err = copyToFS(tree, dirFS, "copied")
 	if err == nil {
-		t.Error("copyTo succeeded over an unreadable file")
+		t.Error("copyToFS succeeded over an unreadable file")
 	}
 
 	// A directory that cannot even be listed fails before anything is copied out of it.
@@ -537,9 +547,9 @@ func TestCopyToReportsAnUnreadableSource(t *testing.T) {
 		t.Fatalf("making a directory unreadable: %v", err)
 	}
 
-	err = copyTo(tree, filepath.Join(dir, "copied-again"))
+	err = copyToFS(tree, dirFS, "copied-again")
 	if err == nil {
-		t.Error("copyTo succeeded over an unreadable directory")
+		t.Error("copyToFS succeeded over an unreadable directory")
 	}
 }
 
@@ -560,9 +570,11 @@ func TestCopyToReportsADanglingLink(t *testing.T) {
 	}
 
 	// A link to nothing must not become a broken link in the staged copy.
-	err = copyTo(tree, filepath.Join(dir, "copied"))
+	dirFS := NewLocalDirFS(dir)
+
+	err = copyToFS(tree, dirFS, "copied")
 	if err == nil {
-		t.Error("copyTo succeeded over a link to nothing")
+		t.Error("copyToFS succeeded over a link to nothing")
 	}
 }
 

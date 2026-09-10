@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"strings"
 
@@ -53,16 +53,18 @@ var ErrOutputJSON = errors.New("cwl.output.json is not a usable output object")
 // an output object is not one of those. A tool listing ten thousand results writes a megabyte here
 // legitimately.
 func LoadOutputJSON(
-	tool *cwlcore.CommandLineTool, outdir string, inputs map[string]any, opts ...OutputJSONOption,
+	tool *cwlcore.CommandLineTool, outdir string, outfs WriteFS, inputs map[string]any, opts ...OutputJSONOption,
 ) (map[string]any, error) {
 	settings := outputJSONSettings{revmap: nil}
 	for _, opt := range opts {
 		opt(&settings)
 	}
 
-	path := filepath.Join(outdir, OutputJSONFile)
+	if outfs == nil {
+		outfs = NewLocalDirFS(filepath.Clean(outdir))
+	}
 
-	data, err := os.ReadFile(filepath.Clean(path))
+	data, err := fs.ReadFile(outfs, OutputJSONFile)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +78,7 @@ func LoadOutputJSON(
 		revmapObject(object, settings.revmap)
 	}
 
-	return bindOutputJSON(newOutputCollector(tool, outdir, inputs), object)
+	return bindOutputJSON(newOutputCollector(tool, outdir, outfs, inputs), object)
 }
 
 // OutputJSONOption adjusts how [LoadOutputJSON] reads the file.

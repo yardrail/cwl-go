@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -573,12 +572,16 @@ func outMisnamed(local, basename string) string {
 // it would take it away from whoever else is still using it under its real name.
 func (c *outputCollector) moveTo(source, target string) (string, error) {
 	if outWithinDir(c.outdir, source) {
-		return target, outMoveError(os.Rename(source, target), source, target)
+		relOld := c.relOutPath(source)
+		relNew := c.relOutPath(target)
+
+		return target, outMoveError(c.outfs.Rename(relOld, relNew), source, target)
 	}
 
 	inside := filepath.Join(c.outdir, filepath.Base(target))
+	relInside := c.relOutPath(inside)
 
-	return inside, outMoveError(copyTo(source, inside), source, inside)
+	return inside, outMoveError(copyToFS(source, c.outfs, relInside), source, inside)
 }
 
 // outMoveError names the move a failure was reported for, and passes a success through untouched.

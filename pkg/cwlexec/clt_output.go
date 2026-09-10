@@ -76,14 +76,14 @@ const (
 // applies it: the specification makes the exit code available to outputEval precisely so that a
 // tool may report a meaningful non-zero status and still describe its outputs, so collection cannot
 // be conditional on the classification.
-func CollectOutputs(tool *cwlcore.CommandLineTool, outdir string, exitCode int,
+func CollectOutputs(tool *cwlcore.CommandLineTool, outdir string, outfs WriteFS, exitCode int,
 	inputs map[string]any, eval *cwlcore.Evaluator, rt cwlcore.RuntimeContext,
 ) (map[string]any, error) {
 	if !filepath.IsAbs(outdir) {
 		return nil, fmt.Errorf("%w: %q", ErrOutputDir, outdir)
 	}
 
-	collector := newOutputCollector(tool, outdir, inputs)
+	collector := newOutputCollector(tool, outdir, outfs, inputs)
 	collector.eval = eval
 	collector.runtime = rt
 	collector.exitCode = exitCode
@@ -227,6 +227,9 @@ type outputCollector struct {
 	// outdir is the cleaned absolute output directory.
 	outdir string
 
+	// outfs is the filesystem backing outdir, used for all I/O operations.
+	outfs WriteFS
+
 	// outroot is outdir with its symlinks resolved, which is the form a resolved symlink target
 	// has to be compared against; see [outputCollector.checkRetrievable].
 	outroot string
@@ -245,11 +248,15 @@ type outputCollector struct {
 //
 // outdir need not be clean; the collector's is.
 func newOutputCollector(
-	tool *cwlcore.CommandLineTool, outdir string, inputs map[string]any,
+	tool *cwlcore.CommandLineTool, outdir string, outfs WriteFS, inputs map[string]any,
 ) *outputCollector {
 	dir := filepath.Clean(outdir)
 	rendered := outExpressionObject(inputs)
 	scope := cwlcore.NewScope(tool)
+
+	if outfs == nil {
+		outfs = NewLocalDirFS(dir)
+	}
 
 	return &outputCollector{
 		tool:   tool,
@@ -267,9 +274,20 @@ func newOutputCollector(
 			Tmpdir:     "",
 		},
 		outdir:   dir,
+		outfs:    outfs,
 		outroot:  outResolvePath(dir),
 		exitCode: 0,
 	}
+}
+
+// relOutPath converts an absolute host path to a relative path within the output directory.
+func (c *outputCollector) relOutPath(local string) string {
+	rel, err := filepath.Rel(c.outdir, local)
+	if err != nil {
+		return local
+	}
+
+	return filepath.ToSlash(rel)
 }
 
 // context builds the evaluation context for an expression outside outputEval, with self bound to

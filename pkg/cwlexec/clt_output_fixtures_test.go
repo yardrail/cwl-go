@@ -170,7 +170,7 @@ func outWriteFile(t *testing.T, dir, name, content string) string {
 func outCollect(t *testing.T, tool *cwlcore.CommandLineTool, outdir string, exitCode int) map[string]any {
 	t.Helper()
 
-	outputs, err := CollectOutputs(tool, outdir, exitCode, nil, cwlcore.NewEvaluator(),
+	outputs, err := CollectOutputs(tool, outdir, NewLocalDirFS(outdir), exitCode, nil, cwlcore.NewEvaluator(),
 		cwlcore.RuntimeContext{Outdir: outdir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -183,7 +183,7 @@ func outCollect(t *testing.T, tool *cwlcore.CommandLineTool, outdir string, exit
 func outCollectErr(t *testing.T, tool *cwlcore.CommandLineTool, outdir string) error {
 	t.Helper()
 
-	_, err := CollectOutputs(tool, outdir, 0, nil, cwlcore.NewEvaluator(),
+	_, err := CollectOutputs(tool, outdir, NewLocalDirFS(outdir), 0, nil, cwlcore.NewEvaluator(),
 		cwlcore.RuntimeContext{Outdir: outdir})
 	if err == nil {
 		t.Fatal("CollectOutputs succeeded, want an error")

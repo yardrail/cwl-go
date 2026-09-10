@@ -47,7 +47,7 @@ func TestExpressionToolSuccess(t *testing.T) {
 			expr:  `${return {"out": "hello"};}`,
 			outs:  []string{outID},
 			scope: jsScope(nil),
-			want:  map[string]any{outPort: "hello"},
+			want:  map[string]any{outPort: jobHello},
 		},
 		{
 			name:  "expressionLib is in scope",

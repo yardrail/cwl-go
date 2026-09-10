@@ -28,13 +28,13 @@ func ojLoad(t *testing.T, outdir, body string) (map[string]any, error) {
 	outWriteFile(t, outdir, OutputJSONFile, body)
 	outWriteFile(t, outdir, ojMadeName, execGreeting)
 
-	return LoadOutputJSON(ojTool(), outdir, nil)
+	return LoadOutputJSON(ojTool(), outdir, NewLocalDirFS(outdir), nil)
 }
 
 func TestLoadOutputJSONIsAbsentByDefault(t *testing.T) {
 	t.Parallel()
 
-	_, err := LoadOutputJSON(ojTool(), t.TempDir(), nil)
+	_, err := LoadOutputJSON(ojTool(), t.TempDir(), nil, nil)
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("LoadOutputJSON: error %v does not wrap fs.ErrNotExist", err)
 	}
@@ -98,7 +98,7 @@ func TestLoadOutputJSONKeepsIntegersIntegral(t *testing.T) {
 	outWriteFile(t, outdir, OutputJSONFile,
 		`{"out": [3, 1.5, `+outBigInteger+`, 1e999, 1e99999999]}`)
 
-	outputs, err := LoadOutputJSON(tool, outdir, nil)
+	outputs, err := LoadOutputJSON(tool, outdir, NewLocalDirFS(outdir), nil)
 	if err != nil {
 		t.Fatalf("LoadOutputJSON: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestLoadOutputJSONCompletesADirectoryListing(t *testing.T) {
 
 	tool := execTool(nil, outTestParam(execOutID, outTypeDirectory, nil))
 
-	outputs, err := LoadOutputJSON(tool, outdir, nil)
+	outputs, err := LoadOutputJSON(tool, outdir, NewLocalDirFS(outdir), nil)
 	if err != nil {
 		t.Fatalf("LoadOutputJSON: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestLoadOutputJSONAcceptsAPathAnInputOccupies(t *testing.T) {
 	// paramref_arguments_roundtrip: a tool handed a File and asked to echo it back names the input
 	// where it really lives. That is outside the output directory and is not an escape, which is
 	// why the check draws on the invocation's inputs rather than on the directory alone.
-	outputs, err := LoadOutputJSON(ojTool(), outdir,
+	outputs, err := LoadOutputJSON(ojTool(), outdir, NewLocalDirFS(outdir),
 		map[string]any{"f": &cwlcore.File{Path: input, Basename: "whale.txt"}})
 	if err != nil {
 		t.Fatalf("LoadOutputJSON: %v", err)

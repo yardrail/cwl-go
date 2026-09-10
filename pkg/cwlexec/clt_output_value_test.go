@@ -19,7 +19,7 @@ func TestOutputEvalReturningANestedStructure(t *testing.T) {
 
 	tool := outTestTool(outTestParam("#tool/report", cwlcore.TypeRef{}, binding))
 
-	outputs, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -60,7 +60,7 @@ func TestOutputEvalReturningADirectoryWithAListing(t *testing.T) {
 
 	tool := outTestTool(outTestParam("#tool/d", outTypeDirectory, binding))
 
-	outputs, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -96,7 +96,7 @@ func TestOutputEvalReturningABadListingEntry(t *testing.T) {
 
 	tool := outTestTool(outTestParam("#tool/d", outTypeDirectory, binding))
 
-	_, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	_, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	assertErrorIs(t, "numeric listing entry", err, ErrFilesystemEntry)
 }
@@ -112,7 +112,7 @@ func TestSecondaryFilesWithABadNestedEntry(t *testing.T) {
 		Pattern: "${ return {class: 'File', location: '" + outIndexName + "', secondaryFiles: [3]}; }",
 	}))
 
-	_, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	_, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	assertErrorIs(t, "numeric nested entry", err, ErrFilesystemEntry)
 }
@@ -130,7 +130,7 @@ func TestOutputEvalKeepsAChecksumTheExpressionSupplied(t *testing.T) {
 
 	tool := outTestTool(outTestParam("#tool/f", outTypeFile, binding))
 
-	outputs, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -260,7 +260,7 @@ func TestOutputEvalFailingInsideAListAndAnObject(t *testing.T) {
 			binding := &cwlcore.CommandOutputBinding{OutputEval: cwlcore.Expression(expr)}
 			tool := outTestTool(outTestParam("#tool/x", cwlcore.TypeRef{}, binding))
 
-			_, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+			_, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 				cwlcore.RuntimeContext{Outdir: dir})
 			assertErrorIs(t, name, err, ErrFilesystemEntry)
 		})
@@ -277,7 +277,7 @@ func TestOutputEvalReturningAFileLiteral(t *testing.T) {
 	}
 	tool := outTestTool(outTestParam("#tool/f", outTypeFile, binding))
 
-	outputs, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -301,7 +301,7 @@ func TestOutputEvalReturningARemoteFile(t *testing.T) {
 	}
 	tool := outTestTool(outTestParam("#tool/f", outTypeFile, binding))
 
-	outputs, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -332,7 +332,7 @@ func TestOutputEvalReturningANestedDirectoryInAListing(t *testing.T) {
 	}
 	tool := outTestTool(outTestParam("#tool/d", outTypeDirectory, binding))
 
-	outputs, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -383,7 +383,7 @@ func TestRequiredOutputWithNoGlobAtAll(t *testing.T) {
 
 // relTestCollector builds a collector rooted at dir, which is all [outputCollector.relocate] reads.
 func relTestCollector(dir string) *outputCollector {
-	return newOutputCollector(outTestTool(), dir, nil)
+	return newOutputCollector(outTestTool(), dir, NewLocalDirFS(dir), nil)
 }
 
 // relFile builds a File value naming local under the given basename, the way an expression that
@@ -625,7 +625,7 @@ func TestCollectOutputsReportsARenameItCannotPerform(t *testing.T) {
 		Path: filepath.Join(dir, outMissingName), Basename: outNameB,
 	}}
 
-	_, err := CollectOutputs(tool, dir, 0, inputs, cwlcore.NewEvaluator(),
+	_, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, inputs, cwlcore.NewEvaluator(),
 		cwlcore.RuntimeContext{Outdir: dir})
 	assertErrorIs(t, "CollectOutputs", err, ErrOutputRename)
 }

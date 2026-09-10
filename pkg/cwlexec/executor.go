@@ -27,16 +27,34 @@ type ContainerExecutor interface {
 	// It is called once per image per run, before the first invocation that needs it.
 	EnsureImage(ctx context.Context, req *cwlcore.DockerRequirement) error
 
-	// Run executes a tool inside a container described by ctr and returns its exit code.
-	//
-	// spec is the unwrapped tool command: the argv the tool itself sees, the environment the CWL
-	// specification prescribes, and the stream redirections resolved onto this host. The executor
-	// is responsible for connecting those streams — spec.Stdin, spec.Stdout, spec.Stderr name
-	// files on this host that must be opened and wired to the containerised process.
+	// NewInvocation creates the working environment for one tool execution. cwl-go stages inputs
+	// into it, runs the tool, then reads outputs from it. The caller must call [Invocation.Close]
+	// when finished.
+	NewInvocation(ctx context.Context, ctr *ContainerSpec) (Invocation, error)
+}
+
+// Invocation represents one tool execution's working environment. The executor creates it; cwl-go
+// stages inputs into its filesystems, runs the tool, then reads outputs from them.
+type Invocation interface {
+	// StageFS returns the writable filesystem for staging inputs. The executor ensures it is
+	// visible inside the container.
+	StageFS() WriteFS
+
+	// OutFS returns the writable filesystem for the output directory.
+	OutFS() WriteFS
+
+	// TmpFS returns the writable filesystem for the temporary directory.
+	TmpFS() WriteFS
+
+	// Run executes the tool process and returns its exit code. By the time this is called, cwl-go
+	// has finished writing to [StageFS].
 	//
 	// A non-zero exit code is not an error; exit-code classification is the caller's concern. An
 	// error is returned only when the container could not be created, started or waited for.
-	Run(ctx context.Context, ctr *ContainerSpec, spec *ProcessSpec) (int, error)
+	Run(ctx context.Context, spec *ProcessSpec) (int, error)
+
+	// Close releases all resources (removes scratch dirs, unmounts filesystems, etc).
+	Close() error
 }
 
 // ContainerSpec is the structured description of one container invocation: everything a

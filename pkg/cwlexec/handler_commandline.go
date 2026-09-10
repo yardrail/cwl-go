@@ -66,14 +66,25 @@ func runCommandLineTool(ctx context.Context, call *StepCall) (Result, error) {
 		return PermanentFail(err)
 	}
 
-	defer run.closeInvocation()
+	result, runErr := runAndClose(ctx, call, run)
 
-	err = run.prepare(ctx)
+	return result, runErr
+}
+
+func runAndClose(ctx context.Context, call *StepCall, run *invocation) (Result, error) {
+	err := run.prepare(ctx)
 	if err != nil {
-		return PermanentFail(fmt.Errorf("%s: %w", describe(call), err))
+		closeErr := run.closeInvocation()
+
+		result, prepErr := PermanentFail(fmt.Errorf("%s: %w", describe(call), err))
+
+		return result, errors.Join(prepErr, closeErr)
 	}
 
-	return run.execute(ctx)
+	result, execErr := run.execute(ctx)
+	closeErr := run.closeInvocation()
+
+	return result, errors.Join(execErr, closeErr)
 }
 
 // invocation is the resolved context of one CommandLineTool run: the directories it works in, the
@@ -484,24 +495,19 @@ func (i *invocation) spec() (*ProcessSpec, error) {
 }
 
 // closeInvocation releases the resources the invocation holds. For container tools it also removes
-// the scratch tmpdir if one was auto-allocated. It logs a warning rather than returning an error,
-// matching the deferred cleanup pattern.
-func (i *invocation) closeInvocation() {
+// the scratch tmpdir if one was auto-allocated.
+func (i *invocation) closeInvocation() error {
 	if i.inv == nil {
-		return
+		return nil
 	}
 
-	err := i.inv.Close()
-	if err != nil {
-		i.call.Log().Warn("could not close invocation", "err", err)
-	}
+	closeErr := i.inv.Close()
 
 	if i.box != nil && i.call.TmpDir == "" && i.tmpdir != "" {
-		err := os.RemoveAll(i.tmpdir)
-		if err != nil {
-			i.call.Log().Warn("could not remove the scratch directory", "dir", i.tmpdir, "err", err)
-		}
+		closeErr = errors.Join(closeErr, os.RemoveAll(i.tmpdir))
 	}
+
+	return closeErr
 }
 
 // redirect resolves the three standard-stream redirections onto a spec.

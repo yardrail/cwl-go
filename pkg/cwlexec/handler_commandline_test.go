@@ -713,6 +713,7 @@ func TestCommandLineToolReportsContainerFailures(t *testing.T) {
 			t.Parallel()
 
 			call := execCall(t, execTool([]string{execTrue}))
+			call.ContainerExecutor = NewDockerCLIExecutor()
 			testCase.prepare(t, call)
 
 			if got := execFail(t, call, testCase.want); got != StatusPermanentFail {

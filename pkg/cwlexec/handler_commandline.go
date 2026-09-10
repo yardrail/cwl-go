@@ -106,11 +106,6 @@ func newInvocation(call *StepCall) (*invocation, error) {
 		return nil, fmt.Errorf("%w: %s is not a CommandLineTool", ErrWrongProcessClass, describe(call))
 	}
 
-	executor := call.ContainerExecutor
-	if executor == nil {
-		executor = NewDockerCLIExecutor()
-	}
-
 	run := &invocation{
 		call:     call,
 		tool:     tool,
@@ -119,7 +114,7 @@ func newInvocation(call *StepCall) (*invocation, error) {
 		inputs:   nil,
 		docker:   nil,
 		box:      nil,
-		executor: executor,
+		executor: call.ContainerExecutor,
 		runtime: cwlcore.RuntimeContext{
 			Cores:      nil,
 			RAM:        nil,
@@ -169,6 +164,10 @@ func (i *invocation) useContainer() error {
 	}
 
 	if i.call.Containers.Disabled {
+		return i.declineContainer(origin)
+	}
+
+	if i.executor == nil {
 		return i.declineContainer(origin)
 	}
 

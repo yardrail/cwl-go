@@ -18,8 +18,10 @@ import (
 // service — injects its own through [Config.ContainerExecutor].
 
 // ContainerExecutor runs a tool inside a software container. The consumer injects an implementation
-// via [Config.ContainerExecutor]; nil falls back to [DockerCLIExecutor], preserving the existing
-// subprocess behaviour.
+// via [Config.ContainerExecutor]; nil means no executor is configured, and a DockerRequirement
+// declared as a hint is declined while one under requirements is refused with
+// [ErrUnsupportedFeature]. Use [NewDockerCLIExecutor] for the default Docker CLI subprocess
+// behaviour.
 type ContainerExecutor interface {
 	// EnsureImage makes the image a [cwlcore.DockerRequirement] names available for execution.
 	// It is called once per image per run, before the first invocation that needs it.

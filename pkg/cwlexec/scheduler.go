@@ -78,8 +78,10 @@ type Config struct {
 	// OnError says what happens when a step fails; see [OnErrorStop].
 	OnError OnError
 
-	// ContainerExecutor runs tools inside software containers. Nil falls back to
-	// [DockerCLIExecutor], preserving the existing subprocess behaviour.
+	// ContainerExecutor runs tools inside software containers. Nil means no executor is
+	// configured: a DockerRequirement declared as a hint is declined, and one declared under
+	// requirements is refused with [ErrUnsupportedFeature]. Use [NewDockerCLIExecutor] for the
+	// default Docker CLI subprocess behaviour.
 	ContainerExecutor ContainerExecutor
 
 	// Containers is the caller's software-container policy, passed on to each handler through
@@ -202,10 +204,6 @@ func NewRunner(ctx context.Context, process cwlcore.Process, registry *Registry,
 	}
 	if cfg != nil {
 		settings = *cfg
-	}
-
-	if settings.ContainerExecutor == nil {
-		settings.ContainerExecutor = NewDockerCLIExecutor()
 	}
 
 	analysed, err := newPlan(ctx, process, &settings)

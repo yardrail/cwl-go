@@ -22,6 +22,7 @@ func ctrRunCall(t *testing.T, tool *cwlcore.CommandLineTool,
 	t.Helper()
 
 	call := execCall(t, tool)
+	call.ContainerExecutor = NewDockerCLIExecutor()
 	call.Requirements = execScope(append([]cwlcore.ProcessRequirement{declared}, extra...)...)
 
 	return call

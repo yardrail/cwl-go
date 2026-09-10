@@ -104,7 +104,7 @@ func execute(
 		OutDir:            outDir,
 		TmpDirPrefix:      "",
 		OnError:           "",
-		ContainerExecutor: nil,
+		ContainerExecutor: cwlexec.NewDockerCLIExecutor(),
 		Containers: cwlexec.ContainerPolicy{
 			Disabled:    false,
 			NoMatchUser: false,

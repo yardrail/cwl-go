@@ -317,15 +317,25 @@ func TestLoadListingDefaultIgnoresAnUntypedRequirement(t *testing.T) {
 	}
 }
 
-func TestDiscardScratchReportsAFailureWithoutFailingTheRun(t *testing.T) {
+func TestCloseInvocationReportsCleanupFailures(t *testing.T) {
 	t.Parallel()
 
 	blocker := outWriteFile(t, t.TempDir(), "blocker", execGreeting)
-	run := &invocation{call: execCall(t, nil), scratch: filepath.Join(blocker, "child")}
 
-	// A scratch directory that will not go away is worth saying so about; it is not worth
-	// failing a tool that has already produced its outputs.
-	run.discardScratch()
+	local, err := newLocalInvocation("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Override the scratch path with an unremovable one.
+	local.scratch = filepath.Join(blocker, "child")
+
+	run := &invocation{call: execCall(t, nil), inv: local}
+
+	closeErr := run.closeInvocation()
+	if closeErr == nil {
+		t.Error("closeInvocation succeeded over a scratch directory it could not remove")
+	}
 }
 
 // direntRequirement builds an InitialWorkDirRequirement staging one text Dirent.

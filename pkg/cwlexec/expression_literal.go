@@ -99,7 +99,9 @@ func writeExpressionLiterals(
 		}
 	}
 
-	err = mapper.Apply()
+	outFS := NewLocalDirFS(outdir)
+
+	err = mapper.Apply(outFS, outFS)
 	if err != nil {
 		return nil, err
 	}

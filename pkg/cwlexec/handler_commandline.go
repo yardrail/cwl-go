@@ -66,14 +66,25 @@ func runCommandLineTool(ctx context.Context, call *StepCall) (Result, error) {
 		return PermanentFail(err)
 	}
 
-	defer run.discardScratch()
+	result, runErr := runAndClose(ctx, call, run)
 
-	err = run.prepare(ctx)
+	return result, runErr
+}
+
+func runAndClose(ctx context.Context, call *StepCall, run *invocation) (Result, error) {
+	err := run.prepare(ctx)
 	if err != nil {
-		return PermanentFail(fmt.Errorf("%s: %w", describe(call), err))
+		closeErr := run.closeInvocation()
+
+		result, prepErr := PermanentFail(fmt.Errorf("%s: %w", describe(call), err))
+
+		return result, errors.Join(prepErr, closeErr)
 	}
 
-	return run.execute(ctx)
+	result, execErr := run.execute(ctx)
+	closeErr := run.closeInvocation()
+
+	return result, errors.Join(execErr, closeErr)
 }
 
 // invocation is the resolved context of one CommandLineTool run: the directories it works in, the
@@ -87,10 +98,10 @@ type invocation struct {
 	docker   *cwlcore.DockerRequirement
 	box      *container
 	executor ContainerExecutor
+	inv      Invocation
 	runtime  cwlcore.RuntimeContext
 	outdir   string
 	tmpdir   string
-	scratch  string
 
 	// absolute records that a listing entry may name a target outside the working directory,
 	// which a DockerRequirement in *requirements* is what licenses. See
@@ -106,7 +117,30 @@ func newInvocation(call *StepCall) (*invocation, error) {
 		return nil, fmt.Errorf("%w: %s is not a CommandLineTool", ErrWrongProcessClass, describe(call))
 	}
 
-	run := &invocation{
+	docker, absolute, err := resolveDocker(call)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", describe(call), err)
+	}
+
+	if docker != nil {
+		return newContainedInvocation(call, tool, docker, absolute)
+	}
+
+	return newHostInvocation(call, tool)
+}
+
+// newHostInvocation constructs an invocation for a tool running on this host (no container).
+func newHostInvocation(call *StepCall, tool *cwlcore.CommandLineTool) (*invocation, error) {
+	local, err := newLocalInvocation(call.OutDir, call.TmpDir)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", describe(call), err)
+	}
+
+	rt := call.RuntimeContext()
+	rt.Outdir = local.OutDir()
+	rt.Tmpdir = local.TmpDir()
+
+	return &invocation{
 		call:     call,
 		tool:     tool,
 		eval:     call.Evaluator(),
@@ -115,63 +149,81 @@ func newInvocation(call *StepCall) (*invocation, error) {
 		docker:   nil,
 		box:      nil,
 		executor: call.ContainerExecutor,
-		runtime: cwlcore.RuntimeContext{
-			Cores:      nil,
-			RAM:        nil,
-			OutdirSize: nil,
-			TmpdirSize: nil,
-			ExitCode:   nil,
-			Outdir:     "",
-			Tmpdir:     "",
-		},
-		outdir:   "",
-		tmpdir:   "",
-		scratch:  "",
+		inv:      local,
+		runtime:  rt,
+		outdir:   local.OutDir(),
+		tmpdir:   local.TmpDir(),
 		absolute: false,
-	}
-
-	err := run.makeDirs()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", describe(call), err)
-	}
-
-	run.runtime = call.RuntimeContext()
-	run.runtime.Outdir, run.runtime.Tmpdir = run.outdir, run.tmpdir
-
-	err = run.useContainer()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", describe(call), err)
-	}
-
-	return run, nil
+	}, nil
 }
 
-// useContainer settles whether the tool runs in a container, and if it does, moves the runtime
-// context onto the paths it will see.
+// newContainedInvocation constructs an invocation for a tool running inside a container. It
+// allocates the host directories and builds the container struct; the [Invocation] itself is created
+// later in [invocation.createContainerInvocation] once the staging plan is ready.
+func newContainedInvocation(
+	call *StepCall, tool *cwlcore.CommandLineTool,
+	docker *cwlcore.DockerRequirement, absolute bool,
+) (*invocation, error) {
+	outdir, err := ensureDir(call.OutDir, "cwl-out-")
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", describe(call), err)
+	}
+
+	tmpdir, err := ensureDir(call.TmpDir, "cwl-tmp-")
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", describe(call), err)
+	}
+
+	box := newContainer(docker, outdir, tmpdir, call.Containers)
+
+	err = box.dirs()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", describe(call), err)
+	}
+
+	rt := call.RuntimeContext()
+	rt.Outdir = box.toolOutdir
+	rt.Tmpdir = containerTmpdir
+
+	return &invocation{
+		call:     call,
+		tool:     tool,
+		eval:     call.Evaluator(),
+		mapper:   nil,
+		inputs:   nil,
+		docker:   docker,
+		box:      box,
+		executor: call.ContainerExecutor,
+		inv:      nil,
+		runtime:  rt,
+		outdir:   outdir,
+		tmpdir:   tmpdir,
+		absolute: absolute,
+	}, nil
+}
+
+// resolveDocker decides whether a DockerRequirement is in scope, whether it should be honoured, and
+// returns the requirement and whether absolute entrynames are allowed.
 //
-// A caller may have asked for no containers at all, which is [ContainerPolicy.Disabled]; that answer
-// is [invocation.declineContainer]'s, and it is not always "run it here".
-//
-// Moving them is the whole of what the rest of the handler needs to know. runtime.outdir and
-// runtime.tmpdir are what the document's own expressions read, and a tool inside a container must be
-// told the directories *it* has, not the ones this process allocated for it: an argv built from
-// $(runtime.outdir), a HOME and a TMPDIR, a glob pattern. Everything that touches a real file goes
-// on using the invocation's own outdir and tmpdir, which are the host side of the same two mounts.
-func (i *invocation) useContainer() error {
-	declared, origin, found := dockerRequirement(i.call.Requirements)
+// A nil return means the tool runs on this host. A non-nil return means it runs in a container. An
+// error means a requirement is in scope but cannot be honoured (containers disabled for a
+// requirement-level declaration).
+func resolveDocker(
+	call *StepCall,
+) (*cwlcore.DockerRequirement, bool, error) {
+	declared, origin, found := dockerRequirement(call.Requirements)
 	if !found {
-		return nil
+		return nil, false, nil
 	}
 
-	if i.call.Containers.Disabled {
-		return i.declineContainer(origin)
+	if call.Containers.Disabled || call.ContainerExecutor == nil {
+		return nil, false, declineContainer(call, origin)
 	}
 
-	if i.executor == nil {
-		return i.declineContainer(origin)
-	}
+	call.Log().Debug("running in a container", "step", call.StepID,
+		"image", imageReference(declared), "origin", origin)
 
-	return i.enterContainer(declared, origin)
+	return declared, origin == cwlcore.OriginRequirements, nil
 }
 
 // declineContainer settles what a DockerRequirement means to a caller who asked for no containers.
@@ -188,34 +240,14 @@ func (i *invocation) useContainer() error {
 // cwltool raises UnsupportedRequirement — "--no-container, but this CommandLineTool has
 // DockerRequirement under 'requirements'" — which is its exit status 33, so [ErrUnsupportedFeature]
 // is both the matching verdict and the same status out of cmd/cwl-run.
-func (i *invocation) declineContainer(origin cwlcore.RequirementOrigin) error {
+func declineContainer(call *StepCall, origin cwlcore.RequirementOrigin) error {
 	if origin == cwlcore.OriginRequirements {
 		return fmt.Errorf("%w: containers are disabled, but %s is declared under requirements",
 			ErrUnsupportedFeature, cwlcore.ClassDockerRequirement)
 	}
 
-	i.call.Log().Debug("containers are disabled; declining the DockerRequirement hint",
-		"step", i.call.StepID, "origin", origin)
-
-	return nil
-}
-
-// enterContainer resolves the DockerRequirement into the container this invocation runs in, and
-// moves the runtime context onto the paths the tool will see.
-func (i *invocation) enterContainer(declared *cwlcore.DockerRequirement, origin cwlcore.RequirementOrigin) error {
-	i.docker = declared
-	i.box = newContainer(declared, i.outdir, i.tmpdir, i.call.Containers)
-	i.absolute = origin == cwlcore.OriginRequirements
-
-	err := i.box.dirs()
-	if err != nil {
-		return err
-	}
-
-	i.call.Log().Debug("running in a container", "step", i.call.StepID,
-		"image", i.box.image, "outdir", i.box.toolOutdir, "origin", origin)
-
-	i.runtime.Outdir, i.runtime.Tmpdir = i.box.toolOutdir, containerTmpdir
+	call.Log().Debug("containers are disabled; declining the DockerRequirement hint",
+		"step", call.StepID, "origin", origin)
 
 	return nil
 }
@@ -250,63 +282,6 @@ func dockerRequirement(
 	return typed, origin, ok
 }
 
-// makeDirs creates the invocation's output and scratch directories.
-//
-// [StepCall.OutDir] and [StepCall.TmpDir] are paths, not directories: the scheduler derives them so
-// they are stable across a resume and leaves creating them to whoever knows whether they are needed.
-// A call that carries neither — a bare tool run through a zero Config — gets temporary directories
-// instead, and the scratch one is removed when the invocation ends. The output directory is never
-// removed: the outputs are in it.
-func (i *invocation) makeDirs() error {
-	outdir, err := ensureDir(i.call.OutDir, "cwl-out-")
-	if err != nil {
-		return err
-	}
-
-	i.outdir = outdir
-
-	tmpdir, err := ensureDir(i.call.TmpDir, "cwl-tmp-")
-	if err != nil {
-		return err
-	}
-
-	i.tmpdir = tmpdir
-
-	if i.call.TmpDir == "" {
-		i.scratch = tmpdir
-	}
-
-	return nil
-}
-
-// ensureDir creates the directory at an allocated path, or a fresh temporary one when no path was
-// allocated, and returns it. An allocated path must be absolute; see [ErrInvocationDir].
-func ensureDir(path, prefix string) (string, error) {
-	if path == "" {
-		return os.MkdirTemp("", prefix)
-	}
-
-	if !filepath.IsAbs(path) {
-		return "", fmt.Errorf("%w: %q", ErrInvocationDir, path)
-	}
-
-	return path, os.MkdirAll(path, stageDirPerm)
-}
-
-// discardScratch removes a temporary scratch directory this invocation created for itself. A
-// scheduler-allocated one is left alone: it is addressed by a stable path a resumed invocation
-// expects to find again, and its lifetime is the scheduler's to decide.
-func (i *invocation) discardScratch() {
-	if i.scratch == "" {
-		return
-	}
-
-	err := os.RemoveAll(i.scratch)
-	if err != nil {
-		i.call.Log().Warn("could not remove the scratch directory", "dir", i.scratch, "err", err)
-	}
-}
-
 // prepare fills the working directory and relocates the input object onto what it now contains.
 //
 // The order is forced. Literals are materialized first because a file literal has no path at all
@@ -332,7 +307,12 @@ func (i *invocation) prepare(ctx context.Context) error {
 		return err
 	}
 
-	err = i.mapper.Apply()
+	err = i.createContainerInvocation(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = i.mapper.Apply(i.inv.OutFS(), i.inv.StageFS())
 	if err != nil {
 		return err
 	}
@@ -342,10 +322,35 @@ func (i *invocation) prepare(ctx context.Context) error {
 	return nil
 }
 
+// createContainerInvocation calls [ContainerExecutor.NewInvocation] with the full [ContainerSpec]
+// including plan-derived mounts. For non-container tools the [Invocation] was already set in
+// [newHostInvocation].
+func (i *invocation) createContainerInvocation(ctx context.Context) error {
+	if i.docker == nil {
+		return nil
+	}
+
+	network, err := ToolNetworkAccess(i.call.Requirements, i.call.Inputs, i.eval, i.runtime)
+	if err != nil {
+		return err
+	}
+
+	ctr := i.box.containerSpec(i.mapper.Plan(), network)
+
+	inv, err := i.executor.NewInvocation(ctx, ctr)
+	if err != nil {
+		return err
+	}
+
+	i.inv = inv
+
+	return nil
+}
+
 // acquireImage makes the container image available, and does nothing at all when the tool runs on
 // this host.
 func (i *invocation) acquireImage(ctx context.Context) error {
-	if i.box == nil {
+	if i.docker == nil || i.executor == nil {
 		return nil
 	}
 
@@ -418,7 +423,7 @@ func (i *invocation) execute(ctx context.Context) (Result, error) {
 
 	i.call.Log().Debug("running tool", "step", i.call.StepID, "argv", spec.argv(), "dir", spec.Dir)
 
-	code, err := i.run(ctx, spec)
+	code, err := i.inv.Run(ctx, spec)
 	if err != nil {
 		return PermanentFail(fmt.Errorf("%s: %w", describe(i.call), err))
 	}
@@ -426,7 +431,7 @@ func (i *invocation) execute(ctx context.Context) (Result, error) {
 	// The container is gone by here, and with it the mounts that stood in for the links a
 	// contained invocation could not stage. Restoring them before anything reads the directory
 	// is what makes output collection see the same filesystem either way.
-	err = i.mapper.Relink()
+	err = i.mapper.Relink(i.inv.OutFS(), i.inv.StageFS())
 	if err != nil {
 		return PermanentFail(fmt.Errorf("%s: %w", describe(i.call), err))
 	}
@@ -475,6 +480,10 @@ func (i *invocation) spec() (*ProcessSpec, error) {
 		return nil, err
 	}
 
+	if i.box != nil {
+		env = withoutInheritedPath(env, i.call.Requirements)
+	}
+
 	spec := &ProcessSpec{Command: line, Dir: i.outdir, Stdin: "", Stdout: "", Stderr: "", Env: env, Timeout: limit}
 
 	err = i.redirect(spec)
@@ -485,24 +494,20 @@ func (i *invocation) spec() (*ProcessSpec, error) {
 	return spec, nil
 }
 
-// run dispatches execution to the [ContainerExecutor] when a DockerRequirement is in scope, and to
-// [RunProcess] when the tool runs on this host.
-func (i *invocation) run(ctx context.Context, spec *ProcessSpec) (int, error) {
-	if i.box == nil {
-		return RunProcess(ctx, spec)
+// closeInvocation releases the resources the invocation holds. For container tools it also removes
+// the scratch tmpdir if one was auto-allocated.
+func (i *invocation) closeInvocation() error {
+	if i.inv == nil {
+		return nil
 	}
 
-	network, err := ToolNetworkAccess(i.call.Requirements, i.inputs, i.eval, i.runtime)
-	if err != nil {
-		return 0, err
+	closeErr := i.inv.Close()
+
+	if i.box != nil && i.call.TmpDir == "" && i.tmpdir != "" {
+		closeErr = errors.Join(closeErr, os.RemoveAll(i.tmpdir))
 	}
 
-	spec.Env = withoutInheritedPath(spec.Env, i.call.Requirements)
-
-	ctr := i.box.containerSpec(i.mapper.Plan(), network)
-	ctr.Stdout = spec.Stdout
-
-	return i.executor.Run(ctx, ctr, spec)
+	return closeErr
 }
 
 // redirect resolves the three standard-stream redirections onto a spec.
@@ -621,7 +626,9 @@ func (i *invocation) collect(exitCode int) (map[string]any, error) {
 
 	// The remap is passed unconditionally because it is the identity without a container, where
 	// the tool wrote its output object in this host's own namespace to begin with.
-	outputs, err := LoadOutputJSON(view, i.outdir, inputs, WithHostPaths(i.mapper.hostOutputPath))
+	outfs := i.inv.OutFS()
+
+	outputs, err := LoadOutputJSON(view, i.outdir, outfs, inputs, WithHostPaths(i.mapper.hostOutputPath))
 	if err == nil {
 		return outputs, nil
 	}
@@ -630,7 +637,7 @@ func (i *invocation) collect(exitCode int) (map[string]any, error) {
 		return nil, err
 	}
 
-	return CollectOutputs(view, i.outdir, exitCode, inputs, i.eval, i.runtime)
+	return CollectOutputs(view, i.outdir, outfs, exitCode, inputs, i.eval, i.runtime)
 }
 
 // hostInputs returns the input object output collection reads: this invocation's own, with every

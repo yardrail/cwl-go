@@ -76,17 +76,15 @@ const (
 // applies it: the specification makes the exit code available to outputEval precisely so that a
 // tool may report a meaningful non-zero status and still describe its outputs, so collection cannot
 // be conditional on the classification.
-func CollectOutputs(tool *cwlcore.CommandLineTool, outdir string, exitCode int,
+func CollectOutputs(tool *cwlcore.CommandLineTool, outdir string, outfs WriteFS, exitCode int,
 	inputs map[string]any, eval *cwlcore.Evaluator, rt cwlcore.RuntimeContext,
 ) (map[string]any, error) {
 	if !filepath.IsAbs(outdir) {
 		return nil, fmt.Errorf("%w: %q", ErrOutputDir, outdir)
 	}
 
-	collector := newOutputCollector(tool, outdir, inputs)
-	collector.eval = eval
-	collector.runtime = rt
-	collector.exitCode = exitCode
+	collector := newOutputCollector(tool, outdir, outfs, inputs,
+		withEvaluator(eval), withRuntime(rt), withExitCode(exitCode))
 
 	outputs := make(map[string]any, len(tool.Outputs))
 
@@ -227,6 +225,9 @@ type outputCollector struct {
 	// outdir is the cleaned absolute output directory.
 	outdir string
 
+	// outfs is the filesystem backing outdir, used for all I/O operations.
+	outfs WriteFS
+
 	// outroot is outdir with its symlinks resolved, which is the form a resolved symlink target
 	// has to be compared against; see [outputCollector.checkRetrievable].
 	outroot string
@@ -244,14 +245,39 @@ type outputCollector struct {
 // independently-assembled root sets is how the two answers drift apart.
 //
 // outdir need not be clean; the collector's is.
+type outputCollectorOption func(*outputCollector)
+
+func withEvaluator(eval *cwlcore.Evaluator) outputCollectorOption {
+	return func(c *outputCollector) {
+		c.eval = eval
+	}
+}
+
+func withRuntime(rt cwlcore.RuntimeContext) outputCollectorOption {
+	return func(c *outputCollector) {
+		c.runtime = rt
+	}
+}
+
+func withExitCode(code int) outputCollectorOption {
+	return func(c *outputCollector) {
+		c.exitCode = code
+	}
+}
+
 func newOutputCollector(
-	tool *cwlcore.CommandLineTool, outdir string, inputs map[string]any,
+	tool *cwlcore.CommandLineTool, outdir string, outfs WriteFS, inputs map[string]any,
+	opts ...outputCollectorOption,
 ) *outputCollector {
 	dir := filepath.Clean(outdir)
 	rendered := outExpressionObject(inputs)
 	scope := cwlcore.NewScope(tool)
 
-	return &outputCollector{
+	if outfs == nil {
+		outfs = NewLocalDirFS(dir)
+	}
+
+	collector := &outputCollector{
 		tool:   tool,
 		eval:   nil,
 		scope:  scope,
@@ -267,9 +293,26 @@ func newOutputCollector(
 			Tmpdir:     "",
 		},
 		outdir:   dir,
+		outfs:    outfs,
 		outroot:  outResolvePath(dir),
 		exitCode: 0,
 	}
+
+	for _, opt := range opts {
+		opt(collector)
+	}
+
+	return collector
+}
+
+// relOutPath converts an absolute host path to a relative path within the output directory.
+func (c *outputCollector) relOutPath(local string) string {
+	rel, err := filepath.Rel(c.outdir, local)
+	if err != nil {
+		return local
+	}
+
+	return filepath.ToSlash(rel)
 }
 
 // context builds the evaluation context for an expression outside outputEval, with self bound to

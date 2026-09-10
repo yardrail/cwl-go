@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
@@ -65,6 +66,7 @@ func StageInitialWorkDir(mapper *PathMap, scope *cwlcore.RequirementScope, input
 				Tmpdir:     "",
 			},
 			outdir:   mapper.Workdir(),
+			outfs:    nil,
 			outroot:  "",
 			exitCode: 0,
 		},
@@ -363,11 +365,11 @@ func (s *workDirStager) serialized(name string, value any) error {
 // It is safe to re-run over a directory a previous attempt half-filled, which is what a resumed
 // invocation needs: every placement replaces whatever is at its target rather than expecting it to
 // be absent.
-func (m *PathMap) Apply() error {
+func (m *PathMap) Apply(outFS, stageFS WriteFS) error {
 	for index := range m.plan {
 		mapping := &m.plan[index]
 
-		err := m.applyMapping(mapping)
+		err := m.applyMapping(mapping, outFS, stageFS)
 		if err != nil {
 			return fmt.Errorf("staging %q: %w", mapping.Host, err)
 		}
@@ -376,38 +378,86 @@ func (m *PathMap) Apply() error {
 	return nil
 }
 
-// applyMapping carries out one placement, on this host.
+// fsResolution pairs a target filesystem with the relative path within it.
+type fsResolution struct {
+	fs  WriteFS
+	rel string
+}
+
+// resolvePlacement resolves the target filesystem and relative path for a mapping, ensuring the
+// parent directory exists.
+func (m *PathMap) resolvePlacement(host string, outFS, stageFS WriteFS) (fsResolution, error) {
+	parent, resolveErr := m.resolveFS(filepath.Dir(host), outFS, stageFS)
+	if resolveErr != nil {
+		return fsResolution{fs: nil, rel: ""}, resolveErr
+	}
+
+	mkdirErr := parent.fs.MkdirAll(parent.rel, stageDirPerm)
+	if mkdirErr != nil {
+		return fsResolution{fs: nil, rel: ""}, mkdirErr
+	}
+
+	return m.resolveFS(host, outFS, stageFS)
+}
+
+// applyMapping carries out one placement through the provided filesystems.
 //
 // A placement with no Host is one the executor places for itself by mounting Resolved at Target, and
 // there is nothing here to do for it.
-func (m *PathMap) applyMapping(mapping *PathMapping) error {
+func (m *PathMap) applyMapping(mapping *PathMapping, outFS, stageFS WriteFS) error {
 	if mapping.Host == "" || mapping.Resolved == mapping.Host {
 		return nil
 	}
 
-	err := os.MkdirAll(filepath.Dir(mapping.Host), stageDirPerm)
+	resolved, err := m.resolvePlacement(mapping.Host, outFS, stageFS)
 	if err != nil {
 		return err
 	}
 
 	switch mapping.Action {
 	case StageMkdir:
-		return os.MkdirAll(mapping.Host, stageDirPerm)
+		return resolved.fs.MkdirAll(resolved.rel, stageDirPerm)
 	case StageWrite:
-		return replaceWith(mapping.Host, func() error {
-			return os.WriteFile(mapping.Host, []byte(mapping.Contents), stageFilePerm)
+		return replaceWithFS(resolved.fs, resolved.rel, func() error {
+			w, createErr := resolved.fs.Create(resolved.rel)
+			if createErr != nil {
+				return createErr
+			}
+
+			_, writeErr := io.WriteString(w, mapping.Contents)
+
+			return errors.Join(writeErr, w.Close())
 		})
 	case StageLink:
-		return replaceWith(mapping.Host, func() error {
-			return m.placeLink(mapping)
+		return replaceWithFS(resolved.fs, resolved.rel, func() error {
+			return m.placeLinkFS(mapping, resolved.fs, resolved.rel)
 		})
 	case StageCopy:
-		return replaceWith(mapping.Host, func() error {
-			return copyTo(mapping.Resolved, mapping.Host)
+		return replaceWithFS(resolved.fs, resolved.rel, func() error {
+			return copyToFS(mapping.Resolved, resolved.fs, resolved.rel)
 		})
 	default:
 		return fmt.Errorf("%w: unknown staging action %q", ErrStageValue, mapping.Action)
 	}
+}
+
+// resolveFS returns the WriteFS and relative path for a given absolute host path.
+func (m *PathMap) resolveFS(host string, outFS, stageFS WriteFS) (fsResolution, error) {
+	if strings.HasPrefix(host, m.hostStaging+string(filepath.Separator)) || host == m.hostStaging {
+		rel, relErr := filepath.Rel(m.hostStaging, host)
+		if relErr != nil {
+			return fsResolution{fs: nil, rel: ""}, relErr
+		}
+
+		return fsResolution{fs: stageFS, rel: filepath.ToSlash(rel)}, nil
+	}
+
+	rel, relErr := filepath.Rel(m.hostWorkdir, host)
+	if relErr != nil {
+		return fsResolution{fs: nil, rel: ""}, relErr
+	}
+
+	return fsResolution{fs: outFS, rel: filepath.ToSlash(rel)}, nil
 }
 
 // placeLink places a [StageLink] mapping, which is the one placement whose answer differs between
@@ -429,33 +479,33 @@ func (m *PathMap) applyMapping(mapping *PathMapping) error {
 // The link is not lost, only deferred: [PathMap.Relink] restores it once the container has exited
 // and the mount is gone. This is cwltool's relink_initialworkdir, arrived at from the same
 // constraint.
-func (m *PathMap) placeLink(mapping *PathMapping) error {
+func (m *PathMap) placeLinkFS(mapping *PathMapping, dst WriteFS, rel string) error {
 	if !m.contained {
-		return os.Symlink(mapping.Resolved, mapping.Host)
+		return dst.Symlink(mapping.Resolved, rel)
 	}
 
-	return mountPoint(mapping.Resolved, mapping.Host)
+	return mountPointFS(mapping.Resolved, dst, rel)
 }
 
-// mountPoint creates an empty file or directory at host for source to be bind-mounted over. A
+// mountPointFS creates an empty file or directory at rel for source to be bind-mounted over. A
 // directory can only be mounted onto a directory and a file only onto a file, so the kind has to
-// match.
-func mountPoint(source, host string) error {
+// match. The source is stat'd on the host; the mount point is created through the WriteFS.
+func mountPointFS(source string, dst WriteFS, rel string) error {
 	info, err := os.Stat(source)
 	if err != nil {
 		return err
 	}
 
 	if info.IsDir() {
-		return os.MkdirAll(host, stageDirPerm)
+		return dst.MkdirAll(rel, stageDirPerm)
 	}
 
-	file, err := os.OpenFile(host, os.O_CREATE|os.O_EXCL|os.O_WRONLY, stageFilePerm)
+	w, err := dst.Create(rel)
 	if err != nil {
 		return err
 	}
 
-	return file.Close()
+	return w.Close()
 }
 
 // Relink replaces the mount points a contained invocation staged with the symbolic links a host
@@ -468,7 +518,7 @@ func mountPoint(source, host string) error {
 // bytes. cwltool's relink_initialworkdir does the same thing for the same reason.
 //
 // It is a no-op without a container, where [PathMap.Apply] placed the links already.
-func (m *PathMap) Relink() error {
+func (m *PathMap) Relink(outFS, stageFS WriteFS) error {
 	if !m.contained {
 		return nil
 	}
@@ -480,8 +530,13 @@ func (m *PathMap) Relink() error {
 			continue
 		}
 
-		err := replaceWith(mapping.Host, func() error {
-			return os.Symlink(mapping.Resolved, mapping.Host)
+		resolved, err := m.resolveFS(mapping.Host, outFS, stageFS)
+		if err != nil {
+			return fmt.Errorf("relinking %q: %w", mapping.Host, err)
+		}
+
+		err = replaceWithFS(resolved.fs, resolved.rel, func() error {
+			return resolved.fs.Symlink(mapping.Resolved, resolved.rel)
 		})
 		if err != nil {
 			return fmt.Errorf("relinking %q: %w", mapping.Host, err)
@@ -496,49 +551,48 @@ func (m *PathMap) Relink() error {
 // Clearing first is what makes a re-run idempotent, and it is also the only way to link over a
 // target that already exists: [os.Symlink] refuses one, and writing through a stale link left by an
 // earlier attempt would modify the file it points at rather than replace it.
-func replaceWith(target string, place func() error) error {
-	err := os.RemoveAll(target)
-	if err != nil {
+func replaceWithFS(dst WriteFS, rel string, place func() error) error {
+	err := dst.Remove(rel)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 
 	return place()
 }
 
-// copyTo copies a file or a whole directory tree to target, preserving the permission bits so that
-// a staged program is still executable.
-func copyTo(source, target string) error {
+// copyToFS copies source (an absolute host path) into dst at relative path rel, preserving the
+// permission bits so that a staged program is still executable. Source is read from the host
+// filesystem; the destination is written through the [WriteFS].
+func copyToFS(source string, dst WriteFS, rel string) error {
 	info, err := os.Stat(source)
 	if err != nil {
 		return err
 	}
 
 	if info.IsDir() {
-		return copyTree(source, target)
+		return copyTreeFS(source, dst, rel)
 	}
 
-	return copyFile(source, target, info.Mode().Perm())
+	return copyFileFS(source, dst, rel, info.Mode().Perm())
 }
 
-// copyTree copies a directory and everything under it.
-//
-// The walk is written by hand rather than with [filepath.WalkDir] so that every failure it can
-// report is one this engine can actually produce and test: an unreadable directory, a dangling
-// symlink, an unreadable file. WalkDir would fold all three into one callback error and add two
-// more that cannot happen.
-func copyTree(source, target string) error {
+// copyTreeFS copies a directory and everything under it into a [WriteFS].
+func copyTreeFS(source string, dst WriteFS, rel string) error {
 	entries, err := os.ReadDir(source)
 	if err != nil {
 		return err
 	}
 
-	err = os.MkdirAll(target, stageDirPerm)
+	err = dst.MkdirAll(rel, stageDirPerm)
 	if err != nil {
 		return err
 	}
 
 	for _, entry := range entries {
-		err = copyEntry(filepath.Join(source, entry.Name()), filepath.Join(target, entry.Name()), entry)
+		childSrc := filepath.Join(source, entry.Name())
+		childRel := rel + "/" + entry.Name()
+
+		err = copyEntryFS(childSrc, dst, childRel, entry)
 		if err != nil {
 			return err
 		}
@@ -547,39 +601,39 @@ func copyTree(source, target string) error {
 	return nil
 }
 
-// copyEntry copies one member of a directory tree.
-func copyEntry(source, target string, entry fs.DirEntry) error {
+// copyEntryFS copies one member of a directory tree into a [WriteFS].
+func copyEntryFS(source string, dst WriteFS, rel string, entry fs.DirEntry) error {
 	if entry.IsDir() {
-		return copyTree(source, target)
+		return copyTreeFS(source, dst, rel)
 	}
 
-	return copyPath(source, target)
+	return copyPathFS(source, dst, rel)
 }
 
-// copyPath copies one file, taking its mode from the file itself. A symbolic link is followed, so a
-// link to something that is not there is a failure rather than a broken link in the copy.
-func copyPath(source, target string) error {
+// copyPathFS copies one file into a [WriteFS], taking its mode from the source.
+func copyPathFS(source string, dst WriteFS, rel string) error {
 	info, err := os.Stat(source)
 	if err != nil {
 		return err
 	}
 
-	return copyFile(source, target, info.Mode().Perm())
+	return copyFileFS(source, dst, rel, info.Mode().Perm())
 }
 
-// copyFile copies one file's bytes, creating the destination with perm.
-func copyFile(source, target string, perm fs.FileMode) error {
+// copyFileFS reads from a host path and writes through a [WriteFS].
+func copyFileFS(source string, dst WriteFS, rel string, _ fs.FileMode) error {
 	src, err := os.Open(filepath.Clean(source))
 	if err != nil {
 		return err
 	}
+	defer src.Close()
 
-	dst, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	w, err := dst.Create(rel)
 	if err != nil {
-		return errors.Join(err, src.Close())
+		return err
 	}
 
-	_, copied := io.Copy(dst, src)
+	_, copyErr := io.Copy(w, src)
 
-	return errors.Join(copied, dst.Close(), src.Close())
+	return errors.Join(copyErr, w.Close())
 }

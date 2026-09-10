@@ -85,23 +85,70 @@ func (d *DockerCLIExecutor) EnsureImage(ctx context.Context, req *cwlcore.Docker
 	return nil
 }
 
-// Run executes a tool inside a container described by ctr, returning its exit code.
-//
-// It builds the same `docker run` argv the engine has always built, opens the process's standard
-// streams on this host, and spawns the docker client as a child process. The redirections are
-// deliberately handled on this host: RunProcess opens them here and the client inherits the file
-// descriptors, passing the container's own standard streams straight through, so the tool's output
-// reaches the same file whether or not a container is in the way.
-func (d *DockerCLIExecutor) Run(
-	ctx context.Context, ctr *ContainerSpec, spec *ProcessSpec,
-) (int, error) {
-	argv := d.dockerArgv(ctr, spec)
+// NewInvocation wraps the host directories described by the [ContainerSpec]'s mounts in
+// [LocalDirFS] instances. The caller (the handler) has already created these directories.
+func (d *DockerCLIExecutor) NewInvocation(
+	_ context.Context, ctr *ContainerSpec,
+) (Invocation, error) {
+	dirs := dockerInvocationDirs(ctr)
+
+	return &dockerCLIInvocation{
+		executor: d,
+		ctr:      ctr,
+		outfs:    NewLocalDirFS(dirs.outdir),
+		stgfs:    NewLocalDirFS(dirs.stagingDir),
+		tmpfs:    NewLocalDirFS(dirs.tmpdir),
+	}, nil
+}
+
+// invocationDirs holds the host directories a container invocation's filesystems are rooted at.
+type invocationDirs struct {
+	outdir     string
+	tmpdir     string
+	stagingDir string
+}
+
+// dockerInvocationDirs extracts the outdir, tmpdir, and staging dir from the ContainerSpec's
+// whole-directory mounts. The first three mounts are always outdir, tmpdir, staging (in that order,
+// set by container.containerMounts).
+func dockerInvocationDirs(ctr *ContainerSpec) invocationDirs {
+	if len(ctr.Mounts) >= containerWholeMounts {
+		return invocationDirs{
+			outdir:     ctr.Mounts[0].Source,
+			tmpdir:     ctr.Mounts[1].Source,
+			stagingDir: ctr.Mounts[2].Source,
+		}
+	}
+
+	return invocationDirs{outdir: "", tmpdir: "", stagingDir: ""}
+}
+
+var _ Invocation = (*dockerCLIInvocation)(nil)
+
+type dockerCLIInvocation struct {
+	executor *DockerCLIExecutor
+	ctr      *ContainerSpec
+	outfs    *LocalDirFS
+	stgfs    *LocalDirFS
+	tmpfs    *LocalDirFS
+}
+
+func (i *dockerCLIInvocation) StageFS() WriteFS { return i.stgfs }
+func (i *dockerCLIInvocation) OutFS() WriteFS   { return i.outfs }
+func (i *dockerCLIInvocation) TmpFS() WriteFS   { return i.tmpfs }
+
+func (i *dockerCLIInvocation) Run(ctx context.Context, spec *ProcessSpec) (int, error) {
+	argv := i.executor.dockerArgv(i.ctr, spec)
 
 	wrapped := *spec
 	wrapped.Command = &CommandLine{Args: dockerPlainArgs(argv), Shell: false}
 	wrapped.Env = os.Environ()
 
 	return RunProcess(ctx, &wrapped)
+}
+
+func (i *dockerCLIInvocation) Close() error {
+	return nil
 }
 
 // fetch runs whichever of the image-source fields applies, in cwltool's precedence.

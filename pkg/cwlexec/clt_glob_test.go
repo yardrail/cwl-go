@@ -470,7 +470,7 @@ func TestCollectOutputsOutputEvalCanReturnAnyValue(t *testing.T) {
 	binding := &cwlcore.CommandOutputBinding{OutputEval: outRefN}
 	tool := outTestTool(outTestParam("#tool/n", outTypeLong, binding))
 
-	outputs, err := CollectOutputs(tool, dir, 0, map[string]any{"n": int64(42)},
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, map[string]any{"n": int64(42)},
 		cwlcore.NewEvaluator(), cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -517,7 +517,7 @@ func TestCollectOutputsUsesJavaScriptWhenEnabled(t *testing.T) {
 
 	tool := outTestTool(outTestParam("#tool/names", outTypeString, binding))
 
-	outputs, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -567,7 +567,7 @@ func TestGlobbedSymlinkToAnInputIsRetrieved(t *testing.T) {
 
 	// The ordinary case, and the reason the rule names input directories at all: an input staged
 	// into the output directory is a link straight back out of it.
-	outputs, err := CollectOutputs(tool, dir, 0,
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0,
 		map[string]any{"f": &cwlcore.File{Path: target, Basename: "whale.txt"}},
 		cwlcore.NewEvaluator(), cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
@@ -662,7 +662,7 @@ func TestGlobbedInitialWorkDirEntryIsRetrieved(t *testing.T) {
 		)},
 	}
 
-	outputs, err := CollectOutputs(tool, dir, 0, nil,
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil,
 		cwlcore.NewEvaluator(), cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -687,7 +687,7 @@ func TestGlobbedStagedInputIsRetrieved(t *testing.T) {
 	// that would reject every tool that names a staged input as one of its outputs.
 	staged := &cwlcore.File{Path: filepath.Join(dir, "staged.txt"), Basename: "staged.txt"}
 
-	outputs, err := CollectOutputs(tool, dir, 0, map[string]any{"f": staged},
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, map[string]any{"f": staged},
 		cwlcore.NewEvaluator(), cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -706,7 +706,7 @@ func TestCollectOutputsCompletesADirectoryInsideAnExpressionResult(t *testing.T)
 
 	tool := outTestTool(outTestParam("#tool/report", cwlcore.TypeRef{}, binding))
 
-	outputs, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -740,7 +740,7 @@ func TestFillListingsLeavesAnUnreadableDirectoryUncompleted(t *testing.T) {
 
 	tool := outTestTool(outTestParam("#tool/d", outTypeDirectory, binding))
 
-	outputs, err := CollectOutputs(tool, dir, 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, nil, cwlcore.NewEvaluator(cwlcore.WithJS(nil)),
 		cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)

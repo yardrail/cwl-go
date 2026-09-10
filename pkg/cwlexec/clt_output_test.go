@@ -228,7 +228,7 @@ func TestCollectOutputsWithoutABinding(t *testing.T) {
 func TestCollectOutputsRejectsARelativeOutputDirectory(t *testing.T) {
 	t.Parallel()
 
-	_, err := CollectOutputs(outTestTool(), "relative/dir", 0, nil, nil, cwlcore.RuntimeContext{})
+	_, err := CollectOutputs(outTestTool(), "relative/dir", nil, 0, nil, nil, cwlcore.RuntimeContext{})
 	assertErrorIs(t, "relative outdir", err, ErrOutputDir)
 }
 
@@ -253,7 +253,7 @@ func TestCollectOutputsGlobExpression(t *testing.T) {
 
 	tool := outTestTool(outTestParam("#tool/result", outTypeFile, outGlobBinding("$(inputs.name)")))
 
-	outputs, err := CollectOutputs(tool, dir, 0, map[string]any{"name": "picked.txt"},
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, map[string]any{"name": "picked.txt"},
 		cwlcore.NewEvaluator(), cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -271,7 +271,7 @@ func TestCollectOutputsGlobExpressionSeesTypedInputFiles(t *testing.T) {
 	tool := outTestTool(outTestParam("#tool/result", outTypeFile, outGlobBinding("$(inputs.src.basename)")))
 	inputs := map[string]any{outNameSrc: &cwlcore.File{Basename: "reads.txt"}}
 
-	outputs, err := CollectOutputs(tool, dir, 0, inputs, cwlcore.NewEvaluator(),
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, inputs, cwlcore.NewEvaluator(),
 		cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -300,7 +300,7 @@ func TestCollectOutputsGlobExpressionFailures(t *testing.T) {
 			tool := outTestTool(outTestParam("#tool/x", outTypeOptionalFile, outGlobBinding(testCase.glob)))
 			inputs := map[string]any{"n": int64(3), "ns": []any{int64(3)}}
 
-			_, err := CollectOutputs(tool, dir, 0, inputs, cwlcore.NewEvaluator(),
+			_, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, inputs, cwlcore.NewEvaluator(),
 				cwlcore.RuntimeContext{Outdir: dir})
 			assertErrorIs(t, name, err, testCase.want)
 		})

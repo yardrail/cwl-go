@@ -151,7 +151,7 @@ func ojWantRevmapped(t *testing.T, key, written string) {
 		return filepath.Join(dir, rest)
 	}
 
-	outputs, err := LoadOutputJSON(ojTool(), dir, nil, WithHostPaths(revmap))
+	outputs, err := LoadOutputJSON(ojTool(), dir, NewLocalDirFS(dir), nil, WithHostPaths(revmap))
 	if err != nil {
 		t.Fatalf("LoadOutputJSON: %v", err)
 	}

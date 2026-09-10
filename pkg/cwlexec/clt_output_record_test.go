@@ -66,7 +66,7 @@ func outCollectWith(t *testing.T, tool *cwlcore.CommandLineTool, dir string,
 ) map[string]any {
 	t.Helper()
 
-	outputs, err := CollectOutputs(tool, dir, 0, inputs, eval, cwlcore.RuntimeContext{Outdir: dir})
+	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, inputs, eval, cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
 	}
@@ -574,7 +574,7 @@ func TestCollectOutputsRecordOutputEvalIsTypeChecked(t *testing.T) {
 		&cwlcore.CommandOutputBinding{OutputEval: outRefSrc},
 	)
 
-	_, err := CollectOutputs(tool, dir, 0, map[string]any{outNameSrc: cltAlpha},
+	_, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, map[string]any{outNameSrc: cltAlpha},
 		cwlcore.NewEvaluator(), cwlcore.RuntimeContext{Outdir: dir})
 	if !errors.Is(err, ErrOutputType) {
 		t.Fatalf("error = %v, want ErrOutputType", err)

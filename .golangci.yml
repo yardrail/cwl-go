@@ -16,7 +16,6 @@ linters:
     - gomodguard
     - wrapcheck
     - wsl
-    - nonamedreturns
     - prealloc
   settings:
     errcheck:

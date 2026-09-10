@@ -378,19 +378,23 @@ func (m *PathMap) Apply(outFS, stageFS WriteFS) error {
 	return nil
 }
 
+// fsResolution pairs a target filesystem with the relative path within it.
+type fsResolution struct {
+	fs  WriteFS
+	rel string
+}
+
 // resolvePlacement resolves the target filesystem and relative path for a mapping, ensuring the
 // parent directory exists.
-func (m *PathMap) resolvePlacement(
-	host string, outFS, stageFS WriteFS,
-) (dst WriteFS, rel string, err error) {
-	fsys, parentRel, resolveErr := m.resolveFS(filepath.Dir(host), outFS, stageFS)
+func (m *PathMap) resolvePlacement(host string, outFS, stageFS WriteFS) (fsResolution, error) {
+	parent, resolveErr := m.resolveFS(filepath.Dir(host), outFS, stageFS)
 	if resolveErr != nil {
-		return nil, "", resolveErr
+		return fsResolution{fs: nil, rel: ""}, resolveErr
 	}
 
-	mkdirErr := fsys.MkdirAll(parentRel, stageDirPerm)
+	mkdirErr := parent.fs.MkdirAll(parent.rel, stageDirPerm)
 	if mkdirErr != nil {
-		return nil, "", mkdirErr
+		return fsResolution{fs: nil, rel: ""}, mkdirErr
 	}
 
 	return m.resolveFS(host, outFS, stageFS)
@@ -405,17 +409,17 @@ func (m *PathMap) applyMapping(mapping *PathMapping, outFS, stageFS WriteFS) err
 		return nil
 	}
 
-	dst, rel, err := m.resolvePlacement(mapping.Host, outFS, stageFS)
+	resolved, err := m.resolvePlacement(mapping.Host, outFS, stageFS)
 	if err != nil {
 		return err
 	}
 
 	switch mapping.Action {
 	case StageMkdir:
-		return dst.MkdirAll(rel, stageDirPerm)
+		return resolved.fs.MkdirAll(resolved.rel, stageDirPerm)
 	case StageWrite:
-		return replaceWithFS(dst, rel, func() error {
-			w, createErr := dst.Create(rel)
+		return replaceWithFS(resolved.fs, resolved.rel, func() error {
+			w, createErr := resolved.fs.Create(resolved.rel)
 			if createErr != nil {
 				return createErr
 			}
@@ -425,12 +429,12 @@ func (m *PathMap) applyMapping(mapping *PathMapping, outFS, stageFS WriteFS) err
 			return errors.Join(writeErr, w.Close())
 		})
 	case StageLink:
-		return replaceWithFS(dst, rel, func() error {
-			return m.placeLinkFS(mapping, dst, rel)
+		return replaceWithFS(resolved.fs, resolved.rel, func() error {
+			return m.placeLinkFS(mapping, resolved.fs, resolved.rel)
 		})
 	case StageCopy:
-		return replaceWithFS(dst, rel, func() error {
-			return copyToFS(mapping.Resolved, dst, rel)
+		return replaceWithFS(resolved.fs, resolved.rel, func() error {
+			return copyToFS(mapping.Resolved, resolved.fs, resolved.rel)
 		})
 	default:
 		return fmt.Errorf("%w: unknown staging action %q", ErrStageValue, mapping.Action)
@@ -438,22 +442,22 @@ func (m *PathMap) applyMapping(mapping *PathMapping, outFS, stageFS WriteFS) err
 }
 
 // resolveFS returns the WriteFS and relative path for a given absolute host path.
-func (m *PathMap) resolveFS(host string, outFS, stageFS WriteFS) (targetFS WriteFS, relPath string, err error) {
+func (m *PathMap) resolveFS(host string, outFS, stageFS WriteFS) (fsResolution, error) {
 	if strings.HasPrefix(host, m.hostStaging+string(filepath.Separator)) || host == m.hostStaging {
 		rel, relErr := filepath.Rel(m.hostStaging, host)
 		if relErr != nil {
-			return nil, "", relErr
+			return fsResolution{fs: nil, rel: ""}, relErr
 		}
 
-		return stageFS, filepath.ToSlash(rel), nil
+		return fsResolution{fs: stageFS, rel: filepath.ToSlash(rel)}, nil
 	}
 
 	rel, relErr := filepath.Rel(m.hostWorkdir, host)
 	if relErr != nil {
-		return nil, "", relErr
+		return fsResolution{fs: nil, rel: ""}, relErr
 	}
 
-	return outFS, filepath.ToSlash(rel), nil
+	return fsResolution{fs: outFS, rel: filepath.ToSlash(rel)}, nil
 }
 
 // placeLink places a [StageLink] mapping, which is the one placement whose answer differs between
@@ -526,13 +530,13 @@ func (m *PathMap) Relink(outFS, stageFS WriteFS) error {
 			continue
 		}
 
-		dst, rel, err := m.resolveFS(mapping.Host, outFS, stageFS)
+		resolved, err := m.resolveFS(mapping.Host, outFS, stageFS)
 		if err != nil {
 			return fmt.Errorf("relinking %q: %w", mapping.Host, err)
 		}
 
-		err = replaceWithFS(dst, rel, func() error {
-			return dst.Symlink(mapping.Resolved, rel)
+		err = replaceWithFS(resolved.fs, resolved.rel, func() error {
+			return resolved.fs.Symlink(mapping.Resolved, resolved.rel)
 		})
 		if err != nil {
 			return fmt.Errorf("relinking %q: %w", mapping.Host, err)

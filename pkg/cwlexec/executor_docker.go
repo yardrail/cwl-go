@@ -90,26 +90,37 @@ func (d *DockerCLIExecutor) EnsureImage(ctx context.Context, req *cwlcore.Docker
 func (d *DockerCLIExecutor) NewInvocation(
 	_ context.Context, ctr *ContainerSpec,
 ) (Invocation, error) {
-	outdir, tmpdir, stgdir := dockerInvocationDirs(ctr)
+	dirs := dockerInvocationDirs(ctr)
 
 	return &dockerCLIInvocation{
 		executor: d,
 		ctr:      ctr,
-		outfs:    NewLocalDirFS(outdir),
-		stgfs:    NewLocalDirFS(stgdir),
-		tmpfs:    NewLocalDirFS(tmpdir),
+		outfs:    NewLocalDirFS(dirs.outdir),
+		stgfs:    NewLocalDirFS(dirs.stagingDir),
+		tmpfs:    NewLocalDirFS(dirs.tmpdir),
 	}, nil
+}
+
+// invocationDirs holds the host directories a container invocation's filesystems are rooted at.
+type invocationDirs struct {
+	outdir     string
+	tmpdir     string
+	stagingDir string
 }
 
 // dockerInvocationDirs extracts the outdir, tmpdir, and staging dir from the ContainerSpec's
 // whole-directory mounts. The first three mounts are always outdir, tmpdir, staging (in that order,
 // set by container.containerMounts).
-func dockerInvocationDirs(ctr *ContainerSpec) (outdir, tmpdir, stagingDir string) {
+func dockerInvocationDirs(ctr *ContainerSpec) invocationDirs {
 	if len(ctr.Mounts) >= containerWholeMounts {
-		return ctr.Mounts[0].Source, ctr.Mounts[1].Source, ctr.Mounts[2].Source
+		return invocationDirs{
+			outdir:     ctr.Mounts[0].Source,
+			tmpdir:     ctr.Mounts[1].Source,
+			stagingDir: ctr.Mounts[2].Source,
+		}
 	}
 
-	return "", "", ""
+	return invocationDirs{outdir: "", tmpdir: "", stagingDir: ""}
 }
 
 var _ Invocation = (*dockerCLIInvocation)(nil)

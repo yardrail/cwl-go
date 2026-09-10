@@ -437,7 +437,7 @@ func (i *invocation) execute(ctx context.Context) (Result, error) {
 	// The container is gone by here, and with it the mounts that stood in for the links a
 	// contained invocation could not stage. Restoring them before anything reads the directory
 	// is what makes output collection see the same filesystem either way.
-	err = i.mapper.Relink(i.inv.OutFS())
+	err = i.mapper.Relink(i.inv.OutFS(), i.inv.StageFS())
 	if err != nil {
 		return PermanentFail(fmt.Errorf("%s: %w", describe(i.call), err))
 	}

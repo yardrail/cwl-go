@@ -514,7 +514,7 @@ func mountPointFS(source string, dst WriteFS, rel string) error {
 // bytes. cwltool's relink_initialworkdir does the same thing for the same reason.
 //
 // It is a no-op without a container, where [PathMap.Apply] placed the links already.
-func (m *PathMap) Relink(outFS WriteFS) error {
+func (m *PathMap) Relink(outFS, stageFS WriteFS) error {
 	if !m.contained {
 		return nil
 	}
@@ -526,13 +526,13 @@ func (m *PathMap) Relink(outFS WriteFS) error {
 			continue
 		}
 
-		_, rel, err := m.resolveFS(mapping.Host, outFS, outFS)
+		dst, rel, err := m.resolveFS(mapping.Host, outFS, stageFS)
 		if err != nil {
 			return fmt.Errorf("relinking %q: %w", mapping.Host, err)
 		}
 
-		err = replaceWithFS(outFS, rel, func() error {
-			return outFS.Symlink(mapping.Resolved, rel)
+		err = replaceWithFS(dst, rel, func() error {
+			return dst.Symlink(mapping.Resolved, rel)
 		})
 		if err != nil {
 			return fmt.Errorf("relinking %q: %w", mapping.Host, err)

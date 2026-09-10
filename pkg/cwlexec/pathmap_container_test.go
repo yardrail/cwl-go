@@ -255,7 +255,7 @@ func TestContainerPathMapRelinksAfterTheMountIsGone(t *testing.T) {
 
 	workFS := NewLocalDirFS(work)
 
-	err = mapper.Relink(workFS)
+	err = mapper.Relink(workFS, NewLocalDirFS(stage))
 	if err != nil {
 		t.Fatalf("Relink: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestPathMapRelinkReportsWhereItFailed(t *testing.T) {
 
 	workFS := NewLocalDirFS(work)
 
-	err = mapper.Relink(workFS)
+	err = mapper.Relink(workFS, NewLocalDirFS(stage))
 	if err == nil || !strings.Contains(err.Error(), pmName) {
 		t.Errorf("Relink with its directory gone = %v, want an error naming %q", err, pmName)
 	}
@@ -419,7 +419,7 @@ func TestPathMapRelinkIsAHostNoop(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	err = mapper.Relink(workFS)
+	err = mapper.Relink(workFS, NewLocalDirFS(stage))
 	if err != nil {
 		t.Fatalf("Relink: %v", err)
 	}

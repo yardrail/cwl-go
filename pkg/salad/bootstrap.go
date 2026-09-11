@@ -2,8 +2,7 @@ package salad
 
 import "sync"
 
-// Namespaces the Schema Salad metaschema declares, needed before any document
-// can be read.
+// Schema Salad metaschema namespaces.
 const (
 	saladNS = "https://w3id.org/cwl/salad#"
 	xsdNS   = "http://www.w3.org/2001/XMLSchema#"
@@ -12,9 +11,7 @@ const (
 	dctNS   = "http://purl.org/dc/terms/"
 )
 
-// How many scope levels the metaschema's own reference fields strip before
-// searching parent scopes: a type reference sits one level below the field that
-// holds it, a bare name reference does not.
+// Scope levels the metaschema's reference fields strip before parent-scope search.
 const (
 	refScopeName = 1
 	refScopeType = 2
@@ -26,14 +23,8 @@ type bootstrapTerm struct {
 	def   TermDef
 }
 
-// bootstrapTerms is the term table needed to read a Schema Salad schema
-// document.
-//
-// It breaks the chicken-and-egg at the bottom of the system: resolving a schema
-// document requires a context, and building a context requires a resolved schema
-// document. schema-salad solves it the same way, with a literal context in
-// schema.py's get_metaschema. Every entry here restates a jsonldPredicate the
-// metaschema declares on itself; nothing is invented.
+// bootstrapTerms is the hard-coded term table for reading schema documents,
+// breaking the schema-needs-context-needs-schema cycle.
 var bootstrapTerms = []bootstrapTerm{
 	{
 		keyName,
@@ -415,9 +406,7 @@ var bootstrapTerms = []bootstrapTerm{
 	},
 }
 
-// bootstrapVocab is the type vocabulary of the metaschema: the primitive type
-// names and the type-declaration keywords, which schema documents spell by their
-// short names.
+// bootstrapVocab maps primitive type names and type-declaration keywords to their IRIs.
 var bootstrapVocab = map[string]string{
 	nameNull:          "sld:null",
 	nameBoolean:       "xsd:boolean",
@@ -435,9 +424,7 @@ var bootstrapVocab = map[string]string{
 	kindDocumentation: "sld:documentation",
 }
 
-// saladBootstrapContext returns the context a Schema Salad schema document is
-// loaded with, before its own vocabulary is known. It is memoized: it is a
-// constant table, and every schema load needs it.
+// saladBootstrapContext returns the memoized context for loading schema documents.
 var saladBootstrapContext = sync.OnceValue(buildSaladBootstrapContext)
 
 // buildSaladBootstrapContext assembles the bootstrap context from its tables.

@@ -6,8 +6,7 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// requirementItems dumps a requirement list in document order, which is the
-// order precedence is resolved in.
+// requirementItems dumps a requirement list in document order.
 func requirementItems(reqs []cwlcore.ProcessRequirement) []any {
 	out := make([]any, 0, len(reqs))
 	for _, req := range reqs {
@@ -27,9 +26,7 @@ func hintItems(hints []cwlcore.Hint) []any {
 	return out
 }
 
-// hintObject dumps one hint. Every core requirement class is also a valid hint
-// class, so a hint that decoded as a requirement is dumped as one; anything
-// else is a RawHint carrying the node it was decoded from.
+// hintObject dumps one hint.
 func hintObject(hint cwlcore.Hint) *cwlcli.Object {
 	req, ok := hint.(cwlcore.ProcessRequirement)
 	if ok {
@@ -48,15 +45,7 @@ func hintObject(hint cwlcore.Hint) *cwlcli.Object {
 	return addNode(o, raw.Node)
 }
 
-// requirementObject dumps one requirement: its class, plus whatever fields
-// that class carries.
-//
-// The classes are grouped into three switches rather than one because a single
-// type switch over CWL's seventeen requirement classes is past every
-// complexity limit the project enforces, and because the groups are real: what
-// the tool runs inside, what it is allowed to consume, and what the document
-// language itself needs. The five marker requirements carry no fields at all,
-// so no group claims them and their class is the whole dump.
+// requirementObject dumps one requirement's class and fields.
 func requirementObject(req cwlcore.ProcessRequirement) *cwlcli.Object {
 	o := cwlcli.NewObject().Set("class", req.Class())
 
@@ -67,8 +56,7 @@ func requirementObject(req cwlcore.ProcessRequirement) *cwlcli.Object {
 	return o
 }
 
-// addEnvironmentFields dumps the requirements that describe what the tool runs
-// inside: its container, its software, its working directory, its environment.
+// addEnvironmentFields dumps container, software, workdir and env requirements.
 func addEnvironmentFields(o *cwlcli.Object, req cwlcore.ProcessRequirement) {
 	switch r := req.(type) {
 	case *cwlcore.DockerRequirement:
@@ -89,8 +77,7 @@ func addEnvironmentFields(o *cwlcli.Object, req cwlcore.ProcessRequirement) {
 	}
 }
 
-// addBudgetFields dumps the requirements that bound what the tool may consume
-// or how it may be run.
+// addBudgetFields dumps resource and constraint requirements.
 func addBudgetFields(o *cwlcli.Object, req cwlcore.ProcessRequirement) {
 	switch r := req.(type) {
 	case *cwlcore.ResourceRequirement:
@@ -110,8 +97,7 @@ func addBudgetFields(o *cwlcli.Object, req cwlcore.ProcessRequirement) {
 	}
 }
 
-// resourceBound is one named bound of a ResourceRequirement, so that the eight
-// of them can be dumped by one loop instead of eight near-identical blocks.
+// resourceBound is one named bound of a ResourceRequirement.
 type resourceBound struct {
 	// Value is the bound as decoded: a number, an expression, or unset.
 	Value cwlcore.ResourceValue
@@ -119,10 +105,7 @@ type resourceBound struct {
 	Key string
 }
 
-// addResourceFields dumps a ResourceRequirement's eight bounds. Each may be an
-// expression rather than a number, which is why they are rendered through
-// String rather than as JSON numbers: seeing "$(inputs.threads)" where a
-// number was expected is the whole point of looking.
+// addResourceFields dumps a ResourceRequirement's eight bounds.
 func addResourceFields(o *cwlcli.Object, r *cwlcore.ResourceRequirement) {
 	bounds := []resourceBound{
 		{Key: "coresMin", Value: r.CoresMin},
@@ -144,9 +127,7 @@ func addResourceFields(o *cwlcli.Object, r *cwlcore.ResourceRequirement) {
 	}
 }
 
-// addLanguageFields dumps the requirements that extend the document language
-// rather than the execution environment, and the extension classes this
-// package has no type for.
+// addLanguageFields dumps language-extension and raw requirements.
 func addLanguageFields(o *cwlcli.Object, req cwlcore.ProcessRequirement) {
 	switch r := req.(type) {
 	case *cwlcore.InlineJavascriptRequirement:
@@ -176,8 +157,7 @@ func softwarePackageItems(packages []cwlcore.SoftwarePackage) []any {
 	return out
 }
 
-// environmentDefItems dumps an EnvVarRequirement's variables in document
-// order, which is the order they are set in.
+// environmentDefItems dumps an EnvVarRequirement's variables.
 func environmentDefItems(defs []cwlcore.EnvironmentDef) []any {
 	out := make([]any, 0, len(defs))
 
@@ -200,8 +180,7 @@ func nodeItems(nodes []salad.Node) []any {
 	return out
 }
 
-// listingValue dumps an InitialWorkDirRequirement's listing, which is either
-// one expression producing the whole array or the array itself.
+// listingValue dumps an InitialWorkDirRequirement's listing.
 func listingValue(listing cwlcore.InitialWorkDirListing) any {
 	expr := listing.Expression()
 	if expr != "" {
@@ -219,11 +198,6 @@ func listingValue(listing cwlcore.InitialWorkDirListing) any {
 }
 
 // listingEntry dumps one listing entry.
-//
-// A Dirent is dumped structurally because it is the form that carries content
-// worth reading. The File and Directory forms are named by class and location,
-// which is all that identifies them before staging; anything else falls back
-// to the model's own rendering.
 func listingEntry(entry cwlcore.InitialWorkDirEntry) any {
 	dirent := entry.Dirent()
 	if dirent != nil {
@@ -251,10 +225,7 @@ func listingEntry(entry cwlcore.InitialWorkDirEntry) any {
 	return entry.String()
 }
 
-// addNode materializes a salad node the model kept verbatim, so that an
-// extension class's own fields are visible rather than merely reported as
-// present. It is the only place the typed dump falls back to untyped values,
-// and it is where the model's extension points deliberately put them.
+// addNode materializes a salad node as a plain value on the object.
 func addNode(o *cwlcli.Object, node salad.Node) *cwlcli.Object {
 	if node == nil {
 		return o

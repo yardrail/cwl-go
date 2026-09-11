@@ -12,24 +12,9 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// Normalising the two filesystem values.
-//
-// A File or Directory arrives from a job file as a mapping with a handful of author-supplied
-// fields and leaves as a fully-populated [cwlcore.File] or [cwlcore.Directory]: an absolute
-// file:// location, an absolute local path, the four derived name fields, and — for a File — a
-// size and a sha1 checksum read from the bytes themselves.
+// Normalising File and Directory values from a job order into [cwlcore.File]/[cwlcore.Directory].
 
-// joFileFields and joDirectoryFields are the fields each filesystem value may carry.
-//
-// Directory's set is much smaller, and deliberately so: the vendored schema gives it only class,
-// location, path, basename and listing. It has no size, no checksum, no format and no
-// secondaryFiles, so a Directory can neither carry nor satisfy a format constraint.
-//
-// The five derived File fields — dirname, nameroot, nameext, checksum and size — are accepted
-// but never read. The specification says the implementation "must set" each of them from the
-// resource, and cwltest re-derives size and checksum from disk when it compares outputs, so a
-// value written by hand in a job order would at best duplicate what is computed here and at
-// worst contradict it.
+// joFileFields and joDirectoryFields are the accepted fields for each filesystem value type.
 var (
 	joFileFields = []string{
 		outKeyClass, outKeyLocation, outKeyPath, outKeyBasename, outKeyDirname, outKeyNameroot, outKeyNameext,
@@ -145,13 +130,7 @@ func (l *joLoader) fileShell(m *salad.MapNode, v *joValueCtx) (*cwlcore.File, *s
 	}, nil
 }
 
-// joMeasure fills in a File's size and checksum, and its contents when the parameter asked for
-// them.
-//
-// A File with a local path is measured from disk, which is the only source the specification
-// allows: "The `size` property is the size in bytes of the File. It must be computed from the
-// resource and made available to expressions". A size or checksum written by hand in a job file
-// is therefore replaced rather than trusted.
+// joMeasure fills in a File's size, checksum, and optionally contents from disk.
 func joMeasure(file *cwlcore.File, m *salad.MapNode, v *joValueCtx) *salad.Error {
 	if file.Path == "" {
 		outMeasureLiteral(file)
@@ -170,15 +149,7 @@ func joMeasure(file *cwlcore.File, m *salad.MapNode, v *joValueCtx) *salad.Error
 	return joLoadContents(file, m, v, &stats)
 }
 
-// joLoadContents puts a File's bytes into its contents field when the declaring parameter
-// asked for them with loadContents.
-//
-// Process.yml, loadContents: "the file (or each file in the array) must be a UTF-8 text file 64
-// KiB or smaller, and the implementation must read the entire contents of the file ... If the
-// size of the file is greater than 64 KiB, the implementation must raise a fatal error".
-//
-// The bytes come from the digest pass rather than a second read, which is both cheaper and the
-// only way to be certain the contents an expression sees are the ones the checksum describes.
+// joLoadContents populates a File's contents field when loadContents is set.
 func joLoadContents(file *cwlcore.File, m *salad.MapNode, v *joValueCtx, stats *outFileStats) *salad.Error {
 	if !v.loadContents {
 		return nil
@@ -195,12 +166,7 @@ func joLoadContents(file *cwlcore.File, m *salad.MapNode, v *joValueCtx, stats *
 	return nil
 }
 
-// joCheckFileIdentity enforces the two rules that decide whether a File mapping names anything at
-// all: it must have a location, a path or contents, and its contents must fit in 64 KiB.
-//
-// Process.yml, File: "If no `location` or `path` is specified, a file object must specify
-// `contents` with the UTF-8 text content of the file. This is a 'file literal'. ... The maximum
-// size of `contents` is 64 kilobytes".
+// joCheckFileIdentity requires a File to have location, path, or contents (within 64 KiB).
 func joCheckFileIdentity(m *salad.MapNode, v *joValueCtx, ref *joFileRef, contents cwlcore.OptString) *salad.Error {
 	if ref.location == "" && !contents.IsSet() {
 		return salad.Errorf(m.Loc(), "%s: a File must supply location, path, or contents", v.path)
@@ -215,12 +181,7 @@ func joCheckFileIdentity(m *salad.MapNode, v *joValueCtx, ref *joFileRef, conten
 	return nil
 }
 
-// normalizeDirectory turns a Directory mapping into a fully-populated [cwlcore.Directory].
-//
-// An absent `listing` is read from disk only when the declaring parameter's `loadListing` asks
-// for it; under the `no_listing` default it stays nil. That is not the same as an empty
-// directory: nil means nobody read the listing, so a later consumer still can, whereas an empty
-// slice would assert that the directory has no entries.
+// normalizeDirectory turns a Directory mapping into a [cwlcore.Directory].
 func (l *joLoader) normalizeDirectory(
 	ctx context.Context, m *salad.MapNode, v *joValueCtx,
 ) (*cwlcore.Directory, *salad.Error) {
@@ -256,9 +217,7 @@ func (l *joLoader) normalizeDirectory(
 	}, nil
 }
 
-// directoryListing settles a Directory's listing, and with it the two checks that need to know
-// whether the job order supplied one: a Directory names nothing at all unless it has a location,
-// a path or a listing, and one that does name a local path must name a directory that exists.
+// directoryListing resolves a Directory's listing from the supplied value or disk.
 func (l *joLoader) directoryListing(
 	ctx context.Context, m *salad.MapNode, ref *joFileRef, v *joValueCtx,
 ) ([]cwlcore.FileOrDirectory, *salad.Error) {
@@ -283,17 +242,7 @@ func (l *joLoader) directoryListing(
 	return joReadListing(ref.local, info, v.listing, m, v)
 }
 
-// joReadListing materialises a Directory's listing from disk at the depth loadListing asks for.
-//
-// Process.yml, LoadListingEnum: `no_listing` means "Do not load the directory listing",
-// `shallow_listing` that "Only load the top level listing ... but do not recurse into
-// subdirectories", and `deep_listing` that the implementation must "Load the directory listing
-// and recursively load all subdirectories as well".
-//
-// The walk itself is the one the output side already uses, which is deliberate: an input
-// Directory and an output Directory are the same value read from the same filesystem, and two
-// walks would be two chances to disagree about entry order, about the size and checksum a listed
-// File carries, or about what to do with a symlink that points back up the tree.
+// joReadListing reads a Directory's listing from disk at the depth loadListing requests.
 func joReadListing(
 	local string, info fs.FileInfo, mode cwlcore.LoadListingEnum, m *salad.MapNode, v *joValueCtx,
 ) ([]cwlcore.FileOrDirectory, *salad.Error) {
@@ -309,12 +258,7 @@ func joReadListing(
 	return dir.Listing, nil
 }
 
-// entries converts a `listing` or a `secondaryFiles` field, reporting whether the field was
-// present at all so that an absent listing stays nil and an explicitly empty one does not.
-//
-// A single mapping is accepted where a list is declared. Job files are written by hand and the
-// schema's own one-or-many convention makes the shorthand the natural thing to write; nothing is
-// lost by accepting it, since the element type is unchanged either way.
+// entries converts a `listing` or `secondaryFiles` field, reporting whether it was present.
 func (l *joLoader) entries(
 	ctx context.Context, m *salad.MapNode, key string, v *joValueCtx,
 ) ([]cwlcore.FileOrDirectory, bool, *salad.Error) {
@@ -343,8 +287,7 @@ func (l *joLoader) entries(
 	return values, true, nil
 }
 
-// entry converts one member of a listing or a secondaryFiles list, which the schema types as
-// `File | Directory` and nothing else.
+// entry converts one File or Directory member of a listing or secondaryFiles list.
 func (l *joLoader) entry(ctx context.Context, n salad.Node, v *joValueCtx) (cwlcore.FileOrDirectory, *salad.Error) {
 	m, ok := salad.AsMap(n)
 	if !ok {
@@ -362,26 +305,14 @@ func (l *joLoader) entry(ctx context.Context, n salad.Node, v *joValueCtx) (cwlc
 	}
 }
 
-// joFileRef is a resolved location: the absolute IRI, the local path it names when there is one,
-// and the final segment of the reference, which is what an absent basename is derived from.
+// joFileRef is a resolved location: absolute IRI, local path, and basename.
 type joFileRef struct {
 	location string
 	local    string
 	name     string
 }
 
-// joResolveRef resolves a File or Directory's location against base, an absolute directory.
-//
-// `path` wins over `location` when both are given, which is the precedence the specification
-// states for cwl.output.json and the only one that makes sense for an input object too: path
-// names a real filesystem, location names a resource that need not be on one.
-//
-// A location with no scheme is a relative reference and resolves against base — the job file's
-// directory for a value the job supplied, the process document's for one that came from a
-// `default`. A `file:` IRI is already absolute and yields both a location and a local path. Any
-// other scheme, http or s3 or otherwise, is carried through untouched with no local path, so its
-// basename is still derived but no size or checksum is computed: fetching a remote resource is a
-// staging concern, not a loading one.
+// joResolveRef resolves a File/Directory's location against base. `path` takes precedence over `location`.
 func joResolveRef(r *joFieldReader, base string) joFileRef {
 	if local := r.text(outKeyPath); local != "" {
 		return joRefAt(joUnwrapFileIRI(local), base)
@@ -414,18 +345,7 @@ func joRefAt(local, base string) joFileRef {
 	return joFileRef{location: outFileURI(abs), local: abs, name: filepath.Base(abs)}
 }
 
-// joUnwrapFileIRI returns the filesystem path a `path` field names.
-//
-// The field is a local host path as an author writes it, but it does not always reach here that
-// way: Process.yml gives File.path and Directory.path a jsonldPredicate of `_type: "@id"`, so
-// pkg/salad resolves the field as a link wherever a document is loaded against the schema. A `path`
-// written inside a parameter's `default` therefore arrives as an absolute `file:` IRI, while the
-// same field in a job file — parsed with [salad.Parse] and no schema — arrives exactly as written.
-//
-// Both spellings must name the same file, so a `file:` IRI is unwrapped back into the path it
-// carries and anything else is returned untouched. An opaque `file:` reference, which carries no
-// path at all, is left alone rather than collapsed to the empty string that would make the value
-// look like a file literal.
+// joUnwrapFileIRI extracts the filesystem path from a `path` field, unwrapping file: IRIs.
 func joUnwrapFileIRI(ref string) string {
 	parsed, err := url.Parse(ref)
 	if err != nil || parsed.Scheme != joSchemeFile || parsed.Path == "" {
@@ -435,10 +355,7 @@ func joUnwrapFileIRI(ref string) string {
 	return parsed.Path
 }
 
-// joStatDirectory reports an error unless local names an existing directory, and returns what the
-// stat found so that a listing walk does not have to repeat it. An empty local is a directory
-// literal or a remote location: there is nothing to stat, so the result is a nil FileInfo and no
-// error.
+// joStatDirectory stats local and returns nil FileInfo if local is empty or non-local.
 func joStatDirectory(local string, m *salad.MapNode, v *joValueCtx) (fs.FileInfo, *salad.Error) {
 	if local == "" {
 		return nil, nil
@@ -466,12 +383,7 @@ func joCancelled(ctx context.Context, m *salad.MapNode, v *joValueCtx) *salad.Er
 	return nil
 }
 
-// joFieldReader reads the string-valued fields of a filesystem value, remembering the first
-// failure instead of returning one per call.
-//
-// It exists so that the four or five fields a File is built from can be read as a block and
-// checked once, which keeps the construction readable; every read after a failure is a no-op, so
-// the first diagnostic is the one reported.
+// joFieldReader reads string fields from a filesystem value, collecting the first error.
 type joFieldReader struct {
 	m    *salad.MapNode
 	err  *salad.Error
@@ -483,9 +395,7 @@ func (r *joFieldReader) text(key string) string {
 	return r.optText(key).Value()
 }
 
-// optText reads a string field, distinguishing an absent field from an empty one. `contents` is
-// why that distinction matters: "" is an empty file literal that must be created on disk, not an
-// unread file.
+// optText reads a string field, distinguishing absent from empty.
 func (r *joFieldReader) optText(key string) cwlcore.OptString {
 	if r.err != nil {
 		return cwlcore.OptString{}
@@ -512,8 +422,7 @@ func (r *joFieldReader) optText(key string) cwlcore.OptString {
 	return cwlcore.NewOptString(text)
 }
 
-// node returns the value node of a field, or nil when the field is absent. It exists so that a
-// diagnostic can be located at the offending field rather than at the whole mapping.
+// node returns the value node of a field, or nil if absent.
 func (r *joFieldReader) node(key string) salad.Node {
 	node, _ := r.m.Get(key)
 

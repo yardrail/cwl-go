@@ -12,19 +12,9 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// Turning a validated Schema Salad document tree into the typed model.
-//
-// The split between this package and pkg/salad is deliberate: salad parses,
-// resolves and validates, and knows nothing about CWL; decoding here takes the
-// tree salad produced and reads the typed model out of it. Nothing below
-// re-validates the document, and nothing below consults a registry of extension
-// classes — a class this package has no type for becomes a RawProcess carrying
-// the node it was decoded from, and recognizing it is the caller's business.
+// Decoding a validated Schema Salad document tree into the typed CWL model.
 
-// The vocabulary prefixes a resolved discriminator may carry. pkg/salad maps a
-// resolved IRI back to its vocabulary term wherever the schema declares one, so
-// a core class normally arrives already spelled short; these are stripped anyway
-// so that a tree resolved by some other means decodes identically.
+// Vocabulary prefixes stripped from resolved discriminators.
 const (
 	cwlNamespace   = "https://w3id.org/cwl/cwl#"
 	saladNamespace = "https://w3id.org/cwl/salad#"
@@ -32,39 +22,16 @@ const (
 	saladPrefix    = "sld:"
 )
 
-// The identifier a $graph document gives the process to execute, in the two
-// spellings the specification's generic execution step 3 accepts.
+// Entry-point identifiers for $graph documents.
 const (
 	graphMainName     = "main"
 	graphMainFragment = "#" + graphMainName
 	blankNodePrefix   = "_:"
 )
 
-// Load parses src, validates it against the embedded schema for the CWL version
-// it declares, upgrades it into v1.2 form, and decodes it into a typed Process.
-//
-// When the document holds several processes under $graph, Load returns the one
-// the specification's generic execution step 3 selects: the process whose id is
-// "#main" or "main". A $graph document with no such process is an error, because
-// there is nothing to execute; use DecodeAll to reach every process in a graph,
-// or LoadFile with a fragment to address one of them by name.
-//
-// baseURI is what relative references inside the document resolve against, and
-// is normally the URL src was read from. A nil error guarantees a non-nil
-// Process.
-//
-// Validation is permissive by default: a field the schema does not declare is an
-// advisory rather than a failure, because the loader has already done the strict
-// part of the job by resolving every link. Pass Strict(true) to turn those
-// advisories into errors — which is what a runner should do, since CWL v1.0 and
-// v1.1 type a requirement's class as a plain string, and under permissive
-// validation a requirement whose fields do not typecheck simply matches some
-// other requirement record with an undeclared field.
-//
-// A document declaring v1.0 or v1.1 is validated against that version's own
-// schema and then rewritten forwards, so nothing this returns describes anything
-// but v1.2. A version there is no vendored schema for is refused with
-// ErrUnsupportedVersion. See DeclaredVersion and Upgrade.
+// Load parses, validates, upgrades, and decodes src into a typed Process.
+// For $graph documents, returns the "#main" process. A nil error guarantees a non-nil Process.
+// baseURI is the resolution base for relative references. Pass Strict(true) for strict validation.
 func Load(ctx context.Context, src []byte, baseURI string, opts ...LoadOption) (Process, error) {
 	cfg := buildLoadConfig(opts)
 
@@ -76,15 +43,7 @@ func Load(ctx context.Context, src []byte, baseURI string, opts ...LoadOption) (
 	return decodeAndResolve(ctx, resolved, "", cfg)
 }
 
-// LoadFile is Load reading from a file or URL, resolving $import and $include
-// relative to it. A nil error guarantees a non-nil Process.
-//
-// A fragment identifier selects one object inside the document rather than the
-// whole of it, which is how a single member of a $graph is addressed:
-//
-//	cwlcore.LoadFile(ctx, "pack.cwl#count-lines")
-//
-// Without a fragment, the entry-point rules described on Load apply.
+// LoadFile is [Load] reading from a file or URL. A fragment selects a $graph member.
 func LoadFile(ctx context.Context, uri string, opts ...LoadOption) (Process, error) {
 	cfg := buildLoadConfig(opts)
 
@@ -96,8 +55,7 @@ func LoadFile(ctx context.Context, uri string, opts ...LoadOption) (Process, err
 	return decodeAndResolve(ctx, resolved, fragmentPart(uri), cfg)
 }
 
-// decodeAndResolve decodes a loaded document and follows the run references that
-// decoding could not, which are the ones naming other documents.
+// decodeAndResolve decodes a loaded document and follows external run references.
 func decodeAndResolve(
 	ctx context.Context,
 	resolved resolvedDocument,
@@ -117,19 +75,7 @@ func decodeAndResolve(
 	return process, nil
 }
 
-// LoadDocument parses and resolves src, validates it against the embedded schema
-// for the CWL version it declares, and returns the resolved salad document
-// upgraded into v1.2 form, without decoding it.
-//
-// It is the seam for a caller that wants the resolved tree itself — to dump it,
-// to walk it, or to hand it to DecodeAll rather than Decode. Load is this
-// followed by Decode.
-//
-// The version the document declares is read off the unvalidated parse, because
-// nothing else can be: a v1.0 document is not required to satisfy the v1.2
-// schema, so validating first would report it as invalid when the truthful
-// answer is that it is a valid document of an earlier version. See
-// DeclaredVersion and Upgrade.
+// LoadDocument parses, validates, and upgrades src into a resolved salad document without decoding.
 func LoadDocument(
 	ctx context.Context,
 	src []byte,
@@ -172,9 +118,7 @@ func loadDocumentResolved(
 	return resolveDocument(parsed, baseURI, cfg)
 }
 
-// LoadFileDocument is LoadDocument reading from a file or URL. A fragment
-// identifier on uri is ignored, because a fragment selects one object inside a
-// document and this returns the whole document.
+// LoadFileDocument is [LoadDocument] reading from a file or URL. Fragments are ignored.
 func LoadFileDocument(ctx context.Context, uri string, opts ...LoadOption) (*salad.Document, error) {
 	return loadFileDocument(ctx, uri, buildLoadConfig(opts))
 }
@@ -207,17 +151,7 @@ func loadFileDocumentResolved(ctx context.Context, uri string, cfg *loadConfig) 
 	return resolveDocument(parsed, url, cfg)
 }
 
-// resolveDocument carries one parsed document through the whole of the
-// version-aware pipeline: pick the schema for the version it declares, resolve
-// and validate it there, then rewrite the result into v1.2 form.
-//
-// The order is cwltool's, in resolve_and_validate_document: the declared version
-// selects the schema, the document is validated against that schema alone, and
-// only then is it upgraded. Validating the upgraded tree a second time against
-// v1.2 would be a stricter gate than the reference implementation applies, and a
-// wrong one — an upgrade is not required to produce a document that satisfies
-// the newer schema in every field, only one this implementation can execute with
-// the older document's meaning intact.
+// resolvedDocument holds a document validated against its declared version's schema, then upgraded to v1.2.
 type resolvedDocument struct {
 	doc    *salad.Document
 	loaded *salad.LoadedSchema
@@ -251,9 +185,7 @@ func resolveDocument(parsed salad.Node, baseURI string, cfg *loadConfig) (resolv
 	return resolvedDocument{doc: Upgrade(doc, version), loaded: loaded}, nil
 }
 
-// invalidDocument heads a failed validation with the document that failed and
-// the version it was judged against, so that a report never leaves the reader
-// wondering which schema said no.
+// invalidDocument wraps a validation error with the document URI and CWL version.
 func invalidDocument(baseURI, version string, invalid error) error {
 	where := salad.SourceLine{
 		File:  baseURI,
@@ -269,23 +201,10 @@ func invalidDocument(baseURI, version string, invalid error) error {
 	return salad.Errorf(where, "%s %s", heading, invalid)
 }
 
-// documentFetcher is how instance documents are read. It is shared for the life
-// of the process, and it is deliberately not one of the schema loaders' own
-// fetchers: those serve the embedded schema trees, and picking one of them here
-// would mean loading and flattening a schema before the document that decides
-// which schema is even needed had been read.
+// documentFetcher is the process-wide fetcher for instance documents.
 var documentFetcher = sync.OnceValue(func() salad.Fetcher { return salad.NewDefaultFetcher() })
 
-// fetchDocument resolves a document reference and reads the bytes it names,
-// reporting the absolute URL it resolved to.
-//
-// It exists because the version has to be read before the document is resolved,
-// and reading it means holding the raw bytes. Fetching here rather than letting
-// salad.Loader.Load do it keeps the document parsed exactly once.
-//
-// The results are spelled with blank names rather than left bare, which is this
-// package's established way of satisfying gocritic's unnamedResult and
-// nonamedreturns at once. See Schema.
+// fetchDocument resolves a document reference and returns the absolute URL and raw bytes.
 func fetchDocument(ref string) (_ string, _ []byte, _ error) {
 	fetcher := documentFetcher()
 
@@ -320,41 +239,27 @@ func fetchDocument(ref string) (_ string, _ []byte, _ error) {
 	return url, src, nil
 }
 
-// LoadedSchema returns the embedded CWL v1.2 schema together with the loader and
-// context configured to resolve documents against it.
-//
-// It is the escape hatch for a caller that drives pkg/salad itself: the loader it
-// carries knows the CWL vocabulary, which is what turns short names into
-// identifiers, links and vocabulary terms as a document is resolved. The schema
-// is loaded and flattened once and shared, so calling this is cheap after the
-// first time. Schema returns the same schema without the loader.
+// LoadedSchema returns the embedded CWL v1.2 schema with its loader and context.
 func LoadedSchema() (*salad.LoadedSchema, error) {
 	return cwlSchemaV12()
 }
 
-// documentPart strips the fragment identifier from a document reference, leaving
-// the part that names the document itself.
+// documentPart strips the fragment identifier from a URI.
 func documentPart(uri string) string {
 	base, _, _ := strings.Cut(uri, "#")
 
 	return base
 }
 
-// fragmentPart returns a document reference's fragment identifier, or "" when it
-// names no object inside the document.
+// fragmentPart returns the fragment identifier from a URI, or "".
 func fragmentPart(uri string) string {
 	_, fragment, _ := strings.Cut(uri, "#")
 
 	return fragment
 }
 
-// Decode turns an already validated salad document into a typed Process.
-//
-// It is the seam a caller uses when it drives pkg/salad itself. Graph selection
-// works exactly as it does for Load, and so does the linking of run references:
-// a step naming a process the same document declares comes back with StepRun.Process
-// filled in. A step naming another document does not, because following that
-// needs I/O — Load and LoadFile do it.
+// Decode turns a validated salad document into a typed Process.
+// Local run references are linked; external ones require [Load] or [LoadFile].
 func Decode(doc *salad.Document) (Process, error) {
 	if doc == nil {
 		return nil, salad.Errorf(
@@ -383,12 +288,7 @@ func Decode(doc *salad.Document) (Process, error) {
 	return decodeLinked(nodes, entry)
 }
 
-// decodeLinked decodes every process a document declares, links the run
-// references naming one of them, and returns the process decoded from entry.
-//
-// Every process is decoded, not only the one asked for, because that is what a
-// sibling reference resolves against: a $graph's entry point is rarely usable
-// without the tools declared alongside it.
+// decodeLinked decodes all processes, links local run references, and returns the entry process.
 func decodeLinked(nodes []salad.Node, entry salad.Node, opts ...decoderOption) (Process, error) {
 	d := newDecoder(opts...)
 
@@ -412,15 +312,13 @@ func decodeLinked(nodes []salad.Node, entry salad.Node, opts ...decoderOption) (
 	return decoded.selected, nil
 }
 
-// decodedDocument is every process one document declares, with the one that was
-// asked for picked out of them.
+// decodedDocument holds all decoded processes and the selected entry process.
 type decodedDocument struct {
 	selected Process
 	procs    []Process
 }
 
-// decodeProcesses decodes every node, keeping the processes in document order
-// and noting the one decoded from entry.
+// decodeProcesses decodes all nodes and identifies the entry process.
 func (d *decoder) decodeProcesses(nodes []salad.Node, entry salad.Node) decodedDocument {
 	decoded := decodedDocument{selected: nil, procs: make([]Process, 0, len(nodes))}
 
@@ -440,11 +338,7 @@ func (d *decoder) decodeProcesses(nodes []salad.Node, entry salad.Node) decodedD
 	return decoded
 }
 
-// DecodeNode decodes a single process node: a whole document's root, one entry
-// of a $graph, or a workflow step's inline run target.
-//
-// It is exported for downstream packages that hold a RawProcess and want to run
-// core decoding again over a sub-node of it.
+// DecodeNode decodes a single process node (document root, $graph entry, or inline run target).
 func DecodeNode(node salad.Node) (Process, error) {
 	d := newDecoder()
 
@@ -461,11 +355,7 @@ func DecodeNode(node salad.Node) (Process, error) {
 	return process, nil
 }
 
-// DecodeAll decodes every top-level process of a document, keyed by identifier.
-//
-// A document that declares no $graph yields the single map entry for its root
-// process. Processes that declare no id are keyed by the blank node identifier
-// decoding assigned them.
+// DecodeAll decodes every top-level process, keyed by identifier.
 func DecodeAll(doc *salad.Document) (map[string]Process, error) {
 	if doc == nil {
 		return nil, salad.Errorf(
@@ -503,31 +393,15 @@ func DecodeAll(doc *salad.Document) (map[string]Process, error) {
 	return out, nil
 }
 
-// Schema returns the embedded, flattened CWL v1.2 salad schema and the upstream
-// release tag it was vendored from, so that a caller driving pkg/salad itself
-// validates against exactly what decoding expects.
-//
-// The schema is loaded and flattened once, on first use, and the result is
-// shared by every later call. The schema is nil if it could not be loaded, which
-// can only happen if the embedded snapshot is corrupt; the version string is
-// returned either way.
-//
-// The results are spelled with blank names rather than left bare. That is not
-// decoration: gocritic's unnamedResult rejects an exported function returning an
-// unnamed primitive, and nonamedreturns rejects a named result, so the pair can
-// only be satisfied at once by naming the results without introducing
-// identifiers. The function type is unchanged either way, and the assertion
-// below pins it.
+// Schema returns the embedded CWL v1.2 salad schema and its vendored version tag.
+// Nil schema means the embedded snapshot is corrupt.
 func Schema() (_ *salad.Schema, _ string) {
 	loaded, err := cwlSchemaV12()
 
 	return schemaOrNil(loaded, err), SchemaVersion()
 }
 
-// schemaOrNil returns loaded's schema, or nil when loading it failed. It exists
-// so the failure branch of Schema — otherwise unreachable, since cwlSchemaV12 is
-// a [sync.OnceValues] closure over the real embedded schema — can be exercised
-// directly with a synthetic error.
+// schemaOrNil returns loaded's schema, or nil on error.
 func schemaOrNil(loaded *salad.LoadedSchema, err error) *salad.Schema {
 	if err != nil {
 		return nil
@@ -536,16 +410,10 @@ func schemaOrNil(loaded *salad.LoadedSchema, err error) *salad.Schema {
 	return loaded.Schema
 }
 
-// Compile-time proof that Schema keeps its frozen signature, so that the blank
-// result names it carries cannot quietly become something else.
+// Compile-time assertion that Schema keeps its signature.
 var _ func() (*salad.Schema, string) = Schema
 
-// graphNodes returns the process nodes of a document root and whether the root
-// was a graph.
-//
-// pkg/salad replaces a top-level $graph with the sequence it holds, so a
-// resolved graph document arrives as a sequence; a tree that was not run through
-// the resolver still carries the directive, and both are accepted.
+// graphNodes returns the process nodes of a document root and whether it is a $graph.
 func graphNodes(root salad.Node) ([]salad.Node, bool) {
 	if seq, ok := salad.AsSeq(root); ok {
 		return seq.Items(), true
@@ -560,7 +428,7 @@ func graphNodes(root salad.Node) ([]salad.Node, bool) {
 	return []salad.Node{root}, false
 }
 
-// selectMain picks the process a graph document names as its entry point.
+// selectMain picks the "#main" process from a $graph.
 func selectMain(nodes []salad.Node, baseURI string) (salad.Node, error) {
 	found := make([]string, 0, len(nodes))
 
@@ -591,14 +459,7 @@ func selectMain(nodes []salad.Node, baseURI string) (salad.Node, error) {
 	)
 }
 
-// decodeFragment decodes the object a document reference's fragment names.
-//
-// Every process the document declares is decoded, not only the one the fragment
-// names, because that is what the named one's run references resolve against.
-// Addressing a $graph member by fragment is the normal way to reach a packed
-// workflow — "pack.cwl#main" — and such a workflow almost always runs the tools
-// packed alongside it, so decoding it alone would leave every one of those
-// references pointing at nothing.
+// decodeFragment decodes the process named by a URI fragment.
 func decodeFragment(doc *salad.Document, fragment string, opts ...decoderOption) (Process, error) {
 	nodes, _ := graphNodes(doc.Root)
 
@@ -610,8 +471,7 @@ func decodeFragment(doc *salad.Document, fragment string, opts ...decoderOption)
 	return decodeLinked(nodes, selected, opts...)
 }
 
-// selectFragment picks the process a fragment identifier names, out of a
-// document's graph or out of the document's single root process.
+// selectFragment picks the node matching a fragment identifier.
 func selectFragment(nodes []salad.Node, fragment, baseURI string) (salad.Node, error) {
 	found := make([]string, 0, len(nodes))
 
@@ -641,15 +501,12 @@ func selectFragment(nodes []salad.Node, fragment, baseURI string) (salad.Node, e
 	)
 }
 
-// isMainID reports whether id names the graph's entry point, in any of the
-// spellings identifier resolution may have produced.
+// isMainID reports whether id names the graph's entry point.
 func isMainID(id string) bool {
 	return idFragment(id) == graphMainName
 }
 
-// idFragment returns the fragment of a resolved identifier: everything after the
-// first "#", or the whole identifier when it carries none. It is what makes
-// "main", "#main" and "file:///pack.cwl#main" the same name.
+// idFragment returns the part after "#", or the whole string if no "#" is present.
 func idFragment(id string) string {
 	before, after, ok := strings.Cut(id, "#")
 	if !ok {
@@ -659,8 +516,7 @@ func idFragment(id string) string {
 	return after
 }
 
-// joinOrNone renders the identifiers a graph did declare, for the error message
-// raised when none of them is the entry point.
+// joinOrNone joins identifiers for error messages, returning "none" if empty.
 func joinOrNone(ids []string) string {
 	if len(ids) == 0 {
 		return "none"
@@ -670,12 +526,6 @@ func joinOrNone(ids []string) string {
 }
 
 // process decodes one process node, dispatching on its class.
-//
-// The four core classes get their own typed decoding; an extension class that
-// transitively extends Workflow becomes an ExtensionWorkflow; every other class
-// becomes a RawProcess. A downstream package recognizes its own classes by
-// switching on RawProcess.Class/ExtensionWorkflow.ClassIRI and decoding the
-// Node itself.
 func (d *decoder) process(node salad.Node) Process {
 	m := d.mapping(node, "a process")
 	if m == nil {
@@ -707,10 +557,7 @@ func (d *decoder) process(node salad.Node) Process {
 	}
 }
 
-// shortName strips the CWL and Schema Salad vocabularies from a resolved
-// discriminator, leaving the short spelling the model's constants use. A name in
-// any other namespace — an extension class, a reference to a type declared by a
-// SchemaDefRequirement — is returned unchanged.
+// shortName strips CWL/salad namespace prefixes from a resolved discriminator.
 func shortName(name string) string {
 	for _, prefix := range []string{cwlNamespace, saladNamespace, cwlPrefix, saladPrefix} {
 		if rest, ok := strings.CutPrefix(name, prefix); ok {

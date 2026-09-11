@@ -31,17 +31,13 @@ func (p Position) IsZero() bool {
 	return p.Line == 0 && p.Column == 0
 }
 
-// SourceLine identifies the region of a source document that a node or an error
-// originated from. It is the analogue of schema-salad's sourceline.SourceLine.
-//
-// The zero SourceLine means "location unknown"; every accessor tolerates it.
+// SourceLine identifies a region in a source document. The zero value means unknown.
 type SourceLine struct {
 	// File is the normalized URL or path the document was loaded from; "" when unknown.
 	File string
 	// Start is the first position covered by this region.
 	Start Position
-	// End is the last position covered by this region. It equals Start when the
-	// parser does not report a distinct end.
+	// End is the last position covered by this region.
 	End Position
 }
 
@@ -50,11 +46,7 @@ func (s SourceLine) IsZero() bool {
 	return s.File == "" && s.Start.IsZero()
 }
 
-// String renders s as a "file:line:col" prefix suitable for error messages.
-//
-// It degrades gracefully: a SourceLine with no line information renders as just
-// the file, one with no file renders as "line:col", and the zero value renders
-// as the empty string.
+// String renders s as a "file:line:col" prefix for error messages.
 func (s SourceLine) String() string {
 	switch {
 	case s.IsZero():
@@ -68,15 +60,7 @@ func (s SourceLine) String() string {
 	}
 }
 
-// Error is one node in a tree of loading and validation errors, mirroring
-// schema-salad's SchemaSaladException. Every error this package returns is a
-// *Error.
-//
-// The tree shape is load-bearing: validating a union records one child per
-// member so the reader can see why every alternative was rejected, and
-// validating a record nests one child per offending field. Use Pretty to render
-// the whole tree, Leaves to get just the tip errors, and [errors.As] to recover
-// a *Error from an error value returned by this package.
+// Error is a tree node of loading/validation errors. Every error from this package is a *Error.
 type Error struct {
 	// Msg is this node's message. It may be empty, in which case the node exists
 	// only to group Children and is elided from rendered output.
@@ -99,8 +83,7 @@ func Warnf(loc SourceLine, format string, a ...any) *Error {
 	return &Error{Msg: fmt.Sprintf(format, a...), Children: nil, Loc: loc, Warning: true}
 }
 
-// Group builds an Error whose message provides context for a set of child
-// errors. Nil children are dropped.
+// Group builds an Error grouping child errors under a context message.
 func Group(loc SourceLine, msg string, children ...*Error) *Error {
 	kept := make([]*Error, 0, len(children))
 	for _, c := range children {
@@ -112,11 +95,7 @@ func Group(loc SourceLine, msg string, children ...*Error) *Error {
 	return &Error{Msg: msg, Children: kept, Loc: loc, Warning: false}
 }
 
-// Error returns a one-line summary of the error: the "file:line:col" prefix, if
-// known, followed by the message.
-//
-// A node with no message of its own reports the first of its leaf errors, so
-// that a grouping node still produces something useful when printed with %v.
+// Error returns a one-line summary. Grouping nodes report their first leaf.
 func (e *Error) Error() string {
 	if e == nil {
 		return "<nil>"
@@ -134,8 +113,7 @@ func (e *Error) Error() string {
 	return leaves[0].Error()
 }
 
-// Unwrap returns the child errors, so that [errors.Is] and [errors.As] traverse
-// the whole tree. It returns nil when this node has no children.
+// Unwrap returns child errors for [errors.Is]/[errors.As] traversal.
 func (e *Error) Unwrap() []error {
 	if e == nil || len(e.Children) == 0 {
 		return nil
@@ -149,8 +127,7 @@ func (e *Error) Unwrap() []error {
 	return out
 }
 
-// Leaves returns the tip errors of the tree in depth-first order: the nodes that
-// have no children and carry a message. It mirrors SchemaSaladException.leaves.
+// Leaves returns the leaf errors of the tree in depth-first order.
 func (e *Error) Leaves() []*Error {
 	if e == nil {
 		return make([]*Error, 0)
@@ -159,12 +136,7 @@ func (e *Error) Leaves() []*Error {
 	return e.appendLeaves(make([]*Error, 0, len(e.Children)+1))
 }
 
-// Pretty renders the error tree as an indented, multi-line string, one error per
-// line, two spaces of indent per level. Grouping nodes with no message of their
-// own are elided and their children are rendered at the parent's level.
-//
-// It mirrors SchemaSaladException.pretty_str and is the rendering intended for
-// end users. The result has no trailing newline.
+// Pretty renders the error tree as an indented multi-line string for end users.
 func (e *Error) Pretty() string {
 	if e == nil {
 		return ""

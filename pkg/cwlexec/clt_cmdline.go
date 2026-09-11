@@ -9,82 +9,35 @@ import (
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
-// Errors reported while assembling a CommandLineTool's command line. They are wrapped with the
-// parameter or argument index they came from, so callers should test them with [errors.Is].
+// Errors reported while assembling a command line. Use [errors.Is] to test.
 var (
-	// ErrBindingPosition reports a CommandLineBinding whose `position` expression did not
-	// evaluate to an integer. The schema is explicit that "expressions must return a single
-	// value of type int or a null"; a null is read as the schema default of 0, anything else
-	// is this error.
+	// ErrBindingPosition reports a position expression that did not evaluate to an integer.
 	ErrBindingPosition = errors.New("command line binding position did not evaluate to an integer")
-
-	// ErrBindingPrefix reports a binding declaring `separate: false` and no `prefix`, since
-	// `separate` says only how a prefix and its value are joined and means nothing without one.
-	//
-	// A true boolean with no prefix is deliberately not this error; it adds nothing to the
-	// command line. See [renderTrue] for why, and for what that costs.
+	// ErrBindingPrefix reports separate: false with no prefix.
 	ErrBindingPrefix = errors.New("command line binding requires a prefix")
-
-	// ErrBindingValue reports a value that has no command-line rendering: a File or Directory
-	// with no `path`, or a value of a type the binding rules do not cover.
+	// ErrBindingValue reports a value with no command-line rendering.
 	ErrBindingValue = errors.New("value cannot be rendered as a command line argument")
-
-	// ErrArgumentValueFrom reports a CommandLineTool.arguments entry written as a
-	// CommandLineBinding with no `valueFrom`, which the specification requires of a binding
-	// that is part of the CommandLineTool.arguments field.
+	// ErrArgumentValueFrom reports an arguments binding with no valueFrom.
 	ErrArgumentValueFrom = errors.New("a CommandLineTool arguments binding requires valueFrom")
 )
 
-// shellSafeChars are the characters a POSIX shell reads literally, so that an argument built only
-// from them needs no quoting. It is the set Python's shlex.quote uses, which is what the reference
-// implementation quotes with.
+// shellSafeChars are characters a POSIX shell reads literally (same set as Python's shlex.quote).
 const shellSafeChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%+=:,./-_"
 
-// Arg is one element of a built command line: the text itself, plus whether a shell that runs the
-// command must quote it.
-//
-// Quote only means anything when the enclosing [CommandLine] has Shell set. Without a
-// ShellCommandRequirement the command is not interpreted by a shell at all, `shellQuote` is
-// irrelevant, and every Arg is passed to the operating system exactly as it stands.
+// Arg is one element of a built command line.
 type Arg struct {
-	// Value is the argument text, already prefixed, joined and path-resolved.
-	Value string
-
-	// Quote is the binding's effective `shellQuote`, whose schema default is true. False marks
-	// an element the author deliberately wants the shell to interpret — "|", ">", "&&" — and
-	// which must therefore be spliced into the command string unquoted.
-	Quote bool
+	Value string // argument text, already prefixed and path-resolved
+	Quote bool   // effective shellQuote; only meaningful when Shell is true
 }
 
-// CommandLine is the result of [BuildCommandLine]: the whole argv of one CommandLineTool
-// invocation, and whether it is to be run through a shell.
-//
-// The two cases are genuinely different invocations, and the distinction is deliberately left to
-// the executing stream rather than baked into the argv here:
-//
-//   - Shell is false. Run Args[0] with Args[1:] as its arguments; there is no shell, so no
-//     quoting happens and [Arg.Quote] carries no meaning. Use [CommandLine.Argv].
-//   - Shell is true. A ShellCommandRequirement is in scope. The specification's rule is that each
-//     item "must be joined into a string separated by single spaces and quoted to prevent
-//     interpretation by the shell, unless CommandLineBinding for that argument contains
-//     shellQuote: false". [CommandLine.ShellCommand] applies exactly that rule; run the result
-//     as `/bin/sh -c <string>`.
-//
-// Redirections are not part of a CommandLine. A tool's `stdin`, `stdout` and `stderr` are
-// expression-bearing filenames that the executing stream evaluates and wires up as file
-// descriptors on the process it spawns — never as argv elements, and never as shell redirection
-// operators spliced into ShellCommand, which would change their meaning under `shellQuote: false`.
+// CommandLine is the built argv for one CommandLineTool invocation.
+// Use [CommandLine.Argv] for direct exec, [CommandLine.ShellCommand] for /bin/sh -c.
 type CommandLine struct {
-	// Args are the command line's elements in order: [CommandLineTool.BaseCommand] first, then
-	// the bound inputs and `arguments` interleaved in sort-key order.
-	Args []Arg
-
-	// Shell reports whether a ShellCommandRequirement is in scope for this invocation.
-	Shell bool
+	Args  []Arg // baseCommand first, then bound inputs/arguments in sort-key order
+	Shell bool  // true when ShellCommandRequirement is in scope
 }
 
-// Argv renders the command line as a plain argument vector, discarding the per-element quoting
-// flags. It is what a caller execs directly when [CommandLine.Shell] is false.
+// Argv renders the command line as a plain argument vector.
 func (c *CommandLine) Argv() []string {
 	argv := make([]string, 0, len(c.Args))
 	for _, arg := range c.Args {
@@ -94,12 +47,7 @@ func (c *CommandLine) Argv() []string {
 	return argv
 }
 
-// ShellCommand renders the command line as the single string a shell is handed with -c, quoting
-// every element whose [Arg.Quote] is true and splicing the rest in verbatim.
-//
-// It is meaningful only when [CommandLine.Shell] is true; on a command line built without a
-// ShellCommandRequirement it still renders, but running the result through a shell would be a
-// change of semantics rather than a formatting choice.
+// ShellCommand renders the command line as a single shell string, quoting elements where Quote is true.
 func (c *CommandLine) ShellCommand() string {
 	parts := make([]string, 0, len(c.Args))
 
@@ -116,33 +64,8 @@ func (c *CommandLine) ShellCommand() string {
 	return strings.Join(parts, " ")
 }
 
-// BuildCommandLine assembles the command line for one CommandLineTool invocation from the tool and
-// its already-resolved input object.
-//
-// The algorithm is the specification's, in its six steps: collect the bindings from `arguments`
-// and from the `inputs` schema, give each a sort key, sort, render each binding by the rules of
-// CommandLineBinding, and put `baseCommand` at the front. inputs is keyed by parameter short name,
-// as [ShortName] derives it and as [StepCall.Inputs] carries it.
-//
-// eval evaluates the expressions a binding may carry — `position` and `valueFrom` — with `self`
-// bound to the value being bound, `inputs` to the whole input object and `runtime` to rt.
-//
-// scope is read for exactly two things: the SchemaDefRequirement that resolves a parameter typed by
-// name, and the ShellCommandRequirement that sets [CommandLine.Shell]. Both a nil evaluator and a
-// nil scope are valid: they mean parameter references only, and no requirement in scope.
-//
-// File and Directory values are rendered as their `path`, per the binding rules, and are accepted
-// either as *[cwlcore.File] / *[cwlcore.Directory] or as the map form a job order decodes to. A
-// value carrying only a `location` is an error: path assignment is the staging stream's job, and
-// it must have happened before a command line can name the file.
-//
-// What this function deliberately does not do: it stages nothing, spawns nothing, reads nothing
-// from disk, and honours no redirection. In particular `loadContents` is not applied here — a
-// File's `contents` must already be populated by the time an expression can read it — and
-// `stdin`/`stdout`/`stderr` are not argv and are left to the executing stream. See [CommandLine].
-//
-// Neither tool nor inputs is modified, so concurrent calls may share both. That matters because a
-// scattered step's sub-jobs run concurrently over one input object; see [StepCall.Inputs].
+// BuildCommandLine assembles the command line for one CommandLineTool invocation.
+// inputs is keyed by parameter short name. Neither tool nor inputs is modified.
 func BuildCommandLine(tool *cwlcore.CommandLineTool, inputs map[string]any, eval *cwlcore.Evaluator,
 	scope *cwlcore.RequirementScope, rt cwlcore.RuntimeContext,
 ) (*CommandLine, error) {
@@ -165,15 +88,7 @@ func BuildCommandLine(tool *cwlcore.CommandLineTool, inputs map[string]any, eval
 	return &CommandLine{Args: args, Shell: shellRequested(scope)}, nil
 }
 
-// assemble sorts the collected bindings and renders them, with baseCommand inserted in front.
-//
-// Spec step 6 is "Insert elements from `baseCommand` at the beginning of the command line", so
-// baseCommand is prepended rather than sorted. The reference implementation instead gives each
-// baseCommand element the sort key [-1000000, index] and lets it sort, which a document declaring
-// a position below that magic number would defeat; the spec's rule cannot be.
-//
-// The sort is stable, so bindings whose keys are wholly equal keep the order they were collected
-// in: input parameters in document order, then `arguments` in document order.
+// assemble sorts collected bindings and renders them, prepending baseCommand.
 func (b *cmdBuilder) assemble(baseCommand []string) ([]Arg, error) {
 	slices.SortStableFunc(b.bound, func(x, y boundArg) int { return compareKeys(x.key, y.key) })
 
@@ -194,9 +109,7 @@ func (b *cmdBuilder) assemble(baseCommand []string) ([]Arg, error) {
 	return args, nil
 }
 
-// shellRequested reports whether a ShellCommandRequirement is in scope. A declaration in hints
-// counts, which is what [cwlcore.RequirementScope.GetRequirement] already resolves and what the
-// reference implementation does.
+// shellRequested reports whether a ShellCommandRequirement is in scope.
 func shellRequested(scope *cwlcore.RequirementScope) bool {
 	if scope == nil {
 		return false
@@ -207,9 +120,7 @@ func shellRequested(scope *cwlcore.RequirementScope) bool {
 	return found
 }
 
-// shellQuote renders text so a POSIX shell reads it as one literal word, using the single-quote
-// form: everything inside single quotes is literal, and an embedded quote is closed, escaped and
-// reopened.
+// shellQuote renders text as a single-quoted POSIX shell literal.
 func shellQuote(text string) string {
 	if text == "" {
 		return "''"
@@ -222,8 +133,7 @@ func shellQuote(text string) string {
 	return "'" + strings.ReplaceAll(text, "'", `'\''`) + "'"
 }
 
-// unsafeInShell reports whether char is one a shell might interpret, and so one that forces the
-// whole word to be quoted.
+// unsafeInShell reports whether char requires shell quoting.
 func unsafeInShell(char rune) bool {
 	return !strings.ContainsRune(shellSafeChars, char)
 }

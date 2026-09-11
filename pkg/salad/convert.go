@@ -6,9 +6,7 @@ import (
 	"strconv"
 )
 
-// fromUint64 converts an unsigned integer into a scalar node. A value above
-// [math.MaxInt64] becomes a [DecimalScalar], which holds it exactly; it is still
-// an integer, and the only thing an int64 cannot do for it is store it.
+// fromUint64 converts a uint64 into a scalar node, using [DecimalScalar] if it exceeds int64.
 func fromUint64(v uint64, loc SourceLine) *ScalarNode {
 	if v <= math.MaxInt64 {
 		return NewIntNode(loc, int64(v))
@@ -20,16 +18,8 @@ func fromUint64(v uint64, loc SourceLine) *ScalarNode {
 	return NewNumberNode(loc, value)
 }
 
-// ToAny converts a Node tree into plain Go values, for JSON round-trips and for
-// deep-equality assertions in tests.
-//
-// A *MapNode becomes a map[string]any, a *SeqNode becomes a []any, and a
-// *ScalarNode becomes nil, bool, int64, [Decimal], float64 or string. A nil Node
-// becomes nil.
-//
-// Key order is lost, because Go maps are unordered. Never round-trip
-// order-significant data (record fields, enum symbols, identifier maps) through
-// ToAny; walk the Node tree instead.
+// ToAny converts a Node tree into plain Go values (map[string]any, []any, scalars).
+// Key order is lost; walk the Node tree for order-sensitive data.
 func ToAny(n Node) any {
 	switch v := n.(type) {
 	case *MapNode:
@@ -53,17 +43,8 @@ func ToAny(n Node) any {
 	}
 }
 
-// FromAny converts plain Go values into a Node tree, attaching loc to every node
-// it creates. It is the inverse of ToAny and the entry point for values that
-// arrive from encoding/json.
-//
-// Accepted inputs are nil, bool, string, the signed and unsigned integer types,
-// [Decimal], float32/float64, []any, []MapEntry, map[string]any, and any existing
-// Node (returned unchanged). Anything else is an error.
-//
-// Because Go maps are unordered, the keys of a map[string]any are sorted
-// lexicographically so that conversion is deterministic. Pass a []MapEntry when
-// the original order matters.
+// FromAny converts plain Go values into a Node tree. Inverse of [ToAny].
+// map[string]any keys are sorted; pass []MapEntry to preserve order.
 func FromAny(v any, loc SourceLine) (Node, error) {
 	if v == nil {
 		return NewNullNode(loc), nil
@@ -116,9 +97,7 @@ func fromAnySigned(v any, loc SourceLine) (Node, bool) {
 	}
 }
 
-// fromAnyUnsigned converts the unsigned integer types. Values above
-// [math.MaxInt64] become [DecimalScalar]s, matching how the YAML adapter parses
-// an oversized integer literal.
+// fromAnyUnsigned converts the unsigned integer types.
 func fromAnyUnsigned(v any, loc SourceLine) (Node, bool) {
 	switch t := v.(type) {
 	case uint:
@@ -165,8 +144,7 @@ func fromAnySlice(items []any, loc SourceLine) (Node, error) {
 	return NewSeqNode(loc, out), nil
 }
 
-// fromAnyMap converts a map[string]any into a *MapNode with lexicographically
-// sorted keys.
+// fromAnyMap converts a map[string]any into a *MapNode with sorted keys.
 func fromAnyMap(m map[string]any, loc SourceLine) (Node, error) {
 	keys := make([]string, 0, len(m))
 	for key := range m {

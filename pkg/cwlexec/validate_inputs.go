@@ -10,11 +10,9 @@ import (
 
 // Input validation errors.
 var (
-	// ErrInputRequired reports a required input that is missing from the input object and declares
-	// no default.
+	// ErrInputRequired reports a required input with no value and no default.
 	ErrInputRequired = errors.New("required input is missing and has no default")
-
-	// ErrInputUnknown reports an input key that names no declared parameter of the process.
+	// ErrInputUnknown reports an input key not matching any declared parameter.
 	ErrInputUnknown = errors.New("input key names no declared parameter")
 )
 
@@ -25,25 +23,13 @@ type validateSettings struct {
 	rejectUnknown bool
 }
 
-// WithRejectUnknown makes [ValidateInputs] return an error for input keys that name no declared
-// parameter. The default is to silently drop them, matching the CWL specification's guidance that
-// undeclared inputs are not an error.
+// WithRejectUnknown makes [ValidateInputs] error on undeclared input keys.
 func WithRejectUnknown() ValidateOption {
 	return func(s *validateSettings) { s.rejectUnknown = true }
 }
 
-// ValidateInputs checks that inputs satisfies the declared input parameters of process: every
-// required input is present, every supplied value inhabits its declared type, and — when
-// [WithRejectUnknown] is set — no undeclared inputs appear.
-//
-// On success it returns a merged map containing every supplied value that passed type-checking
-// plus default values for any declared input the caller omitted. The caller may pass the merged
-// map directly to [Runner.Run]; the scheduler's own default-fill pass is idempotent on keys that
-// are already present.
-//
-// On failure it returns nil and an error that wraps every violation found, joined with
-// [errors.Join]. Individual violations wrap [ErrInputRequired], [ErrOutputType], or
-// [ErrInputUnknown] and can be tested with [errors.Is].
+// ValidateInputs type-checks inputs against the process's declared parameters.
+// Returns a merged map with defaults filled in, or a joined error of all violations.
 func ValidateInputs(
 	process cwlcore.Process,
 	inputs map[string]any,
@@ -105,9 +91,7 @@ func rejectUnknownInputs(inputs map[string]any, declared map[string]bool) []erro
 	return errs
 }
 
-// resolveInputValue resolves a single declared input against the supplied inputs map and writes
-// the result into merged. It type-checks a supplied value, falls back to the declared default,
-// accepts nil for optional types, or returns an error for a missing required input.
+// resolveInputValue resolves one declared input: type-check, default, optional nil, or error.
 func resolveInputValue(decl *portDecl, inputs, merged map[string]any) error {
 	value, supplied := inputs[decl.Name]
 

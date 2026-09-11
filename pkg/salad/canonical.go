@@ -2,15 +2,12 @@ package salad
 
 import "strconv"
 
-// canonicalKey renders a node as a deterministic string, so that two nodes with
-// the same structure and values compare equal regardless of where they came
-// from. It is what the type DSL uses to drop repeated union members.
+// canonicalKey renders a node as a deterministic string for structural equality.
 func canonicalKey(n Node) string {
 	return string(appendCanonical(make([]byte, 0), n))
 }
 
-// nodeEqual reports whether two nodes have the same structure and values,
-// ignoring source locations.
+// nodeEqual reports whether two nodes have the same structure and values.
 func nodeEqual(a, b Node) bool {
 	return canonicalKey(a) == canonicalKey(b)
 }
@@ -55,8 +52,7 @@ func appendCanonicalSeq(dst []byte, s *SeqNode) []byte {
 	return append(dst, ']')
 }
 
-// appendCanonicalScalar renders a leaf value, tagged with its kind so that the
-// string "1" and the integer 1 do not collide.
+// appendCanonicalScalar renders a leaf value, tagged with its kind to avoid collisions.
 func appendCanonicalScalar(dst []byte, s *ScalarNode) []byte {
 	dst = append(dst, s.Kind().String()...)
 	dst = append(dst, '(')

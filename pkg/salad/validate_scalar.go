@@ -5,12 +5,7 @@ import (
 	"strings"
 )
 
-// Bounds used by the numeric fit check the specification requires: "the value
-// appearing in the document must fit into the specified type". They are spelled
-// as float64 because that is the type the check that uses them compares in: a
-// float literal is the remaining way a whole number out of int's or long's range
-// reaches the validator, an over-large integer literal being a [DecimalScalar]
-// that fails both by construction.
+// Numeric range bounds for int/long fit checks.
 const (
 	// maxIntPlusOne is 2^31, the first value an int cannot hold.
 	maxIntPlusOne = 2147483648
@@ -25,9 +20,7 @@ const (
 // maxListedSymbols bounds how many enum symbols a diagnostic spells out.
 const maxListedSymbols = 20
 
-// Spellings that Schema Salad validation rule 9 recognizes. nameExpression is
-// the short name of the enum type the rule singles out; the two openers are the
-// forms a parameter reference and an expression body are written in.
+// Expression enum names and openers for validation rule 9.
 const (
 	nameExpression    = "Expression"
 	exprReferenceOpen = "$("
@@ -54,8 +47,7 @@ func (v *validator) checkPrimitive(p *PrimitiveType, n Node) *Error {
 	}
 }
 
-// checkNull validates that n is null. An absent value counts as null, which is
-// what makes an omitted optional field valid.
+// checkNull validates that n is null.
 func (v *validator) checkNull(n Node) *Error {
 	if IsNull(n) {
 		return nil
@@ -92,23 +84,6 @@ func (v *validator) checkString(n Node) *Error {
 }
 
 // checkInteger validates that n is an integer that fits the given width.
-//
-// A float is never accepted for int or long, not even when it holds a whole
-// number: YAML and JSON both distinguish 3 from 3.0, the specification lists
-// int/long and float/double as separate types, and silently narrowing 3.0 to 3
-// would hide a real mistake in a document. The two ways that can go wrong are
-// told apart, because "3.0 is not an integer" and "1e30 does not fit in an int"
-// call for different fixes.
-//
-// A [DecimalScalar] is an integer, and is rejected for both widths anyway: it is
-// the kind an integer literal takes only when no int64 can hold it, so it is out
-// of int's and long's range by construction. That is the case DECIDED-10 turns
-// on — such a value is accepted for float and double, where [ScalarNode.AsFloat]
-// converts it, and nowhere else.
-//
-// The range check is exact. Both kinds carry the literal the document wrote, so
-// the comparison is between whole numbers rather than between the float64s they
-// round to, and 2^63 is told apart from 2^63-1.
 func (v *validator) checkInteger(k PrimitiveKind, n Node) *Error {
 	s, ok := AsScalar(n)
 	if !ok {
@@ -129,8 +104,7 @@ func (v *validator) checkInteger(k PrimitiveKind, n Node) *Error {
 	}
 }
 
-// rejectFloatAsInteger explains why a float cannot stand in for an integer,
-// distinguishing a value that is not whole from one that is simply too large.
+// rejectFloatAsInteger explains why a float was rejected as an integer.
 func (v *validator) rejectFloatAsInteger(k PrimitiveKind, s *ScalarNode) *Error {
 	f, _ := s.AsFloat()
 	if f == math.Trunc(f) && !floatFitsInteger(k, f) {
@@ -141,11 +115,7 @@ func (v *validator) rejectFloatAsInteger(k PrimitiveKind, s *ScalarNode) *Error 
 		describe(s), k.String())
 }
 
-// checkFloating validates that n is a number that fits the given precision.
-// Integers are accepted, as the specification's numeric hierarchy requires,
-// including one too large for an int64: this is where a document's
-// forty-three-digit `double` default is range-checked, and the only numeric type
-// it is legal for.
+// checkFloating validates that n is a number fitting the given precision.
 func (v *validator) checkFloating(k PrimitiveKind, n Node) *Error {
 	s, ok := AsScalar(n)
 	if !ok {
@@ -164,8 +134,7 @@ func (v *validator) checkFloating(k PrimitiveKind, n Node) *Error {
 	return nil
 }
 
-// intFits reports whether an integer already held as an int64 also fits the
-// narrower int. Every int64 fits a long by construction.
+// intFits reports whether an int64 fits the given integer width.
 func intFits(k PrimitiveKind, val int64) bool {
 	if k == PrimitiveInt {
 		return val >= math.MinInt32 && val <= math.MaxInt32
@@ -174,10 +143,7 @@ func intFits(k PrimitiveKind, val int64) bool {
 	return true
 }
 
-// floatFitsInteger reports whether a whole-numbered float lies within the range
-// of an int or a long. It exists to tell 3.0 (whole, in range, still not an
-// integer) apart from 1e30 (whole, and out of range whatever else is wrong with
-// it), which are two different mistakes in a document.
+// floatFitsInteger reports whether a whole-numbered float is in int/long range.
 func floatFitsInteger(k PrimitiveKind, f float64) bool {
 	if k == PrimitiveInt {
 		return f >= minIntValue && f < maxIntPlusOne
@@ -186,8 +152,7 @@ func floatFitsInteger(k PrimitiveKind, f float64) bool {
 	return f >= minLongValue && f < maxLongPlusOne
 }
 
-// fitsFloat32 reports whether a value survives narrowing to single precision.
-// Losing significant digits is not a failure to fit; overflowing to infinity is.
+// fitsFloat32 reports whether a value fits in float32 range.
 func fitsFloat32(f float64) bool {
 	if math.IsInf(f, 0) || math.IsNaN(f) {
 		return true
@@ -197,10 +162,6 @@ func fitsFloat32(f float64) bool {
 }
 
 // checkEnum validates that n is one of an enum's symbols.
-//
-// Symbols are stored as fully-qualified IRIs but documents spell them with their
-// short names, which is the comparison the specification's validation rule 8 for
-// enums prescribes and which EnumType.HasSymbol implements.
 func (v *validator) checkEnum(e *EnumType, n Node) *Error {
 	sym, ok := AsString(n)
 	if !ok {
@@ -219,22 +180,7 @@ func (v *validator) checkEnum(e *EnumType, n Node) *Error {
 		"the value %q is not a symbol of %s; expected one of: %s", sym, typeLabel(e), symbolNames(e))
 }
 
-// checkExpression applies Schema Salad validation rule 9, which the vendored
-// metaschema states in its Schema_Validation section as:
-//
-//	As a special case, a field with the `Expression` type validates string
-//	values which contain a CWL parameter reference or expression in the form
-//	`$(...)` or `${...}`
-//
-// The rule widens the type rather than replacing it: an enum named Expression
-// accepts its declared symbols as any enum does, and additionally accepts any
-// string carrying expression syntax. The reference implementation instead
-// hard-codes the fully-qualified name org.w3id.cwl.cwl.Expression; matching on
-// the short name keeps this a Salad rule about a conventionally-named type
-// rather than a dependency of this package on the CWL vocabulary, which the
-// layering forbids. This is not CWL knowledge leaking in — the rule is stated by
-// the Salad metaschema and by the Salad specification's own validation rules, so
-// honouring it here is following the Salad specification.
+// checkExpression applies validation rule 9: Expression enums also accept $(...) or ${...} strings.
 func (v *validator) checkExpression(e *EnumType, sym string, loc SourceLine) *Error {
 	if strings.Contains(sym, exprReferenceOpen) || strings.Contains(sym, exprBodyOpen) {
 		return nil
@@ -245,14 +191,12 @@ func (v *validator) checkExpression(e *EnumType, sym string, loc SourceLine) *Er
 			"which is what %s accepts", sym, exprReferenceOpen, exprBodyOpen, typeLabel(e))
 }
 
-// isExpressionEnum reports whether an enum is subject to validation rule 9,
-// which is decided by the short name of the type.
+// isExpressionEnum reports whether the enum's short name is "Expression".
 func isExpressionEnum(e *EnumType) bool {
 	return shortName(e.TypeName()) == nameExpression
 }
 
-// symbolNames lists an enum's symbols by short name, trailing off after
-// maxListedSymbols of them.
+// symbolNames lists an enum's symbols by short name for diagnostics.
 func symbolNames(e *EnumType) string {
 	names := make([]string, 0, len(e.Symbols))
 

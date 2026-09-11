@@ -22,48 +22,19 @@ const (
 	// initialJSONBytes is the working buffer one encoding starts with.
 	initialJSONBytes = 64
 
-	// firstPrintableRune is the lowest rune a JSON string may carry
-	// unescaped; everything below it is a control character.
+	// firstPrintableRune is the lowest rune a JSON string may carry unescaped.
 	firstPrintableRune = 0x20
 
-	// exponentBelow is the magnitude under which a float is written with an
-	// exponent, matching where Python's float repr switches.
+	// exponentBelow is the magnitude under which a float uses exponent notation.
 	exponentBelow = 1e-4
 
-	// digitsAtOrAbove is the magnitude at or above which a computed float is
-	// written as its full run of decimal digits rather than with an
-	// exponent. See [formatJSONFloat] for why that is the integer spelling
-	// and not the float one.
+	// digitsAtOrAbove is the magnitude at or above which a float is written as full digits.
 	digitsAtOrAbove = 1e16
 )
 
-// EncodeJSON renders value as the "textual JSON representation" the spec calls
-// for when a parameter reference is embedded in a larger string.
-//
-// Two details are load-bearing:
-//
-//   - Object entries are sorted by key. The spec says so explicitly, and Go
-//     map iteration order is randomised, so anything else would make
-//     interpolation non-deterministic between runs.
-//   - The layout matches Python's json.dumps, which is what the reference
-//     implementation interpolates with: ", " between entries and ": " after a
-//     key. The spec does not pin the whitespace, so matching the
-//     implementation the conformance suite was written against is the safer
-//     of two defensible choices.
-//
-// It is exported because that layout is not only an expression concern: a value
-// staged to disk — the contents of an InitialWorkDirRequirement Dirent, say —
-// has to be rendered the same way an interpolated one is, and a second
-// implementation of it would be a second thing to keep in step with the suite.
-//
-// It expects values already in their expression shape, which is what the
-// evaluator hands its own interpolation. Pass anything holding a typed model
-// value through [ToExpressionValue] first: a *File reaching this directly is
-// outside the JSON type system and is written as its Go string form, which is
-// easy to miss when the *File is one element of an otherwise plain array.
-//
-// Rendering never fails. A value outside the JSON type system is rendered as
-// its Go string form rather than aborting an otherwise valid interpolation.
+// EncodeJSON renders value as the CWL "textual JSON representation".
+// Keys sorted, layout matches Python's json.dumps. Values must be in expression shape;
+// pass typed model values through [ToExpressionValue] first.
 func EncodeJSON(value any) string {
 	return string(appendJSON(make([]byte, 0, initialJSONBytes), value))
 }
@@ -88,9 +59,7 @@ func appendJSON(dst []byte, value any) []byte {
 	}
 }
 
-// appendJSONOther handles the value kinds that are not one of the canonical
-// decoded shapes: named types, sized integers, and the slices and maps a
-// caller may hand in instead of []any and map[string]any.
+// appendJSONOther handles named types, sized integers, and typed slices/maps.
 func appendJSONOther(dst []byte, value any) []byte {
 	if encoded, ok := appendJSONNumber(dst, value); ok {
 		return encoded
@@ -107,8 +76,7 @@ func appendJSONOther(dst []byte, value any) []byte {
 	return appendJSONString(dst, fmt.Sprint(value))
 }
 
-// appendJSONNumber encodes any Go numeric type. ok is false for everything
-// else.
+// appendJSONNumber encodes any Go numeric type.
 func appendJSONNumber(dst []byte, value any) ([]byte, bool) {
 	reflected := reflect.ValueOf(value)
 
@@ -124,33 +92,9 @@ func appendJSONNumber(dst []byte, value any) ([]byte, bool) {
 	}
 }
 
-// formatJSONFloat formats a float that carries no literal — one this engine
-// computed rather than one a document wrote.
-//
-// A number a document wrote never reaches here. It arrives as a [salad.Decimal]
-// and is rendered from its own digits, which is how 1.23e-05 goes back out as
-// 0.0000123 and a 43-digit integer keeps all 43. This function is what is left:
-// the result of arithmetic, of a JavaScript expression, or of a JSON reparse.
-//
-// Below [digitsAtOrAbove] this is Python's float repr — a whole number keeps its
-// ".0", and the switch to exponent notation at the small end happens where
-// Python's does.
-//
-// At or above it, the value is written as its full run of digits with no
-// exponent and no ".0", where Python's repr would say "1e+42". The difference is
-// deliberate and it is the one place this function is not repr. A float64 that
-// large is always a whole number — the gap between neighbouring floats passes 1
-// at 2^52, well under 1e16 — so the full spelling loses nothing and reparses to
-// the identical float64. What it buys is the case where a large integer has been
-// through a JavaScript expression, which is the one way a document's literal can
-// still lose its lexeme: Node has a single number type, so the value comes back
-// as a float64 and only the digits keep it comparing equal to the integer the
-// document wrote. The reference implementation writes "1e+42" there and could
-// not pass such a test itself.
-//
-// NaN and the infinities have no JSON spelling; they are written the way
-// json.dumps writes them, which keeps an interpolated string readable even
-// though the result is then not parseable JSON.
+// formatJSONFloat formats a computed float (not a document literal).
+// Matches Python's float repr, except large integers (>=1e16) use full digits
+// to preserve round-trip equality through JavaScript's single number type.
 func formatJSONFloat(value float64) string {
 	switch {
 	case math.IsNaN(value):
@@ -218,10 +162,7 @@ func appendJSONObject(dst []byte, object map[string]any) []byte {
 	return append(dst, '}')
 }
 
-// appendJSONString encodes a JSON string literal. Non-ASCII runes are written
-// through as UTF-8 rather than escaped: the result is valid JSON either way,
-// and readable output matters more here than byte-for-byte agreement with a
-// particular encoder's ensure_ascii default.
+// appendJSONString encodes a JSON string literal. Non-ASCII runes pass through as UTF-8.
 func appendJSONString(dst []byte, text string) []byte {
 	dst = append(dst, '"')
 

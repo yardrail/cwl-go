@@ -2,10 +2,7 @@ package salad
 
 import "fmt"
 
-// primitiveIRIKinds maps the fully-qualified IRI of each Schema Salad primitive
-// to its kind. A type reference survives resolution either as a vocabulary short
-// name or as the IRI the vocabulary expands it to, so both spellings have to
-// reach the same primitive.
+// primitiveIRIKinds maps fully-qualified primitive IRIs to their kinds.
 var primitiveIRIKinds = map[string]PrimitiveKind{
 	saladNS + nameNull:  PrimitiveNull,
 	saladNS + nameAny:   PrimitiveAny,
@@ -24,11 +21,7 @@ type recordDef struct {
 }
 
 // typeBuilder converts flattened schema definitions into the type graph.
-//
-// Named types are declared as shells before any field is built, because the graph
-// is cyclic: a record's field may name a record that names it back. Nothing is
-// mutated after a definition's fields are filled in, so what a consumer sees is
-// immutable.
+// Named types are declared as shells first to handle cycles.
 type typeBuilder struct {
 	ctx    *Context
 	vocab  map[string]string
@@ -62,11 +55,7 @@ func (b *typeBuilder) build(defs []*MapNode) (*Schema, *Error) {
 	return NewSchema(b.order), nil
 }
 
-// declare enters every named definition into the name table and returns the
-// record shells still waiting for their fields.
-//
-// A documentation section is not a type and is dropped here, which is also what
-// keeps it out of the schema's documentRoot candidates.
+// declare enters named definitions into the name table and returns record shells.
 func (b *typeBuilder) declare(defs []*MapNode) []recordDef {
 	records := make([]recordDef, 0, len(defs))
 
@@ -85,8 +74,7 @@ func (b *typeBuilder) declare(defs []*MapNode) []recordDef {
 	return records
 }
 
-// register enters a named type into the name table. Anonymous types are reachable
-// only through the type that contains them and are never entered.
+// register enters a named type into the name table.
 func (b *typeBuilder) register(name string, t Type) {
 	if name == "" {
 		return
@@ -124,10 +112,6 @@ func (b *typeBuilder) fillRecord(r *RecordType, def *MapNode) *Error {
 }
 
 // buildField converts one field definition.
-//
-// The field's jsonldPredicate comes from the context rather than being re-read
-// from the definition, so that the validator interprets a field exactly the way
-// the loader resolved it.
 func (b *typeBuilder) buildField(fd *MapNode) (*Field, *Error) {
 	name := definitionName(fd)
 	if name == "" {
@@ -153,8 +137,7 @@ func (b *typeBuilder) buildField(fd *MapNode) (*Field, *Error) {
 	}, nil
 }
 
-// buildType converts a type expression: a name, a list of alternatives, or an
-// inline type definition.
+// buildType converts a type expression.
 func (b *typeBuilder) buildType(n Node) (Type, *Error) {
 	switch v := n.(type) {
 	case *ScalarNode:
@@ -228,8 +211,7 @@ func (b *typeBuilder) buildMap(m *MapNode) (Type, *Error) {
 	return &MapType{Values: values}, nil
 }
 
-// buildNames converts a union declaration, whose alternatives are listed under
-// names rather than written as a bare list.
+// buildNames converts a union declaration listed under "names".
 func (b *typeBuilder) buildNames(m *MapNode) (Type, *Error) {
 	val := nodeOrNil(m, keyNames)
 	if seq, ok := AsSeq(val); ok {
@@ -244,8 +226,7 @@ func (b *typeBuilder) buildNames(m *MapNode) (Type, *Error) {
 	return &UnionType{Options: []Type{t}}, nil
 }
 
-// buildInlineRecord converts a record written inline. A named inline record that
-// the name table already holds is that type, not a second copy of it.
+// buildInlineRecord converts an inline record, deduplicating by name.
 func (b *typeBuilder) buildInlineRecord(m *MapNode) (Type, *Error) {
 	if t, ok := b.byName[definitionName(m)]; ok {
 		return t, nil
@@ -269,11 +250,7 @@ func (b *typeBuilder) buildInlineEnum(m *MapNode) (Type, *Error) {
 	return e, nil
 }
 
-// resolveRef resolves a type reference written as a name.
-//
-// A name is matched as written first, then as the IRI the vocabulary expands it
-// to, and finally against the short name of a defined type, which is accepted
-// only when exactly one type carries it.
+// resolveRef resolves a type reference by name, vocabulary IRI, or short name.
 func (b *typeBuilder) resolveRef(name string, loc SourceLine) (Type, *Error) {
 	if t, ok := b.namedType(name); ok {
 		return t, nil
@@ -292,10 +269,7 @@ func (b *typeBuilder) resolveRef(name string, loc SourceLine) (Type, *Error) {
 	return nil, Errorf(loc, "the type %q is not defined by the schema", name)
 }
 
-// namedType resolves an exact type name, primitives included.
-//
-// A registered-but-nil entry is reported as not found, so that every resolved
-// reference is a usable type and callers never have to re-check the result.
+// namedType resolves an exact type name, including primitives.
 func (b *typeBuilder) namedType(name string) (Type, bool) {
 	if k, ok := PrimitiveKindOf(name); ok {
 		return Primitive(k), true
@@ -312,8 +286,7 @@ func (b *typeBuilder) namedType(name string) (Type, bool) {
 	return nil, false
 }
 
-// newRecordShell builds a record with everything but its fields, which are filled
-// in once every named type has been declared.
+// newRecordShell builds a record with everything but its fields.
 func newRecordShell(def *MapNode) *RecordType {
 	return &RecordType{
 		Name:         definitionName(def),
@@ -325,12 +298,7 @@ func newRecordShell(def *MapNode) *RecordType {
 	}
 }
 
-// newEnumType builds an enum.
-//
-// The metaschema declares Any as an enum of the single symbol Any, but this
-// package models it as a primitive: it is the type that admits any non-null
-// value, not a closed set of symbols. The definition is mapped onto that
-// primitive here, which is the one place the two spellings meet.
+// newEnumType builds an enum. The metaschema's "Any" enum maps to [PrimitiveAny].
 func newEnumType(def *MapNode) Type {
 	name := definitionName(def)
 	if isAnyName(name) {
@@ -345,14 +313,12 @@ func newEnumType(def *MapNode) Type {
 	}
 }
 
-// isAnyName reports whether a type name is Schema Salad's Any, spelled either as
-// the vocabulary term or as its IRI.
+// isAnyName reports whether a type name is "Any" (term or IRI).
 func isAnyName(name string) bool {
 	return name == nameAny || name == saladNS+nameAny
 }
 
-// fieldContext is the context line introducing a diagnostic about one field of
-// one type.
+// fieldContext formats a diagnostic context line for a field of a type.
 func fieldContext(record, field string) string {
 	return fmt.Sprintf("the field %q of %s is not valid, because", field, record)
 }

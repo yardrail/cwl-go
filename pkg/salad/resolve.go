@@ -6,9 +6,7 @@ import (
 	"strings"
 )
 
-// scope is the resolution state that flows down the document tree: the term
-// table in force, the base URI identifiers and links resolve against, and the
-// URL of the file the nodes came from.
+// scope is the resolution state flowing down the document tree.
 type scope struct {
 	ctx      *Context
 	base     string
@@ -17,15 +15,12 @@ type scope struct {
 	top      bool
 }
 
-// child returns sc for use on a nested node: only the outermost node of the root
-// document contributes the document metadata.
+// child returns sc for a nested node.
 func (sc scope) child() scope {
 	return scope{ctx: sc.ctx, base: sc.base, fileBase: sc.fileBase, field: sc.field, top: false}
 }
 
-// descend returns sc for use on the value of one field. The field name travels
-// with the scope because it is the scope an identifier is declared in, which is
-// what duplicate-identifier detection compares.
+// descend returns sc for a field's value.
 func (sc scope) descend(field string) scope {
 	return scope{ctx: sc.ctx, base: sc.base, fileBase: sc.fileBase, field: field, top: false}
 }
@@ -35,9 +30,7 @@ func (sc scope) rebase(base string) scope {
 	return scope{ctx: sc.ctx, base: base, fileBase: sc.fileBase, field: sc.field, top: sc.top}
 }
 
-// resolver carries the state of one Load call: the identifier index every link
-// is checked against, the per-run resolved-document cache, and the in-progress
-// set that turns an import cycle into an error.
+// resolver carries the state of one Load call.
 type resolver struct {
 	loader   *Loader
 	fetcher  Fetcher
@@ -52,8 +45,7 @@ type resolver struct {
 	asserted map[string]bool
 }
 
-// declaration records where an absolute identifier was first declared, and the
-// field of the enclosing object it was declared in.
+// declaration records where an identifier was first declared.
 type declaration struct {
 	loc   SourceLine
 	field string
@@ -105,8 +97,7 @@ func (r *resolver) resolve(n Node, sc scope) (Node, error) {
 	}
 }
 
-// resolveSeq resolves every item of a sequence. An $import that yields a
-// sequence is flattened into the parent sequence, per the specification.
+// resolveSeq resolves every item, flattening $import sequences.
 func (r *resolver) resolveSeq(s *SeqNode, sc scope) (Node, error) {
 	out := make([]Node, 0, s.Len())
 
@@ -128,8 +119,7 @@ func (r *resolver) resolveSeq(s *SeqNode, sc scope) (Node, error) {
 	return NewSeqNode(s.Loc(), out), nil
 }
 
-// resolveMap resolves a mapping: a processing directive, an explicit context, or
-// an ordinary object.
+// resolveMap resolves a mapping: directive, explicit context, or object.
 func (r *resolver) resolveMap(m *MapNode, sc scope) (Node, error) {
 	if m.Has(dirImport) {
 		return r.resolveImport(m, sc)
@@ -153,9 +143,7 @@ func (r *resolver) resolveMap(m *MapNode, sc scope) (Node, error) {
 	return r.resolveObject(m, sc)
 }
 
-// resolveObject applies the preprocessing rules to one object, in the order the
-// specification defines them: field names, then identifier maps, then the type
-// and secondary-file DSLs, then identifiers, then every field value.
+// resolveObject applies the preprocessing rules to one object.
 func (r *resolver) resolveObject(m *MapNode, sc scope) (Node, error) {
 	m = normalizeFieldNames(m, sc.ctx)
 
@@ -184,9 +172,7 @@ func (r *resolver) resolveObject(m *MapNode, sc scope) (Node, error) {
 	return out, nil
 }
 
-// reindex points the identifier index at the fully-resolved object, replacing
-// the half-resolved one recorded while the object's own identifier was expanded.
-// It is what makes an $import of a document fragment yield a resolved object.
+// reindex updates the identifier index to point at the fully-resolved object.
 func (r *resolver) reindex(out *MapNode, ctx *Context) {
 	for _, field := range ctx.identifierFields() {
 		node := nodeOrNil(out, field)
@@ -217,9 +203,7 @@ func normalizeFieldNames(m *MapNode, ctx *Context) *MapNode {
 	return NewMapNode(m.Loc(), out)
 }
 
-// resolveIdentifiers expands the object's identifier fields and reports the base
-// URI its children resolve against. An object's identifier becomes the base URI
-// for everything below it.
+// resolveIdentifiers expands identifier fields and returns the new base URI.
 func (r *resolver) resolveIdentifiers(m *MapNode, sc scope) (*MapNode, string, error) {
 	base := sc.base
 
@@ -248,20 +232,7 @@ func (r *resolver) resolveIdentifiers(m *MapNode, sc scope) (*MapNode, string, e
 	return m, base, nil
 }
 
-// declare records an absolute identifier, reporting the specification's
-// duplicate-identifier error when two distinct objects declared in the same
-// field claim the same URI.
-//
-// The specification says flatly that "it is an error for more than one object in
-// a document to have the same absolute URI", but a schema may leave two sibling
-// fields sharing one identifier scope, in which case an input and an output of
-// one process legitimately share a short name and so an absolute URI. Schema
-// Salad's answer to that is subscope, which such a schema simply has not
-// applied. Comparing the declaring field reproduces the scope the schema omitted
-// for the purpose of the diagnostic, while leaving every URI exactly as the
-// schema resolves it, so references are unaffected. Two objects in the *same*
-// field claiming one URI remains an error, which is the case the rule exists
-// for. schema-salad performs no duplicate check whatsoever.
+// declare records an identifier, erroring on duplicates within the same field.
 func (r *resolver) declare(id string, loc SourceLine, obj Node, field string) error {
 	prev, seen := r.ids[id]
 	if seen && prev.field == field && prev.loc != loc {
@@ -280,9 +251,7 @@ func (r *resolver) declare(id string, loc SourceLine, obj Node, field string) er
 	return nil
 }
 
-// indexObject records an object as the target of links to id. An object always
-// supersedes a bare asserted identifier, but among objects the first to claim a
-// URI keeps it, which is how schema-salad's index behaves.
+// indexObject records an object as the target of links to id.
 func (r *resolver) indexObject(id string, obj Node) {
 	if _, taken := r.idx[id]; taken && !r.asserted[id] {
 		return
@@ -292,8 +261,7 @@ func (r *resolver) indexObject(id string, obj Node) {
 	r.idx[id] = obj
 }
 
-// resolveFields resolves every field value of an object, expanding link,
-// identifier and vocabulary references and recursing into the rest.
+// resolveFields resolves every field value, expanding references.
 func (r *resolver) resolveFields(m *MapNode, sc scope) (*MapNode, error) {
 	out := make([]MapEntry, 0, m.Len())
 
@@ -316,8 +284,7 @@ func (r *resolver) resolveFields(m *MapNode, sc scope) (*MapNode, error) {
 	return NewMapNode(m.Loc(), out), nil
 }
 
-// expandReferences applies the reference-resolution rules a field's term
-// declares to its value, which may be a single reference or a list of them.
+// expandReferences applies reference-resolution rules to a field's value.
 func (r *resolver) expandReferences(val Node, term *TermDef, sc scope) Node {
 	if !term.isURLField() {
 		return val
@@ -358,17 +325,7 @@ func (r *resolver) expandReferences(val Node, term *TermDef, sc scope) Node {
 	return NewSeqNode(seq.Loc(), items)
 }
 
-// expandReference expands one reference and, when the field declares
-// identifiers rather than referring to them, registers the result as a link
-// target.
-//
-// A jsonldPredicate of _type: "@id" with identity: true marks a field whose
-// string values *are* identifiers: an enum's symbols, or the bare-string form of
-// a list of named outputs. The specification's wording for identity covers only
-// the reference direction ("absence of an object with the URI is not an error"),
-// but a value that is an identifier must also be resolvable from elsewhere in
-// the document, so each one is indexed here. This mirrors schema-salad's
-// _resolve_identity.
+// expandReference expands one reference and indexes identity fields as link targets.
 func (r *resolver) expandReference(raw string, loc SourceLine, mode expandMode, term *TermDef, sc scope) Node {
 	expanded := sc.ctx.expand(raw, sc.base, mode, term.ScopedRef)
 
@@ -379,10 +336,7 @@ func (r *resolver) expandReference(raw string, loc SourceLine, mode expandMode, 
 	return NewStringNode(loc, expanded)
 }
 
-// declareLinkTarget records an identifier that is not itself an object, so that
-// references to it resolve. Unlike declare it reports no duplicate-identifier
-// error: the specification's rule is about two *objects* claiming one URI, and
-// the same vocabulary IRI may legitimately be asserted by several fields.
+// declareLinkTarget records a non-object identifier as a link target.
 func (r *resolver) declareLinkTarget(id string, loc SourceLine) {
 	if id == "" || isKeyword(id) {
 		return
@@ -394,10 +348,7 @@ func (r *resolver) declareLinkTarget(id string, loc SourceLine) {
 	}
 }
 
-// recordNamespaces remembers the namespace IRIs a document declares, so that
-// link checking can recognise a foreign-vocabulary reference wherever it
-// appears, including inside a $graph whose directives were lifted into the
-// document metadata.
+// recordNamespaces collects namespace IRIs for link checking.
 func (r *resolver) recordNamespaces(m *MapNode) {
 	ns, ok := AsMap(nodeOrNil(m, dirNamespaces))
 	if !ok {
@@ -411,8 +362,7 @@ func (r *resolver) recordNamespaces(m *MapNode) {
 	}
 }
 
-// inDeclaredNamespace reports whether an IRI belongs to a namespace the schema
-// or the document declared.
+// inDeclaredNamespace reports whether an IRI belongs to a declared namespace.
 func (r *resolver) inDeclaredNamespace(iri string) bool {
 	for _, ns := range r.spaces {
 		if ns != "" && len(iri) > len(ns) && strings.HasPrefix(iri, ns) {
@@ -444,8 +394,7 @@ func appendUniqueString(out []string, v string) []string {
 	return append(out, v)
 }
 
-// applyExplicitContext applies a document's $base and $namespaces directives to
-// the scope its contents resolve in.
+// applyExplicitContext applies $base and $namespaces directives to the scope.
 func applyExplicitContext(m *MapNode, sc scope) scope {
 	if base, ok := AsString(nodeOrNil(m, dirBase)); ok {
 		sc = sc.rebase(base)
@@ -459,8 +408,7 @@ func applyExplicitContext(m *MapNode, sc scope) scope {
 	return scope{ctx: sc.ctx.withNamespaces(ns), base: sc.base, fileBase: sc.fileBase, field: sc.field, top: sc.top}
 }
 
-// documentMetadata collects a document's explicit context: every directive on
-// the root object other than $graph itself.
+// documentMetadata collects the root object's directives (excluding $graph).
 func documentMetadata(m *MapNode) *MapNode {
 	out := make([]MapEntry, 0, m.Len())
 
@@ -477,16 +425,14 @@ func documentMetadata(m *MapNode) *MapNode {
 	return NewMapNode(m.Loc(), out)
 }
 
-// isImportNode reports whether a node is an $import directive, which determines
-// whether a sequence result is flattened into its parent.
+// isImportNode reports whether a node is an $import directive.
 func isImportNode(n Node) bool {
 	m, ok := AsMap(n)
 
 	return ok && m.Has(dirImport)
 }
 
-// withNamespaces returns a copy of the context with additional namespace
-// prefixes in force, as declared by a $namespaces directive.
+// withNamespaces returns a copy with additional namespace prefixes.
 func (c *Context) withNamespaces(ns *MapNode) *Context {
 	out := newContext()
 	if c != nil {

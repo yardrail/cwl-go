@@ -14,88 +14,41 @@ import (
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
-// Running the tool.
-//
-// Everything above this file decides *what* to run — the argv, the working directory, the files in
-// it, the environment. This file spawns it, waits for it, and reports the exit code. It reads no CWL
-// document beyond the three requirements that describe the process itself, and it knows nothing
-// about output collection.
+// Spawning and waiting for tool processes.
 
-// Errors reported while running a tool's process. They are wrapped with context, so callers should
-// test them with [errors.Is].
+// Errors reported while running a tool's process. Use [errors.Is] to test.
 var (
-	// ErrEmptyCommand reports a CommandLineTool that produced no argv at all: no baseCommand, no
-	// arguments and no bound inputs. There is nothing to execute, and executing the first
-	// argument of an empty list is how an engine runs the wrong program.
+	// ErrEmptyCommand reports an empty argv.
 	ErrEmptyCommand = errors.New("command line is empty")
-
-	// ErrToolTimeLimit reports a tool killed for exceeding its ToolTimeLimit. The specification
-	// requires the implementation to "terminate the process" and treat the outcome as a
-	// permanent failure, so this is never a temporary one.
+	// ErrToolTimeLimit reports a tool killed for exceeding its time limit.
 	ErrToolTimeLimit = errors.New("tool exceeded its ToolTimeLimit")
-
-	// ErrTimeLimitValue reports a ToolTimeLimit whose `timelimit` expression did not evaluate to
-	// a non-negative number of seconds.
+	// ErrTimeLimitValue reports a timelimit that is not a non-negative number.
 	ErrTimeLimitValue = errors.New("ToolTimeLimit timelimit is not a non-negative number of seconds")
 )
 
-// The environment variables the specification names for a tool's process. See [ToolEnvironment].
+// Spec-defined environment variables for a tool's process.
 const (
 	envHome   = "HOME"
 	envTmpDir = "TMPDIR"
 	envPath   = "PATH"
 )
 
-// shellPath is the shell a ShellCommandRequirement's command string is handed to. The specification
-// describes the result as "a single string containing a shell command line", and POSIX puts the
-// shell that interprets one at this path.
+// shellPath is the POSIX shell used for ShellCommandRequirement.
 const shellPath = "/bin/sh"
 
-// ProcessSpec is one operating-system process to run on behalf of a CommandLineTool: everything
-// os/exec needs, and nothing about the document it came from.
-//
-// It is the boundary a container implementation replaces. Every field here is already resolved —
-// the argv is built, the paths are the ones the tool will see, the environment is complete — so an
-// alternative executor consumes the same value and differs only in how it starts the process.
+// ProcessSpec is the resolved process to run for a CommandLineTool invocation.
 type ProcessSpec struct {
-	// Command is the argv, and whether it is to be run through a shell; see [CommandLine].
-	Command *CommandLine
-
-	// Dir is the working directory the process starts in, which is the tool's designated output
-	// directory.
-	Dir string
-
-	// Stdin is the file to connect to the process's standard input, or "" to give it none.
-	Stdin string
-
-	// Stdout is the file the process's standard output is captured to, or "" to discard it.
-	//
-	// Discarding is deliberate. A cwl-runner writes its output object to its own standard
-	// output, so a tool's output must never reach it by default; an undeclared stream that some
-	// output parameter nevertheless captures is given a filename by [StreamFile], and the caller
-	// puts that name here.
-	Stdout string
-
-	// Stderr is the file the process's standard error is captured to, or "" to discard it.
-	Stderr string
-
-	// Env is the process's complete environment, as KEY=VALUE strings. An empty slice means an
-	// empty environment, not an inherited one; see [ToolEnvironment].
-	Env []string
-
-	// Timeout bounds the process's wall-clock run time. Zero means no limit.
-	Timeout time.Duration
+	Command *CommandLine  // argv and shell flag
+	Dir     string        // working directory (output directory)
+	Stdin   string        // file for stdin, or "" for none
+	Stdout  string        // file for stdout, or "" to discard
+	Stderr  string        // file for stderr, or "" to discard
+	Env     []string      // complete environment as KEY=VALUE strings
+	Timeout time.Duration // wall-clock limit; zero means unlimited
 }
 
-// RunProcess spawns the process spec describes, waits for it, and returns its exit code.
-//
-// A non-zero exit is not an error: deciding what an exit code means is [ClassifyExit]'s job, and a
-// tool that reports a meaningful failure code is still a tool that ran. An error is returned only
-// when the process could not be run, could not be waited for, or was killed — by ctx, or by its own
-// ToolTimeLimit, which is reported as [ErrToolTimeLimit].
-//
-// ctx cancellation kills the process rather than orphaning it, so a cancelled run leaves nothing
-// behind still writing to the output directory.
+// RunProcess spawns the process, waits for it, and returns its exit code.
+// A non-zero exit is not an error; only spawn/wait/kill failures are.
 func RunProcess(ctx context.Context, spec *ProcessSpec) (int, error) {
 	argv := spec.argv()
 	if len(argv) == 0 {
@@ -113,13 +66,6 @@ func RunProcess(ctx context.Context, spec *ProcessSpec) (int, error) {
 }
 
 // argv renders the command line as the argument vector to spawn.
-//
-// The two forms are genuinely different invocations. Without a ShellCommandRequirement the argv is
-// handed to the operating system as it stands and no shell ever sees it, so a metacharacter in an
-// argument is an ordinary character. With one, the specification requires the elements to be "joined
-// into a string separated by single spaces and quoted to prevent interpretation by the shell, unless
-// CommandLineBinding for that argument contains shellQuote: false", and that string is what /bin/sh
-// is asked to interpret.
 func (s *ProcessSpec) argv() []string {
 	if s.Command == nil {
 		return nil
@@ -132,7 +78,7 @@ func (s *ProcessSpec) argv() []string {
 	return s.Command.Argv()
 }
 
-// runArgv spawns and waits for one already-opened process.
+// runArgv spawns and waits for a process with opened streams.
 func runArgv(ctx context.Context, spec *ProcessSpec, argv []string, streams *processStreams) (int, error) {
 	runCtx, cancel := spec.deadline(ctx)
 	defer cancel()
@@ -162,8 +108,7 @@ func runArgv(ctx context.Context, spec *ProcessSpec, argv []string, streams *pro
 	return exited.ExitCode(), nil
 }
 
-// deadline derives the context the process actually runs under, applying the tool's time limit when
-// it has one.
+// deadline derives the process context, applying the tool's time limit if set.
 func (s *ProcessSpec) deadline(ctx context.Context) (context.Context, context.CancelFunc) {
 	if s.Timeout <= 0 {
 		return context.WithCancel(ctx)
@@ -172,10 +117,7 @@ func (s *ProcessSpec) deadline(ctx context.Context) (context.Context, context.Ca
 	return context.WithTimeout(ctx, s.Timeout)
 }
 
-// killedBy reports why a process was killed, or nil when it ended on its own terms.
-//
-// The caller's own cancellation is reported first and unchanged, because a caller that stopped the
-// run wants its own error back rather than a diagnosis of the symptom.
+// killedBy reports why a process was killed, or nil if it exited normally.
 func killedBy(ctx, runCtx context.Context, timeout time.Duration) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -188,15 +130,14 @@ func killedBy(ctx, runCtx context.Context, timeout time.Duration) error {
 	return nil
 }
 
-// processStreams holds the files a process's three standard streams are wired to. A nil member means
-// the stream is not redirected to a file.
+// processStreams holds opened files for stdin/stdout/stderr. Nil means not redirected.
 type processStreams struct {
 	in  *os.File
 	out *os.File
 	err *os.File
 }
 
-// openStreams opens or creates the files a spec's redirections name.
+// openStreams opens the files named by the spec's redirections.
 func openStreams(spec *ProcessSpec) (*processStreams, error) {
 	streams := &processStreams{in: nil, out: nil, err: nil}
 
@@ -217,8 +158,7 @@ func openStreams(spec *ProcessSpec) (*processStreams, error) {
 	return streams, nil
 }
 
-// capture creates the files the two output streams are captured to. An empty path captures nothing,
-// which leaves that stream connected to the null device.
+// capture creates files for stdout/stderr capture. Empty path means no capture.
 func (s *processStreams) capture(stdout, stderr string) error {
 	if stdout != "" {
 		file, err := createStream(stdout)
@@ -243,8 +183,7 @@ func (s *processStreams) capture(stdout, stderr string) error {
 	return nil
 }
 
-// createStream creates the file a captured stream is written to, making its parent directory when
-// the tool's redirection names a subdirectory.
+// createStream creates a capture file, making parent directories as needed.
 func createStream(path string) (*os.File, error) {
 	err := os.MkdirAll(filepath.Dir(path), stageDirPerm)
 	if err != nil {
@@ -254,12 +193,7 @@ func createStream(path string) (*os.File, error) {
 	return os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, stageFilePerm)
 }
 
-// attach wires the opened files onto a command, leaving an unredirected stream connected to the
-// null device, which is what os/exec does with a nil field.
-//
-// The nil checks are load-bearing rather than defensive. Assigning an unset file to cmd.Stdout would
-// store a non-nil [io.Writer] holding a nil pointer, which os/exec would then dutifully write to;
-// leaving the field alone is what gets /dev/null.
+// attach wires opened files onto the command. Nil fields are left alone (os/exec uses /dev/null).
 func (s *processStreams) attach(cmd *exec.Cmd) {
 	if s.in != nil {
 		cmd.Stdin = s.in
@@ -274,7 +208,7 @@ func (s *processStreams) attach(cmd *exec.Cmd) {
 	}
 }
 
-// close closes every opened file, reporting all failures rather than the first.
+// close closes all opened files, joining errors.
 func (s *processStreams) close() error {
 	var err error
 
@@ -287,23 +221,7 @@ func (s *processStreams) close() error {
 	return err
 }
 
-// ToolEnvironment builds the complete environment a tool's process runs in.
-//
-// The specification is unusually direct about this, and the rule is *not* inheritance:
-//
-//	When executing the tool, the tool must execute in a new, empty environment with only the
-//	environment variables described below; the child process must not inherit environment
-//	variables from the parent process except as specified or at user option.
-//
-// The variables it then describes are HOME, set to the designated output directory; TMPDIR, set to
-// the designated temporary directory; PATH, which "may be inherited from the parent process"; and
-// whatever an EnvVarRequirement declares. So the environment here is built from nothing: three
-// variables plus the document's own, and not one thing more. A tool that reads any other variable
-// gets the same answer on every machine, which is the point.
-//
-// An EnvVarRequirement value may be an expression and is evaluated against inputs and rt. A
-// declaration may deliberately override HOME, TMPDIR or PATH, so the requirement's variables are
-// applied last.
+// ToolEnvironment builds a clean environment per the CWL spec: HOME, TMPDIR, PATH, plus EnvVarRequirement.
 func ToolEnvironment(scope *cwlcore.RequirementScope, inputs map[string]any,
 	eval *cwlcore.Evaluator, rt cwlcore.RuntimeContext,
 ) ([]string, error) {
@@ -323,14 +241,12 @@ func ToolEnvironment(scope *cwlcore.RequirementScope, inputs map[string]any,
 		rendered = append(rendered, name+"="+value)
 	}
 
-	// Sorted, so that two runs of the same tool are handed byte-identical environments and a
-	// test can assert one without depending on Go's map iteration order.
 	slices.Sort(rendered)
 
 	return rendered, nil
 }
 
-// applyEnvVars adds the variables an EnvVarRequirement in scope declares, evaluating each value.
+// applyEnvVars adds variables from an EnvVarRequirement, evaluating expression values.
 func applyEnvVars(env map[string]string, scope *cwlcore.RequirementScope, inputs map[string]any,
 	eval *cwlcore.Evaluator, rt cwlcore.RuntimeContext,
 ) error {
@@ -355,8 +271,7 @@ func applyEnvVars(env map[string]string, scope *cwlcore.RequirementScope, inputs
 	return nil
 }
 
-// envVarDeclares reports whether an EnvVarRequirement in scope sets a variable itself, as opposed
-// to [ToolEnvironment] having filled it in.
+// envVarDeclares reports whether an EnvVarRequirement explicitly sets the named variable.
 func envVarDeclares(scope *cwlcore.RequirementScope, name string) bool {
 	declared, found := envVarRequirement(scope)
 	if !found {
@@ -368,17 +283,7 @@ func envVarDeclares(scope *cwlcore.RequirementScope, name string) bool {
 	})
 }
 
-// withoutInheritedPath drops the PATH this process inherited, for a tool that is about to run
-// somewhere this process's PATH does not describe.
-//
-// [ToolEnvironment] sets PATH from this process's own, which the specification permits: "PATH...
-// may be inherited from the parent process". Inside a container the environment to inherit from is
-// the image's, not this machine's — cwltool's DockerCommandLineJob._required_env passes TMPDIR and
-// HOME and nothing else — and forcing a host PATH onto a container hides the image's own, so a tool
-// whose program lives somewhere this host does not have it is not found. HOME and TMPDIR are
-// unaffected: both were resolved to the paths the tool sees before they were rendered.
-//
-// A PATH an EnvVarRequirement declared is the document's rather than this process's, and stays.
+// withoutInheritedPath drops the inherited PATH (for container use). Keeps EnvVarRequirement-declared PATH.
 func withoutInheritedPath(env []string, scope *cwlcore.RequirementScope) []string {
 	if envVarDeclares(scope, envPath) {
 		return env
@@ -396,17 +301,7 @@ func withoutInheritedPath(env []string, scope *cwlcore.RequirementScope) []strin
 	return kept
 }
 
-// ToolNetworkAccess reports whether the tool may reach the network outside its own machine.
-//
-// CommandLineTool.yml, NetworkAccess: "Indicate whether a process requires outgoing IPv4/IPv6
-// network access. Choice of IPv4 or IPv6 is implementation and site specific... If `networkAccess`
-// is false or not specified, tools must not assume network access, except for localhost." So the
-// default is off, and the field may be written as an expression over the invocation's inputs.
-//
-// It is a question only an executor that can *withhold* the network has any use for, which on this
-// host is none: a child process has whatever network this one has. A container is where the answer
-// becomes actionable, and conformance test networkaccess_disabled — a should_fail test whose tool
-// declares nothing and tries to open a connection — is what asserts the default is honoured.
+// ToolNetworkAccess reports whether the tool's NetworkAccess requirement allows network access. Default is false.
 func ToolNetworkAccess(scope *cwlcore.RequirementScope, inputs map[string]any,
 	eval *cwlcore.Evaluator, rt cwlcore.RuntimeContext,
 ) (bool, error) {
@@ -423,9 +318,7 @@ func ToolNetworkAccess(scope *cwlcore.RequirementScope, inputs map[string]any,
 		&cwlcore.EvalContext{Inputs: outExpressionObject(inputs), Self: nil, Runtime: rt})
 }
 
-// networkAccess resolves the NetworkAccess requirement in effect for a scope. A declaration in
-// hints counts: the field is a statement about what the tool needs, and an engine that can grant it
-// has no reason to withhold it because the author wrote the statement advisorily.
+// networkAccess resolves the NetworkAccess requirement in scope.
 func networkAccess(scope *cwlcore.RequirementScope) (*cwlcore.NetworkAccess, bool) {
 	if scope == nil {
 		return nil, false
@@ -441,7 +334,7 @@ func networkAccess(scope *cwlcore.RequirementScope) (*cwlcore.NetworkAccess, boo
 	return typed, ok
 }
 
-// envVarRequirement resolves the EnvVarRequirement in effect for a scope.
+// envVarRequirement resolves the EnvVarRequirement in scope.
 func envVarRequirement(scope *cwlcore.RequirementScope) (*cwlcore.EnvVarRequirement, bool) {
 	if scope == nil {
 		return nil, false
@@ -457,12 +350,7 @@ func envVarRequirement(scope *cwlcore.RequirementScope) (*cwlcore.EnvVarRequirem
 	return typed, ok
 }
 
-// ToolTimeLimit returns how long a tool may run before it must be killed, or zero when nothing
-// bounds it.
-//
-// CommandLineTool.yml, ToolTimeLimit.timelimit: the limit is "the time in seconds", and "if the
-// value is zero or an expression evaluating to zero, this means no time limit is set". A negative
-// limit is not a shorter one; it is a document that does not mean anything, so it is refused.
+// ToolTimeLimit returns the tool's time limit, or zero for unlimited.
 func ToolTimeLimit(scope *cwlcore.RequirementScope, inputs map[string]any,
 	eval *cwlcore.Evaluator, rt cwlcore.RuntimeContext,
 ) (time.Duration, error) {
@@ -483,7 +371,7 @@ func ToolTimeLimit(scope *cwlcore.RequirementScope, inputs map[string]any,
 	return time.Duration(seconds) * time.Second, nil
 }
 
-// timeLimitSeconds resolves a timelimit that may be written as a literal or as an expression.
+// timeLimitSeconds resolves a timelimit literal or expression to seconds.
 func timeLimitSeconds(declared cwlcore.ExprLong, inputs map[string]any,
 	eval *cwlcore.Evaluator, rt cwlcore.RuntimeContext,
 ) (int64, error) {
@@ -505,7 +393,7 @@ func timeLimitSeconds(declared cwlcore.ExprLong, inputs map[string]any,
 	return seconds, nil
 }
 
-// toolTimeLimit resolves the ToolTimeLimit in effect for a scope.
+// toolTimeLimit resolves the ToolTimeLimit in scope.
 func toolTimeLimit(scope *cwlcore.RequirementScope) (*cwlcore.ToolTimeLimit, bool) {
 	if scope == nil {
 		return nil, false

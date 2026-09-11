@@ -9,64 +9,31 @@ import (
 
 // The bounds a decimal literal is accepted within.
 const (
-	// maxDecimalText caps the number of characters the fixed-point rendering
-	// of a literal may run to.
-	//
-	// A decimal exponent is written in a handful of source bytes and expands
-	// into that many digits, so "1e999999999" is thirteen characters that
-	// render as a gigabyte. Python has no such guard because it allocates the
-	// same string; refusing the literal here instead sends it down the float
-	// path, where it becomes the infinity it always was.
+	// maxDecimalText caps the fixed-point rendering length to prevent exponent bombs.
 	maxDecimalText = 4096
 
-	// decimalTextPadding is room for the sign and the "0." a fully-scaled
-	// value opens with, so that rendering allocates once.
+	// decimalTextPadding is room for sign and "0." prefix in rendering.
 	decimalTextPadding = 3
 )
 
-// Decimal is a number as a document wrote it: an exact decimal, not a binary
-// float.
-//
-// It exists because the reference implementation renders a number from the
-// literal a document supplied rather than from its parsed value. ruamel hands
-// cwltool a round-trip scalar carrying the original lexeme, and Builder.tostr
-// renders it through Python's decimal.Decimal, so a float written 1.23e-05 is
-// written back as 0.0000123, an integer literal too large for an int64 is
-// written back in full, and 1230000 declared as a float stays 1230000 rather
-// than acquiring a ".0". A float64 can represent none of those faithfully: the
-// first two lose digits to binary rounding and the third loses the distinction
-// entirely.
-//
-// The value is sign * digits * 10^exponent, with digits held as text so that no
-// step of the round trip goes through a binary float. The zero value is the
-// integer zero.
+// Decimal is an exact decimal number preserving the document's original literal.
+// Value is sign * digits * 10^exponent. The zero value is zero.
 type Decimal struct {
-	// digits is the coefficient, written without a sign and with leading
-	// zeros stripped. An empty string is the coefficient 0, which is what
-	// makes the zero value useful.
+	// digits is the unsigned coefficient with leading zeros stripped. Empty means 0.
 	digits string
 
 	// exp is the power of ten the coefficient is scaled by.
 	exp int
 
-	// neg records the sign, which a zero coefficient carries too: a document
-	// that wrote -0.0 gets -0.0 back.
+	// neg records the sign (preserved even for zero).
 	neg bool
 
-	// floatForm records that the literal was written with a decimal point or
-	// an exponent. It is not derivable from the value — 1.23e5 and 123000 are
-	// the same number written two ways — and it is what tells an integer-typed
-	// document value apart from a float-typed one.
+	// floatForm records that the literal had a decimal point or exponent.
 	floatForm bool
 }
 
-// ParseDecimal parses a decimal literal, reporting false for text that is not
-// one or whose fixed-point rendering would be unreasonably long.
-//
-// The grammar is the YAML 1.2 core schema's base-ten int and float resolutions
-// taken together, which is also JSON's number grammar plus a leading plus sign:
-// an optional sign, digits with an optional decimal point, and an optional
-// exponent.
+// ParseDecimal parses a decimal literal. Returns false for invalid text or
+// unreasonably large expansions.
 func ParseDecimal(text string) (Decimal, bool) {
 	signed, ok := decimalSign(text)
 	if !ok {
@@ -101,15 +68,13 @@ func ParseDecimal(text string) (Decimal, bool) {
 	return value, true
 }
 
-// signedText is a literal split from its sign: the digits and exponent that
-// follow, and whether a minus preceded them.
+// signedText is a literal split from its leading sign.
 type signedText struct {
 	body string
 	neg  bool
 }
 
-// decimalSign splits off an optional leading sign, reporting false for text with
-// nothing after it.
+// decimalSign splits off an optional leading sign.
 func decimalSign(text string) (signedText, bool) {
 	if text == "" {
 		return signedText{body: "", neg: false}, false
@@ -125,15 +90,13 @@ func decimalSign(text string) (signedText, bool) {
 	}
 }
 
-// scaledText is a literal split from its exponent: the mantissa, and the power
-// of ten the exponent named.
+// scaledText is a literal split from its exponent.
 type scaledText struct {
 	mantissa string
 	exp      int
 }
 
-// decimalExponent splits off an optional exponent suffix, reporting false for
-// one that is not an integer.
+// decimalExponent splits off an optional exponent suffix.
 func decimalExponent(body string) (scaledText, bool) {
 	mantissa, digits, found := strings.Cut(body, "e")
 	if !found {
@@ -152,8 +115,7 @@ func decimalExponent(body string) (scaledText, bool) {
 	return scaledText{mantissa: mantissa, exp: exp}, true
 }
 
-// pointedText is a mantissa split at its decimal point: the digits on each side,
-// and whether there was a point at all.
+// pointedText is a mantissa split at its decimal point.
 type pointedText struct {
 	whole    string
 	fraction string
@@ -167,9 +129,7 @@ func decimalPoint(mantissa string) pointedText {
 	return pointedText{whole: whole, fraction: fraction, hasPoint: found}
 }
 
-// decimalDigitsOnly reports whether text is made entirely of ASCII digits, which
-// is what the core schema means by a digit. An empty run counts, because a
-// literal may write digits on only one side of its decimal point.
+// decimalDigitsOnly reports whether text is entirely ASCII digits. Empty is true.
 func decimalDigitsOnly(text string) bool {
 	for i := range len(text) {
 		if text[i] < '0' || text[i] > '9' {
@@ -189,15 +149,7 @@ func abs(v int) int {
 	return v
 }
 
-// String renders the number the way the reference implementation renders it onto
-// a command line and into interpolated JSON.
-//
-// That is Python's str(Decimal(literal)) with one adjustment, which cwltool's
-// Builder.tostr makes explicitly: where str would reach for scientific notation
-// the fixed-point spelling is used instead. Since str already writes every other
-// magnitude in fixed point, the result is simply the exact value written out in
-// full — trailing zeros of the coefficient kept, no exponent, and no ".0" added
-// to a literal that did not have one.
+// String renders the number in fixed-point form, matching the reference implementation.
 func (d Decimal) String() string {
 	out := make([]byte, 0, len(d.digits)+abs(d.exp)+decimalTextPadding)
 	if d.neg {
@@ -229,25 +181,12 @@ func appendFixedPoint(dst []byte, digits string, exp int) []byte {
 	return append(dst, digits...)
 }
 
-// MarshalJSON writes the number as JSON, which is the literal itself: every
-// spelling ParseDecimal accepts is also a JSON number, minus a leading plus and
-// leading zeros that String has already normalized away.
-//
-// It exists because a Decimal reaches encoding/json wherever a value carrying one
-// is persisted — a suspended run's state, a nested run's payload — and a struct
-// of unexported fields would otherwise be written as "{}", silently replacing the
-// number with an empty object.
+// MarshalJSON writes the number as a JSON number literal.
 func (d Decimal) MarshalJSON() ([]byte, error) {
 	return []byte(d.String()), nil
 }
 
-// Float64 returns the nearest float64, which is the value a runtime that has
-// only binary floats — a JavaScript engine, or this engine's own arithmetic —
-// can work with.
-//
-// A magnitude outside float64's range saturates to the signed infinity IEEE 754
-// rounding produces rather than failing, matching how an over-large float
-// literal has always been parsed.
+// Float64 returns the nearest float64. Out-of-range values saturate to infinity.
 func (d Decimal) Float64() float64 {
 	// A digit run and an exponent is always syntactically a float, so the only
 	// failure strconv can report here is a range error — and that one returns
@@ -261,28 +200,19 @@ func (d Decimal) Float64() float64 {
 	return value
 }
 
-// IsFloatForm reports whether the literal was written with a decimal point or an
-// exponent.
-//
-// It is the distinction Schema Salad draws between int/long and float/double,
-// and it is not recoverable from the value: 1.23e5 and 123000 are the same
-// number, and only one of them is an integer as a document means it.
+// IsFloatForm reports whether the literal had a decimal point or exponent.
 func (d Decimal) IsFloatForm() bool {
 	return d.floatForm
 }
 
-// IsIntegral reports whether the value is a whole number. A literal written in
-// float form can still be integral — 1.23e5 is 123000 — which is exactly the
-// case that makes IsFloatForm a separate question.
+// IsIntegral reports whether the value is a whole number.
 func (d Decimal) IsIntegral() bool {
 	_, ok := d.integralDigits()
 
 	return ok
 }
 
-// BigInt returns the exact integer value, and whether the number is one. No
-// rounding happens: a value with a non-zero fractional part reports false rather
-// than being truncated.
+// BigInt returns the exact integer value, or false if not integral.
 func (d Decimal) BigInt() (*big.Int, bool) {
 	digits, ok := d.integralDigits()
 	if !ok {
@@ -303,9 +233,7 @@ func (d Decimal) BigInt() (*big.Int, bool) {
 	return value, true
 }
 
-// Int64 returns the exact int64 value, and whether the number is a whole one
-// that fits. It is the accessor a range check should use: it answers exactly
-// where a float64 round trip cannot tell 2^63 from 2^63-1.
+// Int64 returns the exact int64 value, or false if not integral or out of range.
 func (d Decimal) Int64() (int64, bool) {
 	value, ok := d.BigInt()
 	if !ok || !value.IsInt64() {
@@ -315,8 +243,7 @@ func (d Decimal) Int64() (int64, bool) {
 	return value.Int64(), true
 }
 
-// coefficient returns the digit string, spelling the zero value's empty one as
-// the single digit it means.
+// coefficient returns the digit string, defaulting empty to "0".
 func (d Decimal) coefficient() string {
 	if d.digits == "" {
 		return "0"
@@ -335,8 +262,7 @@ func (d Decimal) scientific() string {
 	return sign + d.coefficient() + "e" + strconv.Itoa(d.exp)
 }
 
-// integralDigits returns the unsigned digit string of the whole value, and
-// whether the number has no fractional part.
+// integralDigits returns the unsigned digit string if the value is integral.
 func (d Decimal) integralDigits() (string, bool) {
 	digits := d.coefficient()
 

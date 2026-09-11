@@ -6,9 +6,7 @@ import (
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
-// relistBinding returns binding with mode filled in, unless it set `loadListing` itself — in which
-// case the binding wins, which is the first step of the precedence — or there is no binding to fill
-// in at all.
+// relistBinding fills mode into binding unless it already sets loadListing.
 func relistBinding(binding *cwlcore.CommandOutputBinding, mode cwlcore.LoadListingEnum) *cwlcore.CommandOutputBinding {
 	if binding == nil || binding.LoadListing != "" {
 		return binding
@@ -20,13 +18,7 @@ func relistBinding(binding *cwlcore.CommandOutputBinding, mode cwlcore.LoadListi
 	return &relisted
 }
 
-// relistType fills mode into every output binding reachable inside a declared type, descending
-// through arrays, unions and record fields.
-//
-// A record field carries an outputBinding of its own, so a Directory-typed field is subject to the
-// same three-step precedence as a top-level output and must inherit the requirement the same way.
-// The walk terminates because [cwlcore.ResolveTypeRef] refuses to expand a type into itself, so the
-// resolved graph is finite.
+// relistType fills mode into output bindings within a type, descending recursively.
 func relistType(declared cwlcore.TypeRef, mode cwlcore.LoadListingEnum) cwlcore.TypeRef {
 	switch declared.Kind() {
 	case cwlcore.TypeKindRecord:
@@ -40,8 +32,7 @@ func relistType(declared cwlcore.TypeRef, mode cwlcore.LoadListingEnum) cwlcore.
 	}
 }
 
-// relistRecord fills mode into each of a record's field bindings, and into the types those fields
-// are themselves declared as.
+// relistRecord fills mode into a record's field bindings and field types.
 func relistRecord(declared cwlcore.TypeRef, mode cwlcore.LoadListingEnum) cwlcore.TypeRef {
 	schema := declared.Record()
 	if schema == nil {
@@ -60,7 +51,7 @@ func relistRecord(declared cwlcore.TypeRef, mode cwlcore.LoadListingEnum) cwlcor
 	return cwlcore.NewRecordType(&relisted).WithNode(declared.Node())
 }
 
-// relistArray fills mode into the type an array's elements are declared as.
+// relistArray fills mode into an array's element type.
 func relistArray(declared cwlcore.TypeRef, mode cwlcore.LoadListingEnum) cwlcore.TypeRef {
 	schema := declared.Array()
 	if schema == nil {
@@ -73,7 +64,7 @@ func relistArray(declared cwlcore.TypeRef, mode cwlcore.LoadListingEnum) cwlcore
 	return cwlcore.NewArrayType(&relisted).WithNode(declared.Node())
 }
 
-// relistOptions fills mode into every member of a union.
+// relistOptions fills mode into each union member.
 func relistOptions(options []cwlcore.TypeRef, mode cwlcore.LoadListingEnum) []cwlcore.TypeRef {
 	relisted := make([]cwlcore.TypeRef, 0, len(options))
 	for _, option := range options {
@@ -83,7 +74,7 @@ func relistOptions(options []cwlcore.TypeRef, mode cwlcore.LoadListingEnum) []cw
 	return relisted
 }
 
-// loadListingDefault resolves the LoadListingRequirement in effect for a scope.
+// loadListingDefault returns the LoadListingRequirement mode, if any.
 func loadListingDefault(scope *cwlcore.RequirementScope) (cwlcore.LoadListingEnum, bool) {
 	if scope == nil {
 		return "", false

@@ -2,13 +2,9 @@ package cwlcore
 
 import "github.com/yardrail/cwl-go/pkg/salad"
 
-// One decoder per concrete process class, plus the shared ProcessBase and the
-// RawProcess fallback. Each is a single struct literal over the field-reading
-// helpers, so that adding a field to the model is a one-line change here.
+// Decoders for each concrete process class and the shared ProcessBase.
 
-// Keys the concrete process records add to the shared Process fields. The three
-// standard-stream names are shared with the type shortcuts in decode_type.go,
-// which spell the same words.
+// Keys for concrete process records.
 const (
 	keyStdin              = "stdin"
 	keyStdout             = "stdout"
@@ -20,8 +16,7 @@ const (
 	keyPermanentFailCodes = "permanentFailCodes"
 )
 
-// processBase decodes the fields the schema's abstract Process record gives
-// every process.
+// processBase decodes the shared Process fields.
 func (d *decoder) processBase(m *salad.MapNode) ProcessBase {
 	return ProcessBase{
 		ID:           d.processID(m),
@@ -34,8 +29,7 @@ func (d *decoder) processBase(m *salad.MapNode) ProcessBase {
 	}
 }
 
-// processID reads a process's identifier, assigning a blank node identifier to a
-// process that declares none.
+// processID reads a process's identifier, assigning a blank node ID if none is declared.
 func (d *decoder) processID(m *salad.MapNode) string {
 	if id := d.text(m, keyID); id != "" {
 		return id
@@ -71,8 +65,7 @@ func (d *decoder) workflow(m *salad.MapNode) *Workflow {
 	}
 }
 
-// expressionTool decodes an ExpressionTool. Its inputs are WorkflowInputParameter
-// because the schema specializes them to that record rather than one of their own.
+// expressionTool decodes an ExpressionTool.
 func (d *decoder) expressionTool(m *salad.MapNode) *ExpressionTool {
 	return &ExpressionTool{
 		ProcessBase: d.processBase(m),
@@ -92,13 +85,6 @@ func (d *decoder) operation(m *salad.MapNode) *Operation {
 }
 
 // rawProcess decodes a process whose class this package has no type for.
-//
-// It is not a degraded result: the shared process fields are decoded in full,
-// and so are the inputs and outputs, using the generic Operation parameter shape
-// — which is sound because an extension class that adds a process to CWL
-// specializes the abstract parameter records exactly the way Operation does.
-// That is enough to wire the process into a dependency graph without knowing
-// anything about the class. Everything else is reachable through Node.
 func (d *decoder) rawProcess(m *salad.MapNode, class string) *RawProcess {
 	return &RawProcess{
 		ProcessBase: d.processBase(m),
@@ -109,9 +95,7 @@ func (d *decoder) rawProcess(m *salad.MapNode, class string) *RawProcess {
 	}
 }
 
-// extensionWorkflow decodes an extension class that extends Workflow: full
-// workflow structure (steps, typed inputs/outputs) plus the raw node and
-// extension class name.
+// extensionWorkflow decodes an extension class that extends Workflow.
 func (d *decoder) extensionWorkflow(m *salad.MapNode, class string) *ExtensionWorkflow {
 	return &ExtensionWorkflow{
 		ProcessBase: d.processBase(m),
@@ -125,8 +109,7 @@ func (d *decoder) extensionWorkflow(m *salad.MapNode, class string) *ExtensionWo
 
 const cwlWorkflowIRI = "https://w3id.org/cwl/cwl#Workflow"
 
-// extendsWorkflow reports whether class transitively extends Workflow according
-// to the schema, when one is available.
+// extendsWorkflow reports whether class transitively extends Workflow.
 func (d *decoder) extendsWorkflow(class string) bool {
 	if d.loaded == nil || d.loaded.Schema == nil {
 		return false
@@ -181,8 +164,7 @@ func (d *decoder) extendsTransitively(rec *salad.RecordType, target string) bool
 	return false
 }
 
-// parameterItems returns the items of an inputs or outputs field, expanding the
-// identifier-map form the schema's mapSubject/mapPredicate pair allows.
+// parameterItems returns items of an inputs/outputs field, expanding identifier-map form.
 func (d *decoder) parameterItems(m *salad.MapNode, key string) []salad.Node {
 	return d.listItems(m, key, keyID, keyType)
 }

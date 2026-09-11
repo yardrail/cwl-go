@@ -7,12 +7,8 @@ import (
 	"path/filepath"
 )
 
-// WriteFS extends [fs.FS] with the write operations cwl-go's staging and
-// output collection need. Implementations back different storage targets
-// (local disk, S3, in-memory) behind one interface.
-//
-// All name arguments follow [fs.FS] conventions: slash-separated, unrooted,
-// no leading slash, no ".." that escapes the root.
+// WriteFS extends [fs.FS] with write operations for staging and output collection.
+// Names follow [fs.FS] conventions: slash-separated, unrooted, no escaping "..".
 type WriteFS interface {
 	fs.FS
 	Create(name string) (io.WriteCloser, error)
@@ -24,20 +20,17 @@ type WriteFS interface {
 	Rename(oldname, newname string) error
 }
 
-// GlobFS is the optional interface a [WriteFS] may implement to support
-// glob pattern matching. If not implemented, callers fall back to [fs.Glob].
+// GlobFS is an optional [WriteFS] interface for glob pattern matching.
 type GlobFS interface {
 	Glob(pattern string) ([]string, error)
 }
 
-// SymlinkEvaluator is the optional interface a [WriteFS] may implement to
-// resolve symlink chains. If not implemented, containment checks treat
-// every path as already resolved (correct for object stores with no symlinks).
+// SymlinkEvaluator is an optional [WriteFS] interface for resolving symlink chains.
 type SymlinkEvaluator interface {
 	EvalSymlinks(name string) (string, error)
 }
 
-// Compile-time proof that LocalDirFS satisfies every abstraction it claims.
+// Interface compliance checks.
 var (
 	_ WriteFS          = (*LocalDirFS)(nil)
 	_ fs.StatFS        = (*LocalDirFS)(nil)
@@ -46,14 +39,12 @@ var (
 	_ SymlinkEvaluator = (*LocalDirFS)(nil)
 )
 
-// LocalDirFS wraps a real directory and delegates to [os] calls — today's
-// behaviour, zero change for existing callers.
+// LocalDirFS is a [WriteFS] backed by a real directory on the local filesystem.
 type LocalDirFS struct {
 	root string
 }
 
-// NewLocalDirFS returns a [LocalDirFS] rooted at root. root must be an
-// absolute directory path; the caller is responsible for creating it.
+// NewLocalDirFS returns a [LocalDirFS] rooted at the given absolute directory path.
 func NewLocalDirFS(root string) *LocalDirFS {
 	return &LocalDirFS{root: root}
 }

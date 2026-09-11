@@ -22,51 +22,21 @@ var (
 	errRDFNotRoot = errors.New("rdf-xml: expected an <rdf:RDF> root element")
 )
 
-// rdfTriple is a single RDF statement whose object is an IRI. The reader is
-// deliberately restricted to IRI-valued statements: format reasoning only ever
-// follows rdfs:subClassOf and owl:equivalentClass edges between class IRIs, and
-// literal-valued statements (labels, definitions, versions) carry no edges.
+// rdfTriple is a single RDF statement with an IRI-valued object.
 type rdfTriple struct {
 	Subject   string
 	Predicate string
 	Object    string
 }
 
-// rdfParser is a minimal, streaming RDF/XML reader built on encoding/xml.
-//
-// It implements the subset of the RDF/XML grammar
-// (https://www.w3.org/TR/rdf-syntax-grammar/) that real-world format
-// ontologies use:
-//
-//   - an <rdf:RDF> document element, optionally carrying xml:base;
-//   - node elements, both rdf:Description and typed (e.g. <owl:Class>),
-//     identified by rdf:about or rdf:ID, at any nesting depth;
-//   - property elements in both the rdf:resource attribute form and the
-//     nested node element form;
-//   - xml:base scoping, with relative rdf:about / rdf:resource / rdf:ID
-//     references resolved against it.
-//
-// Deliberately unsupported, because no edge can be derived from them: literal
-// property values (including rdf:datatype and xml:lang), property attributes
-// (which are literal-valued by definition), rdf:parseType="Literal" /
-// "Resource" / "Collection" subtrees, rdf:li / container membership shorthand,
-// and reification. Blank nodes (anonymous node elements and rdf:nodeID) are
-// parsed but produce no triples, since they have no IRI to reason about; an
-// owl:Restriction hanging off an rdfs:subClassOf is simply ignored rather than
-// treated as a superclass.
+// rdfParser is a minimal RDF/XML reader for format ontologies.
+// Supports node elements, property elements, and xml:base scoping.
 type rdfParser struct {
 	dec     *xml.Decoder
 	triples []rdfTriple
 }
 
-// parseRDFXML extracts the IRI-valued triples of an RDF/XML document. It
-// returns an error for malformed XML or for a document whose root element is
-// not <rdf:RDF>; unrecognized RDF/XML constructs are skipped, not rejected.
-//
-// baseURI is the URL the document was retrieved from, against which relative
-// references resolve. It is only the outermost base in scope: a document that
-// declares its own xml:base overrides it, and an empty baseURI leaves relative
-// references verbatim.
+// parseRDFXML extracts IRI-valued triples from an RDF/XML document.
 func parseRDFXML(data []byte, baseURI string) ([]rdfTriple, error) {
 	p := &rdfParser{dec: xml.NewDecoder(bytes.NewReader(data)), triples: nil}
 
@@ -114,8 +84,7 @@ func (p *rdfParser) root() (xml.StartElement, error) {
 	}
 }
 
-// node parses a node element and returns its subject IRI, which is empty for a
-// blank node. Nested node elements recurse through property.
+// node parses a node element and returns its subject IRI (empty for blank nodes).
 func (p *rdfParser) node(start xml.StartElement, base string) (string, error) {
 	base = rdfElementBase(start, base)
 	subject := rdfNodeSubject(start, base)
@@ -128,11 +97,10 @@ func (p *rdfParser) node(start xml.StartElement, base string) (string, error) {
 	return subject, err
 }
 
-// property parses one property element of the node element identified by
-// subject, emitting a triple when the property has an IRI-valued object.
+// property parses one property element, emitting a triple for IRI-valued objects.
 func (p *rdfParser) property(start xml.StartElement, subject, base string) error {
 	if _, ok := rdfAttr(start, rdfNS, "parseType"); ok {
-		return p.skip() // Literal / Resource / Collection: no IRI edges to read.
+		return p.skip()
 	}
 
 	base = rdfElementBase(start, base)
@@ -156,8 +124,7 @@ func (p *rdfParser) property(start xml.StartElement, subject, base string) error
 	})
 }
 
-// eachChild invokes fn for every child element of the element currently open
-// on the decoder, returning when its end tag is reached.
+// eachChild invokes fn for every child element until the end tag.
 func (p *rdfParser) eachChild(fn func(xml.StartElement) error) error {
 	for {
 		tok, err := p.dec.Token()
@@ -174,7 +141,6 @@ func (p *rdfParser) eachChild(fn func(xml.StartElement) error) error {
 		case xml.EndElement:
 			return nil
 		default:
-			// Character data, comments and directives carry no triples.
 		}
 	}
 }
@@ -207,8 +173,7 @@ func (p *rdfParser) add(subject, predicate, object string) {
 	p.triples = append(p.triples, rdfTriple{Subject: subject, Predicate: predicate, Object: object})
 }
 
-// rdfElementIRI is the IRI of an element or attribute name: its namespace
-// concatenated with its local name, per RDF/XML's URI construction rule.
+// rdfElementIRI returns namespace + local name.
 func rdfElementIRI(name xml.Name) string {
 	return name.Space + name.Local
 }
@@ -224,9 +189,7 @@ func rdfAttr(start xml.StartElement, space, local string) (string, bool) {
 	return "", false
 }
 
-// rdfElementBase resolves the element's xml:base, if any, against the base in
-// scope. encoding/xml leaves the reserved xml prefix unexpanded, so both
-// spellings are accepted.
+// rdfElementBase resolves the element's xml:base against the current base.
 func rdfElementBase(start xml.StartElement, base string) string {
 	value, ok := rdfAttr(start, xmlNS, "base")
 	if !ok {
@@ -240,9 +203,7 @@ func rdfElementBase(start xml.StartElement, base string) string {
 	return rdfResolveIRI(base, value)
 }
 
-// rdfNodeSubject derives a node element's subject IRI from rdf:about or
-// rdf:ID. It returns an empty string for a blank node (no identifier, or
-// rdf:nodeID), which callers treat as "no IRI to reason about".
+// rdfNodeSubject derives a node's subject IRI from rdf:about or rdf:ID.
 func rdfNodeSubject(start xml.StartElement, base string) string {
 	if about, ok := rdfAttr(start, rdfNS, "about"); ok {
 		return rdfResolveIRI(base, about)
@@ -255,9 +216,7 @@ func rdfNodeSubject(start xml.StartElement, base string) string {
 	return ""
 }
 
-// rdfResolveIRI resolves a possibly relative reference against base. A
-// reference that cannot be parsed as a URI is returned verbatim, so an opaque
-// format identifier still compares by exact match.
+// rdfResolveIRI resolves a possibly relative reference against base.
 func rdfResolveIRI(base, ref string) string {
 	if base == "" {
 		return ref

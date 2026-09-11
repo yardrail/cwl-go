@@ -9,21 +9,15 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// Errors reported while resolving and selecting an invocation's resource reservation.
 var (
-	// ErrResourcesUnavailable reports a step whose minimum request exceeds the machine budget the
-	// caller declared. It is a permanent failure for that step: no amount of waiting makes a
-	// four-core machine able to reserve eight.
+	// ErrResourcesUnavailable reports a minimum request exceeding the machine budget.
 	ErrResourcesUnavailable = errors.New("requested resources exceed the available budget")
 
-	// ErrResourceExpression reports a ResourceRequirement field whose expression failed to
-	// evaluate, or evaluated to something that is not a number.
+	// ErrResourceExpression reports a ResourceRequirement expression that failed or returned non-number.
 	ErrResourceExpression = errors.New("ResourceRequirement field did not resolve to a number")
 )
 
-// The ResourceRequirement defaults the specification states for fields a document leaves out. They
-// describe the request, not the machine: a tool that says nothing about resources still asks for
-// one core, 256 MiB of RAM, and a gibibyte each of scratch and output space.
+// Default ResourceRequirement values per the CWL spec.
 const (
 	defaultCoresMin     = 1
 	defaultRAMMinMiB    = 256
@@ -31,55 +25,23 @@ const (
 	defaultOutDirMinMiB = 1024
 )
 
-// ResourceBudget is the machine capacity resource selection may draw on: the ceiling every
-// invocation's reservation is clamped to.
-//
-// A zero field means "no ceiling declared", not "none available". A caller that knows nothing about
-// the machine leaves the whole struct zero, and every invocation then gets what it asked for.
+// ResourceBudget is the machine capacity ceiling. Zero fields mean no ceiling.
 type ResourceBudget struct {
-	// Cores is the number of CPU cores available, or zero for no ceiling.
-	Cores float64
-
-	// RAMMiB is the RAM available in mebibytes, or zero for no ceiling.
-	RAMMiB int64
-
-	// TmpDirMiB is the scratch space available in mebibytes, or zero for no ceiling.
+	Cores     float64
+	RAMMiB    int64
 	TmpDirMiB int64
-
-	// OutDirMiB is the output space available in mebibytes, or zero for no ceiling.
 	OutDirMiB int64
 }
 
-// ResourceRequest is one invocation's resolved ResourceRequirement: the minima and maxima the
-// document asked for, with every expression already evaluated against that invocation's inputs and
-// every unstated field filled in with the specification's default.
-//
-// It is the input to resource selection; [Resources] is the output.
+// ResourceRequest is a resolved ResourceRequirement with evaluated expressions.
 type ResourceRequest struct {
-	// CoresMin and CoresMax bound the CPU reservation. They are floats because the schema types
-	// coresMin and coresMax as `long | float | Expression`.
-	CoresMin, CoresMax float64
-
-	// RAMMinMiB and RAMMaxMiB bound the RAM reservation, in mebibytes.
-	RAMMinMiB, RAMMaxMiB int64
-
-	// TmpDirMinMiB and TmpDirMaxMiB bound the scratch-space reservation, in mebibytes.
+	CoresMin, CoresMax         float64
+	RAMMinMiB, RAMMaxMiB       int64
 	TmpDirMinMiB, TmpDirMaxMiB int64
-
-	// OutDirMinMiB and OutDirMaxMiB bound the output-space reservation, in mebibytes.
 	OutDirMinMiB, OutDirMaxMiB int64
 }
 
-// DefaultSelectResources is the resource selector a [Config] with no SelectResources hook uses.
-//
-// It reserves as much as the budget allows without exceeding what was asked for: the minimum is a
-// floor, the maximum and the budget are both ceilings, and the tighter ceiling wins. A minimum the
-// budget cannot meet is [ErrResourcesUnavailable] rather than a silent under-reservation — a tool
-// that declared it needs eight cores has said it will not work with four.
-//
-// Scratch and output space are reserved at their minimum, which is what the reference
-// implementation does: those fields describe space the tool needs, not space it can usefully be
-// given more of.
+// DefaultSelectResources clamps the request to the budget. Minimum exceeding budget is an error.
 func DefaultSelectResources(request ResourceRequest, budget ResourceBudget) (Resources, error) {
 	cores, err := clampFloat("cores", request.CoresMin, request.CoresMax, budget.Cores)
 	if err != nil {
@@ -104,7 +66,7 @@ func DefaultSelectResources(request ResourceRequest, budget ResourceBudget) (Res
 	return Resources{Cores: cores, RAMMiB: ram, TmpDirMiB: tmpdir, OutDirMiB: outdir}, nil
 }
 
-// clampFloat resolves one fractional resource against its request bounds and the machine budget.
+// clampFloat resolves a fractional resource against bounds and budget.
 func clampFloat(name string, minimum, maximum, budget float64) (float64, error) {
 	if budget > 0 && minimum > budget {
 		return 0, fmt.Errorf("%w: %s needs at least %g but only %g is available",
@@ -119,7 +81,7 @@ func clampFloat(name string, minimum, maximum, budget float64) (float64, error) 
 	return math.Max(ceiling, minimum), nil
 }
 
-// clampInt resolves one whole-unit resource against its request bounds and the machine budget.
+// clampInt resolves an integer resource against bounds and budget.
 func clampInt(name string, minimum, maximum, budget int64) (int64, error) {
 	if budget > 0 && minimum > budget {
 		return 0, fmt.Errorf("%w: %s needs at least %d but only %d is available",
@@ -134,8 +96,7 @@ func clampInt(name string, minimum, maximum, budget int64) (int64, error) {
 	return max(ceiling, minimum), nil
 }
 
-// resourceResolver evaluates ResourceRequirement fields, remembering the first failure so that a
-// whole requirement can be read in one straight-line pass rather than eight error checks.
+// resourceResolver evaluates ResourceRequirement fields, short-circuiting on first error.
 type resourceResolver struct {
 	eval        *cwlcore.Evaluator
 	evalContext *cwlcore.EvalContext

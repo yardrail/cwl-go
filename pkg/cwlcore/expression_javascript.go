@@ -14,25 +14,16 @@ import (
 // jsProgramName labels compiled programs in JavaScript stack traces.
 const jsProgramName = "cwl-expression"
 
-// jsonGlobal is the name of the built-in the parameter context is marshalled
-// through.
+// jsonGlobal is the sandbox's JSON global used for context marshalling.
 const jsonGlobal = "JSON"
 
-// programCache memoizes compiled JavaScript. A goja Program "is not linked to
-// a runtime in any way and can be run in multiple runtimes (possibly at the
-// same time)", so it outlives the per-evaluation sandbox and turns the
-// repeated evaluation of one expression — a scatter over a thousand items —
-// into a thousand runs of one compile.
-//
-// Compilation failures are not cached: they are permanent and rare, and
-// recompiling to report one costs nothing.
+// programCache memoizes compiled JavaScript programs across evaluations.
 type programCache struct {
 	programs map[string]*goja.Program
 	mu       sync.RWMutex
 }
 
-// compile returns the compiled form of src, in ECMAScript strict mode. Spec:
-// "Expressions also must be evaluated in Javascript strict mode".
+// compile returns the compiled form of src in ECMAScript strict mode.
 func (c *programCache) compile(src string) (*goja.Program, error) {
 	c.mu.RLock()
 	program, ok := c.programs[src]
@@ -59,28 +50,17 @@ func (c *programCache) compile(src string) (*goja.Program, error) {
 	return program, nil
 }
 
-// evalJSExpr evaluates a $(...) fragment. body already carries the enclosing
-// parentheses, which is exactly what makes it an ECMAScript expression and
-// lets $({a: 1}) read as an object literal rather than a block.
+// evalJSExpr evaluates a $(...) fragment as an ECMAScript expression.
 func (e *Evaluator) evalJSExpr(body string, ctx *EvalContext) (any, error) {
 	return e.runJS(body, ctx)
 }
 
-// evalJSBody evaluates a ${...} fragment. Spec: it "must be evaluated as an
-// ECMAScript function body for an anonymous, zero-argument function. This
-// means the code will be evaluated as (function() { ... })()".
+// evalJSBody evaluates a ${...} fragment as a zero-argument function body.
 func (e *Evaluator) evalJSBody(body string, ctx *EvalContext) (any, error) {
 	return e.runJS("(function()"+body+")()", ctx)
 }
 
-// runJS evaluates src in a sandbox of its own.
-//
-// A fresh goja Runtime per evaluation is what implements the spec's
-// requirement that expressions run "in an isolated context (a 'sandbox') which
-// permits no side effects to leak outside the context": there is no shared
-// state for one expression to leave behind for the next. The parameter context
-// is installed by decoding it from JSON inside the sandbox, so the expression
-// sees plain JavaScript objects and cannot reach the Go values behind them.
+// runJS evaluates src in an isolated sandbox.
 func (e *Evaluator) runJS(src string, ctx *EvalContext) (any, error) {
 	program, err := e.programs.compile(src)
 	if err != nil {
@@ -102,8 +82,7 @@ func (e *Evaluator) runJS(src string, ctx *EvalContext) (any, error) {
 	return jsResult(sandbox, value)
 }
 
-// prepare installs the parameter context and runs the expressionLib fragments,
-// whose declarations the expression then sees as globals.
+// prepare installs the parameter context and runs the expressionLib.
 func (e *Evaluator) prepare(sandbox *goja.Runtime, ctx *EvalContext) error {
 	err := setJSGlobals(sandbox, ctx)
 	if err != nil {
@@ -125,12 +104,6 @@ func (e *Evaluator) prepare(sandbox *goja.Runtime, ctx *EvalContext) error {
 }
 
 // run executes one program under the evaluator's time limit.
-//
-// The limit is enforced with goja's interrupt mechanism, the only thing that
-// stops a `while (true) {}`; the spec allows it, since "implementations may
-// apply other limits". The recover is a belt-and-braces guard: a malformed
-// workflow must never take the process down, so an engine panic becomes an
-// ordinary evaluation error.
 func (e *Evaluator) run(sandbox *goja.Runtime, program *goja.Program) (goja.Value, error) {
 	timeout := e.jsTimeout()
 
@@ -154,15 +127,7 @@ func runGuarded(sandbox *goja.Runtime, program *goja.Program) (goja.Value, error
 	})
 }
 
-// recoverPanic runs fn, converting a panic into an ordinary ErrExpressionEval
-// rather than letting it unwind the caller's stack.
-//
-// It is separated out from runGuarded so that the panic-to-error conversion can
-// be tested directly, with a func that panics on demand — there is no stable way
-// to make goja itself panic. The named return lives on an inner closure rather
-// than on this function's own signature, matching how the rest of this package
-// satisfies nonamedreturns without giving up defer's only way to overwrite a
-// result.
+// recoverPanic runs fn, converting a panic into an ErrExpressionEval.
 func recoverPanic(fn func() (goja.Value, error)) (goja.Value, error) {
 	var value goja.Value
 
@@ -206,8 +171,7 @@ func convertJSError(err error, timeout time.Duration) error {
 	return fmt.Errorf("%w: %w", ErrExpressionEval, err)
 }
 
-// setJSGlobals defines inputs, self and runtime. Spec: the runtime "must
-// initialize as global variables the fields of the parameter context".
+// setJSGlobals defines inputs, self, and runtime in the sandbox.
 func setJSGlobals(sandbox *goja.Runtime, ctx *EvalContext) error {
 	context := map[string]any{
 		rootInputs:  ctx.Inputs,
@@ -235,29 +199,14 @@ func setJSGlobals(sandbox *goja.Runtime, ctx *EvalContext) error {
 	return nil
 }
 
-// jsResult converts a finished evaluation to a Go value, enforcing the spec's
-// rule that expressions "must return a valid JSON data type: one of null,
-// string, number, boolean, array, object. Other return values must result in a
-// permanentFailure."
-//
-// undefined and anything JSON.stringify cannot represent — a function, for
-// instance — are rejected outright. NaN and the infinities are rejected too:
-// they are numbers in JavaScript but not in JSON, and JSON.stringify quietly
-// turns them into null, which would hide a failed computation behind a
-// plausible-looking result.
-//
-// Everything else is round-tripped through the sandbox's own JSON.stringify,
-// which is what makes the result a JSON type by construction: a Date becomes
-// its ISO string through toJSON, exactly as the reference implementation sees
-// it, rather than leaking a Go [time.Time] to the caller.
+// jsResult converts a JavaScript result to a Go value, enforcing JSON-type constraints.
 func jsResult(sandbox *goja.Runtime, value goja.Value) (any, error) {
 	if value == nil || goja.IsUndefined(value) {
 		return nil, fmt.Errorf("%w: the expression returned undefined", ErrExpressionEval)
 	}
 
 	if goja.IsNull(value) {
-		// Returned through a variable because a bare "return nil, nil" reads
-		// as a missing result rather than the JSON null it is.
+		// Explicit variable so "return nil, nil" reads as JSON null.
 		var null any
 
 		return null, nil

@@ -12,7 +12,7 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// How much of a cluster the report renders before it starts summarising.
+// Report rendering limits.
 const (
 	maxPrettyLines = 24
 	maxNamedPeers  = 6
@@ -37,14 +37,7 @@ func (s *sweep) summary() string {
 	return b.String()
 }
 
-// writeShouldFailNote reports how the sweep treated the documents the manifest only ever
-// expects to fail.
-//
-// This is the fail-open side of the measurement and it belongs next to the headline: a
-// document that every test expects to be rejected but which we happily load is a gap in
-// the opposite direction from a failure, and the pass count alone hides it. It is a hint
-// rather than a verdict, because a should_fail test may pair a perfectly valid document
-// with a job that cannot run -- most of them do.
+// writeShouldFailNote reports how should_fail-only documents were treated.
 func writeShouldFailNote(b *strings.Builder, s *sweep) {
 	expectedInvalid := s.count(docResult.expectedInvalid)
 	rejected := s.count(func(r docResult) bool { return r.expectedInvalid() && !r.ok() })
@@ -72,12 +65,7 @@ func graphOnlyPass(r docResult) bool {
 	return r.graphOnly
 }
 
-// report renders the full failure report: the summary followed by every cluster,
-// largest first.
-//
-// Every message is rewritten to drop the corpus directory prefix. That path is a cache
-// location that differs on every machine, so leaving it in makes the report both wider
-// than a terminal and impossible to diff between two runs.
+// report renders the summary followed by every failure cluster.
 func (s *sweep) report(clusters []*cluster) string {
 	var b strings.Builder
 
@@ -97,8 +85,7 @@ func (s *sweep) report(clusters []*cluster) string {
 	return b.String()
 }
 
-// trim rewrites the corpus directory prefix out of a message, in both its file URL and
-// its plain path spelling.
+// trim strips the corpus directory prefix from a message.
 func (s *sweep) trim(text string) string {
 	if s.root == "" {
 		return text
@@ -110,8 +97,7 @@ func (s *sweep) trim(text string) string {
 	return strings.ReplaceAll(out, slashed+"/", "")
 }
 
-// writeCluster renders one cluster: its size, its tags, the full error tree of a
-// representative member, and the names of the other members.
+// writeCluster renders one cluster with its representative error and members.
 func writeCluster(b *strings.Builder, rank int, c *cluster, trim func(string) string) {
 	rep := c.representative()
 
@@ -170,8 +156,7 @@ func memberNames(rest []docResult) []string {
 	return names
 }
 
-// prettyOf renders an error tree, falling back to the flat message for an error that did
-// not come from pkg/salad.
+// prettyOf renders an error tree, falling back to the flat message.
 func prettyOf(err error) string {
 	if se, ok := errors.AsType[*salad.Error](err); ok {
 		return se.Pretty()
@@ -180,8 +165,7 @@ func prettyOf(err error) string {
 	return err.Error()
 }
 
-// writeIndented writes text with every line prefixed, truncating a very deep tree so one
-// pathological union rejection cannot bury the rest of the report.
+// writeIndented writes text with every line prefixed, truncating after maxPrettyLines.
 func writeIndented(b *strings.Builder, prefix, text string) {
 	lines := strings.Split(text, "\n")
 
@@ -196,8 +180,7 @@ func writeIndented(b *strings.Builder, prefix, text string) {
 	}
 }
 
-// tagBreakdown counts how many failing documents carry each feature tag, largest first.
-// It is what tells you whether a cluster is confined to one optional feature.
+// tagBreakdown counts failing documents per feature tag, largest first.
 func tagBreakdown(failures []docResult) []string {
 	counts := make(map[string]int, len(failures))
 	for _, f := range failures {

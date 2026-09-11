@@ -10,76 +10,43 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// Errors reported while analysing a process into the static plan a [Runner] executes. They are
-// wrapped with context, so callers should test them with [errors.Is].
 var (
-	// ErrUnresolvedRun reports a workflow step whose run: field is still a reference to a process
-	// defined elsewhere. Decoding leaves such a reference unresolved, and a scheduler cannot
-	// invent the process it names, so the run fails before it starts rather than at the moment
-	// that step becomes ready.
+	// ErrUnresolvedRun reports a step whose run: is still an unresolved reference.
 	ErrUnresolvedRun = errors.New("workflow step run: is an unresolved reference")
 
-	// ErrUnknownSource reports a source — a step input's, or a workflow output's — that names
-	// neither a workflow input nor an output the producing step lists in its out.
+	// ErrUnknownSource reports a source naming no known workflow input or step output.
 	ErrUnknownSource = errors.New("source names no workflow input or step output")
 
-	// ErrDuplicateStep reports two workflow steps whose identifiers reduce to the same short name.
-	// The short name is what addresses a step in a [Suspension] and in a [RunState], so two steps
-	// sharing one would make a resumed run ambiguous.
+	// ErrDuplicateStep reports two steps with the same short name.
 	ErrDuplicateStep = errors.New("duplicate workflow step identifier")
 
-	// ErrCycle reports steps whose source wiring forms a cycle. A workflow is a directed acyclic
-	// graph; a cycle would leave the ready-queue loop with work it can never start, which is
-	// indistinguishable at run time from a deadlock.
+	// ErrCycle reports a cycle in the step dependency graph.
 	ErrCycle = errors.New("workflow steps form a cycle")
 
-	// ErrRequirementNotInScope reports a document feature used without the requirement the
-	// specification demands for it — scatter without ScatterFeatureRequirement, several sources
-	// without MultipleInputFeatureRequirement, valueFrom without StepInputExpressionRequirement,
-	// a Workflow under run: without SubworkflowFeatureRequirement.
+	// ErrRequirementNotInScope reports a feature used without its required requirement.
 	ErrRequirementNotInScope = errors.New("feature used without the requirement it needs")
 )
 
-// implicitStepID names the single synthetic step a bare, non-Workflow process is executed as, when
-// that process carries no identifier of its own.
+// implicitStepID is the default step ID for a bare (non-Workflow) process.
 const implicitStepID = "main"
 
-// portDecl is one declared parameter of a process, reduced to what the scheduler needs: the short
-// name that keys an input or output object, the declared type, and — on the input side — the
-// default the document supplied.
+// portDecl is a declared input or output parameter.
 type portDecl struct {
-	// Default is the parameter's declared default, materialized into plain Go values, or nil.
-	Default any
-
-	// DefaultNode is the parameter's declared default as the validated salad node it was
-	// decoded from, or nil. It is what a File or Directory default has to be normalized from,
-	// which is why the materialized form alone will not do.
-	DefaultNode salad.Node
-
-	// Name is the parameter short name; see [ShortName].
-	Name string
-
-	// Type is the parameter's declared type, unset when the process kind carries none.
-	Type cwlcore.TypeRef
-
-	// LoadListing is how deeply a Directory value bound to this parameter has its listing read
-	// before expressions run. Only input parameters carry it.
-	LoadListing cwlcore.LoadListingEnum
-
-	// LoadContents requests that a File value bound to this parameter have its first 64 KiB
-	// read into its contents field. Only input parameters carry it.
-	LoadContents bool
+	Default      any                     // materialized default value, or nil
+	DefaultNode  salad.Node              // raw salad node of the default, or nil
+	Name         string                  // short name
+	Type         cwlcore.TypeRef         // declared type
+	LoadListing  cwlcore.LoadListingEnum // directory listing depth (inputs only)
+	LoadContents bool                    // read file contents (inputs only)
 }
 
-// sourceRef says where the value behind a resolved source identifier comes from: an output port of
-// a step, or — when Step is empty — an input of the run itself.
+// sourceRef identifies a value source: a step output port, or a run input (Step == "").
 type sourceRef struct {
 	Step string
 	Port string
 }
 
-// plannedStep is one node of the plan: a step, the process it runs, and everything about it that is
-// fixed for the whole run and so is worked out once rather than per invocation.
+// plannedStep is one step of the execution plan, resolved once at plan time.
 type plannedStep struct {
 	step       *cwlcore.WorkflowStep
 	run        cwlcore.Process
@@ -100,10 +67,7 @@ type plannedStep struct {
 	implicit   bool
 }
 
-// plan is the static analysis of the process a [Runner] executes: its steps in document order, the
-// index that resolves a source identifier to the port producing it, and the run's own inputs and
-// outputs. It is built once by [NewRunner] and never mutated afterwards, so one Runner can drive
-// several serialized runs.
+// plan is the static analysis of a process. Built once by [NewRunner], immutable thereafter.
 type plan struct {
 	byID    map[string]*plannedStep
 	sources map[string]sourceRef
@@ -112,12 +76,7 @@ type plan struct {
 	steps   []*plannedStep
 }
 
-// newPlan analyses process into the static plan a run executes.
-//
-// A Workflow becomes one planned step per workflow step. Any other process becomes a single
-// implicit step running that process directly, which is how a bare CommandLineTool — the shape most
-// of the conformance suite takes — reaches the same registry, the same requirement scoping and the
-// same outcome normalization as a step of a workflow.
+// newPlan analyses a process into an execution plan.
 func newPlan(ctx context.Context, process cwlcore.Process, cfg *Config) (*plan, error) {
 	sc, isWorkflow := process.(cwlcore.StepContainer)
 	if !isWorkflow {
@@ -159,7 +118,7 @@ func newPlan(ctx context.Context, process cwlcore.Process, cfg *Config) (*plan, 
 	return built, nil
 }
 
-// bareProcessPlan builds the single-implicit-step plan for a process that is not a Workflow.
+// bareProcessPlan builds a single-step plan for a non-Workflow process.
 func bareProcessPlan(ctx context.Context, process cwlcore.Process, cfg *Config) (*plan, error) {
 	scope := cwlcore.NewScope(process)
 
@@ -218,8 +177,7 @@ func bareProcessPlan(ctx context.Context, process cwlcore.Process, cfg *Config) 
 	return built, nil
 }
 
-// processStepID names the implicit step after the process it runs, falling back to [implicitStepID]
-// for a process decoding gave a blank-node identifier or none at all.
+// processStepID returns the step ID from the process, or [implicitStepID] as fallback.
 func processStepID(process cwlcore.Process) string {
 	id := ShortName(process.Base().ID)
 	if id == "" || id[0] == '_' {
@@ -229,7 +187,7 @@ func processStepID(process cwlcore.Process) string {
 	return id
 }
 
-// addSteps plans every step of the workflow, in document order, and indexes the outputs they publish.
+// addSteps plans every workflow step and indexes their outputs.
 func (p *plan) addSteps(ctx context.Context, sc cwlcore.StepContainer, cfg *Config) error {
 	steps := sc.WorkflowSteps()
 	for index := range steps {
@@ -255,7 +213,7 @@ func (p *plan) addSteps(ctx context.Context, sc cwlcore.StepContainer, cfg *Conf
 	return nil
 }
 
-// addWorkflowOutputs records the wiring of each of the workflow's own output parameters.
+// addWorkflowOutputs records the wiring of the workflow's output parameters.
 func (p *plan) addWorkflowOutputs(sc cwlcore.StepContainer) error {
 	outputs := sc.WorkflowOutputs()
 	for index := range outputs {
@@ -284,8 +242,7 @@ func (p *plan) addWorkflowOutputs(sc cwlcore.StepContainer) error {
 	return nil
 }
 
-// resolveEdges turns every source identifier into a dependency edge, rejecting one that names no
-// known port, and then rejects a cyclic graph.
+// resolveEdges validates source references and checks for cycles.
 func (p *plan) resolveEdges() error {
 	for _, step := range p.steps {
 		err := p.resolveStepEdges(step)
@@ -307,7 +264,7 @@ func (p *plan) resolveEdges() error {
 	return p.checkAcyclic()
 }
 
-// resolveStepEdges records the steps one step depends on, in the order its sources name them.
+// resolveStepEdges records the dependency edges for one step.
 func (p *plan) resolveStepEdges(step *plannedStep) error {
 	deps := make([]string, 0, len(step.step.In))
 
@@ -332,10 +289,7 @@ func (p *plan) resolveStepEdges(step *plannedStep) error {
 	return nil
 }
 
-// checkAcyclic reports a cycle in the dependency graph, naming a step that is part of one.
-//
-// The walk is an ordinary three-colour depth-first search over the steps in document order, so the
-// step it names is deterministic for a given document.
+// checkAcyclic reports a cycle in the dependency graph using DFS.
 func (p *plan) checkAcyclic() error {
 	const (
 		open = 1
@@ -378,15 +332,14 @@ func (p *plan) checkAcyclic() error {
 	return nil
 }
 
-// inScope reports whether a requirement of the named class is declared anywhere in scope, in
-// requirements or in hints.
+// inScope reports whether a requirement of the named class is in scope.
 func inScope(scope *cwlcore.RequirementScope, class string) bool {
 	_, found, _ := scope.GetRequirement(class)
 
 	return found
 }
 
-// declaredNames reduces port declarations to their short names, in declaration order.
+// declaredNames extracts short names from port declarations.
 func declaredNames(decls []portDecl) []string {
 	names := make([]string, 0, len(decls))
 	for index := range decls {
@@ -396,8 +349,7 @@ func declaredNames(decls []portDecl) []string {
 	return names
 }
 
-// declaredInputs indexes the short names of a process's declared input parameters. It is the set a
-// step's input object is projected onto before the process runs; see [projectDeclaredInputs].
+// declaredInputs indexes declared input parameter names.
 func declaredInputs(decls []portDecl) map[string]bool {
 	names := make(map[string]bool, len(decls))
 	for index := range decls {
@@ -407,7 +359,7 @@ func declaredInputs(decls []portDecl) map[string]bool {
 	return names
 }
 
-// declaredTypes indexes port declarations by short name.
+// declaredTypes maps port short names to their declared types.
 func declaredTypes(decls []portDecl) map[string]cwlcore.TypeRef {
 	types := make(map[string]cwlcore.TypeRef, len(decls))
 	for index := range decls {
@@ -417,9 +369,7 @@ func declaredTypes(decls []portDecl) map[string]cwlcore.TypeRef {
 	return types
 }
 
-// declaredDefaults indexes the non-nil defaults of port declarations by short name. A parameter
-// that declared no default is left out, so that "has a default" and "has a null default" stay
-// distinguishable — the first fills an absent input, the second is already the absent value.
+// declaredDefaults maps port short names to their non-nil defaults.
 func declaredDefaults(decls []portDecl) map[string]any {
 	defaults := make(map[string]any, len(decls))
 

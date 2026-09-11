@@ -18,30 +18,14 @@ import (
 // toolName is how the tool names itself in its usage and version output.
 const toolName = "cwl-run"
 
-// The exit statuses. They are the tool's primary interface: the cwltest harness
-// reads the status, and only a human reads the text on stderr.
+// Exit statuses per the cwl-runner contract.
 const (
-	// exitFailure reports a run that did not produce an output object: an
-	// invalid document, a job order that does not fit it, or a step that
-	// failed. A should_fail conformance test passes on this.
-	exitFailure = 1
-
-	// exitUsage reports a command line that could not be understood. It is
-	// kept apart from exitFailure because a mistyped flag is the caller's
-	// mistake rather than the document's; to cwltest both are failures.
-	exitUsage = 2
-
-	// exitUnsupported is the cwl-runner contract's status for a document
-	// that "could not be run because a feature is unsupported". cwltest
-	// counts it as a skip rather than a failure — unless the test is tagged
-	// required, where a skip is still a failure. It is what keeps
-	// incremental bring-up honest: a feature this engine has not implemented
-	// reports as missing instead of as a wrong answer.
+	exitFailure     = 1
+	exitUsage       = 2
 	exitUnsupported = 33
 )
 
-// maxPositional is how many positional arguments the cwl-runner contract
-// defines: the process document, and optionally the job order.
+// maxPositional is the cwl-runner contract's positional argument count.
 const maxPositional = 2
 
 // errUsage marks a command line that could not be understood.
@@ -56,11 +40,7 @@ func main() {
 	os.Exit(exitStatus(err))
 }
 
-// exitStatus maps a failed run onto the cwl-runner contract's exit statuses.
-//
-// Unsupported outranks usage because it is the more specific answer, and the
-// two cannot both apply: a command line that did not parse never reached a
-// document.
+// exitStatus maps an error onto the cwl-runner contract's exit statuses.
 func exitStatus(err error) int {
 	switch {
 	case errors.Is(err, cwlexec.ErrUnsupportedFeature):
@@ -73,14 +53,6 @@ func exitStatus(err error) int {
 }
 
 // run executes one CWL document and writes its output object to stdout.
-//
-// Everything that is not the output object — every log line, warning and
-// diagnostic — goes to stderr. That separation is the contract, not a
-// courtesy: cwltest parses the whole of stdout as the run's output object, so
-// one stray byte on it fails a test that otherwise passed.
-//
-// run writes its own diagnostics, so main has nothing left to do but turn the
-// returned error into an exit status.
 func run(args []string, stdout, stderr io.Writer) error {
 	cfg, err := parseFlags(args, stderr)
 	if err != nil {
@@ -108,44 +80,20 @@ func run(args []string, stdout, stderr io.Writer) error {
 
 // config is the parsed command line.
 type config struct {
-	// process is the path or URL of the CWL document to run, optionally
-	// with a #fragment selecting one process of a $graph.
-	process string
-	// job is the path of the job order supplying the input object, empty
-	// when the process is to run against an empty one.
-	job string
-	// outdir is the directory the run's output files are written under.
-	// Empty means the process working directory.
-	outdir string
-	// noContainer declines every DockerRequirement: a hint runs on this host,
-	// and a requirement is refused. It is cwltool's --no-container.
-	noContainer bool
-	// noMatchUser runs a container's tool as the image's own user rather than
-	// as this process's. It is cwltool's --no-match-user.
-	noMatchUser bool
-	// noReadOnly leaves a container's root filesystem writable. It is
-	// cwltool's --no-read-only.
-	noReadOnly bool
-	// leaveContainer does not remove a container once its tool has exited. It
-	// is cwltool's --leave-container.
+	process        string // CWL document path or URL
+	job            string // job order path, or empty
+	outdir         string // output directory, or empty for cwd
+	noContainer    bool
+	noMatchUser    bool
+	noReadOnly     bool
 	leaveContainer bool
-	// quiet suppresses the non-essential half of stderr, leaving failures.
-	quiet bool
-	// verbose prints every line of an error tree instead of its head.
-	verbose bool
-	// version asks for the version banner instead of a run.
-	version bool
-	// help records that the flag set already printed the usage message in
-	// response to -h, so there is nothing left to do and nothing failed.
-	help bool
+	quiet          bool
+	verbose        bool
+	version        bool
+	help           bool
 }
 
-// parseFlags reads args into a config. Flag errors are written to stderr by the
-// flag set itself, so the returned error only has to carry the exit status.
-//
-// The positional arguments are the cwl-runner contract's: a process document,
-// and optionally a job order. A third is rejected rather than ignored, because
-// silently dropping it would make a mistyped flag look like a working command.
+// parseFlags reads args into a config.
 func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	cfg := &config{
 		process: "", job: "", outdir: "",

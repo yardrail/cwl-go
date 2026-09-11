@@ -1,16 +1,6 @@
 package cwlcli
 
-// Plain converts a value made of ordinary Go containers into the renderers'
-// own shapes: a map[string]any becomes an [Object] with its keys sorted, and a
-// []any is converted element by element. Anything else is returned unchanged.
-//
-// It is the boundary for values that arrive as untyped Go data — chiefly
-// salad.ToAny output, which is how the model hands over a node it kept
-// verbatim. Two things need doing to such a value before it can be rendered.
-// A Go map iterates randomly, so it has to be given a fixed order or the dump
-// stops being diffable; and the text renderer would otherwise print a bare map
-// through fmt as "map[a:1 b:2]", which is not the shape the rest of the dump
-// is written in.
+// Plain converts Go containers to renderer shapes: maps become sorted [Object]s, slices are converted recursively.
 func Plain(v any) any {
 	switch t := v.(type) {
 	case map[string]any:

@@ -2,19 +2,7 @@ package salad
 
 import "strings"
 
-// Type is any node in the flattened schema type graph produced by Flatten and
-// consumed by the validator.
-//
-// Type is a sealed discriminated union: the only implementations are
-// *RecordType, *EnumType, *ArrayType, *MapType, *UnionType and *PrimitiveType,
-// all in this package. Every value in the graph is immutable once built; there
-// is no in-place property mutation, and consumers dispatch with a type switch
-// rather than by inspecting properties.
-//
-// Anonymous inline types report the empty string from TypeName and are not
-// entered into a Schema's name table. No names are synthesized for them: nothing
-// in Schema Salad refers to an anonymous type by name, and they remain fully
-// walkable structurally.
+// Type is a sealed union of *RecordType, *EnumType, *ArrayType, *MapType, *UnionType and *PrimitiveType.
 type Type interface {
 	// TypeName returns the fully-qualified name of the type, or "" if it is anonymous.
 	TypeName() string
@@ -97,8 +85,7 @@ func PrimitiveKindOf(name string) (PrimitiveKind, bool) {
 	return k, ok
 }
 
-// Primitive returns the shared *PrimitiveType for a kind. The returned value is
-// immutable and safe to share across schemas.
+// Primitive returns the shared immutable *PrimitiveType for a kind.
 func Primitive(k PrimitiveKind) *PrimitiveType {
 	if k < 0 || int(k) >= len(primitiveTypes) {
 		return &PrimitiveType{Kind: k}
@@ -107,8 +94,7 @@ func Primitive(k PrimitiveKind) *PrimitiveType {
 	return primitiveTypes[k]
 }
 
-// PrimitiveType is one of Schema Salad's primitive types: null, boolean, int,
-// long, float, double, string, or Any.
+// PrimitiveType is a Schema Salad primitive (null, boolean, int, long, float, double, string, Any).
 type PrimitiveType struct {
 	// Kind identifies which primitive this is.
 	Kind PrimitiveKind
@@ -153,11 +139,9 @@ func (m *MapType) TypeName() string {
 
 func (m *MapType) isType() {}
 
-// UnionType is a set of alternative types, written in a schema document as a
-// list such as ["null", "string"]. It is always anonymous.
+// UnionType is a set of alternative types (always anonymous).
 type UnionType struct {
-	// Options are the alternatives, in declaration order. Order is significant:
-	// validation reports the alternatives in this order.
+	// Options are the alternatives, in declaration order.
 	Options []Type
 }
 
@@ -168,8 +152,7 @@ func (u *UnionType) TypeName() string {
 	return ""
 }
 
-// HasNull reports whether null is one of the alternatives, which is how Schema
-// Salad spells "optional".
+// HasNull reports whether null is one of the alternatives.
 func (u *UnionType) HasNull() bool {
 	if u == nil {
 		return false
@@ -190,12 +173,11 @@ func (u *UnionType) isType() {}
 type EnumType struct {
 	// Name is the fully-qualified type name.
 	Name string
-	// Symbols are the permitted values as fully-qualified IRIs, in declaration
-	// order. Documents spell them using their short names; see HasSymbol.
+	// Symbols are the permitted values as fully-qualified IRIs.
 	Symbols []string
 	// Doc is the type's documentation, one entry per doc: string.
 	Doc []string
-	// Extends names the base types this enum was flattened from, retained for diagnostics.
+	// Extends names the base types this enum was flattened from.
 	Extends []string
 }
 
@@ -210,11 +192,7 @@ func (e *EnumType) TypeName() string {
 	return e.Name
 }
 
-// HasSymbol reports whether sym is one of the enum's symbols.
-//
-// Symbols holds fully-qualified IRIs, but the Schema Salad specification's
-// validation rule for enums matches "the short name of one of the values listed
-// in symbols", so a match on either the full IRI or the short name counts.
+// HasSymbol reports whether sym matches any symbol by IRI or short name.
 func (e *EnumType) HasSymbol(sym string) bool {
 	if e == nil {
 		return false
@@ -232,11 +210,7 @@ func (e *EnumType) HasSymbol(sym string) bool {
 
 func (e *EnumType) isType() {}
 
-// narrowsFieldOverride reports whether e is an acceptable override of an
-// inherited enum-typed field on the record named recordName: the overriding
-// enum must declare a symbol whose short name is the overriding record's own
-// short name (e.g. a WorkflowStep subtype narrows the inherited "class" enum
-// by declaring a symbol named after itself, not by restating the base's).
+// narrowsFieldOverride reports whether e declares a symbol matching recordName's short name.
 func (e *EnumType) narrowsFieldOverride(recordName string) bool {
 	return e.HasSymbol(shortName(recordName))
 }
@@ -287,9 +261,7 @@ func (r *RecordType) IsDocumentRoot() bool {
 	return r != nil && r.DocumentRoot
 }
 
-// Field looks up a field by name. An exact match on the field's identifier wins;
-// failing that, the name is matched by short name, which is how fields are
-// spelled in instance documents.
+// Field looks up a field by exact name or short name.
 func (r *RecordType) Field(name string) (*Field, bool) {
 	if r == nil {
 		return nil, false
@@ -313,11 +285,7 @@ func (r *RecordType) Field(name string) (*Field, bool) {
 
 func (r *RecordType) isType() {}
 
-// Schema is a whole flattened schema: a name table of every named type, in
-// declaration order, plus the subset of them flagged documentRoot.
-//
-// It is the Go analogue of the resolved Avro name table schema-salad builds in
-// load_schema, and it is immutable once constructed.
+// Schema is a flattened schema: named types in declaration order, plus document roots.
 type Schema struct {
 	names  []string
 	byName map[string]Type
@@ -325,12 +293,6 @@ type Schema struct {
 }
 
 // NewSchema builds a Schema from an ordered list of named types.
-//
-// Anonymous types (those whose TypeName is "") are skipped: they are reachable
-// structurally from the named types that contain them and are never looked up by
-// name. If a name repeats, the last definition wins and the name keeps the
-// position of its first occurrence. The document roots are derived from the
-// RecordType.DocumentRoot flag, in the same order.
 func NewSchema(types []Type) *Schema {
 	s := &Schema{
 		names:  make([]string, 0, len(types)),
@@ -360,8 +322,7 @@ func NewSchema(types []Type) *Schema {
 	return s
 }
 
-// Type resolves a named type, and reports whether the schema defines it. Names
-// are matched exactly; callers holding a short name must qualify it first.
+// Type resolves a named type. Names must be exact.
 func (s *Schema) Type(name string) (Type, bool) {
 	if s == nil {
 		return nil, false
@@ -384,9 +345,7 @@ func (s *Schema) Names() []string {
 	return append(out, s.names...)
 }
 
-// DocumentRoots returns the record types flagged documentRoot, in declaration
-// order. These are the candidates Schema.Validate tries for the root of a
-// document. The result is a fresh slice.
+// DocumentRoots returns the record types flagged documentRoot.
 func (s *Schema) DocumentRoots() []*RecordType {
 	if s == nil {
 		return make([]*RecordType, 0)
@@ -397,9 +356,7 @@ func (s *Schema) DocumentRoots() []*RecordType {
 	return append(out, s.roots...)
 }
 
-// shortName returns the trailing short name of an identifier IRI, following the
-// Schema Salad rule: the last "/"-separated segment of the fragment if the IRI
-// has one, otherwise the last segment of the path.
+// shortName returns the trailing short name of an identifier IRI.
 func shortName(id string) string {
 	if i := strings.IndexByte(id, '#'); i >= 0 {
 		if frag := id[i+1:]; frag != "" {

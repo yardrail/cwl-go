@@ -2,12 +2,7 @@ package cwlcore
 
 import "github.com/yardrail/cwl-go/pkg/salad"
 
-// File, Directory and Dirent: the CWL values the schema defines as records, and
-// so the only ones this package decodes into typed structs. Every other runtime
-// value stays a salad.Node, because the schema types it as Any.
-//
-// Nothing here reads a filesystem. Each field is exactly what the document put
-// there; none of the derived fields is computed.
+// Decoding File, Directory, and Dirent values from validated salad nodes.
 
 // Keys of the two filesystem values and of a Dirent.
 const (
@@ -46,10 +41,6 @@ func (d *decoder) fileOrDirectory(node salad.Node) FileOrDirectory {
 }
 
 // file decodes a File value.
-//
-// size is an OptInt and contents an OptString because zero and "" are ordinary
-// values there — an empty file, and an empty file literal — and must not be read
-// as "not computed" and "not loaded".
 func (d *decoder) file(m *salad.MapNode) *File {
 	return &File{
 		Node:           m,
@@ -67,11 +58,7 @@ func (d *decoder) file(m *salad.MapNode) *File {
 	}
 }
 
-// directory decodes a Directory value.
-//
-// An absent listing decodes to nil rather than to an empty slice, because the
-// two mean different things: nil says the runner is expected to fetch the
-// listing from the location, and empty says the directory has no entries.
+// directory decodes a Directory value. Nil listing means "fetch from location".
 func (d *decoder) directory(m *salad.MapNode) *Directory {
 	return &Directory{
 		Node:     m,
@@ -82,8 +69,7 @@ func (d *decoder) directory(m *salad.MapNode) *Directory {
 	}
 }
 
-// dirent decodes a Dirent: one entry an InitialWorkDirRequirement stages into
-// the tool's working directory.
+// dirent decodes a Dirent from an InitialWorkDirRequirement.
 func (d *decoder) dirent(m *salad.MapNode) *Dirent {
 	return &Dirent{
 		Entryname: d.expression(m, keyEntryname),

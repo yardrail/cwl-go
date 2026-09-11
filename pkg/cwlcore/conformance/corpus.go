@@ -31,13 +31,10 @@ const (
 	cwlExt       = ".cwl"
 )
 
-// codeloadBase is GitHub's tarball endpoint for a tag. The corpus is fetched rather
-// than vendored: it is ~700 KiB compressed and several thousand files unpacked.
+// codeloadBase is GitHub's tarball endpoint for a tag.
 const codeloadBase = "https://codeload.github.com/common-workflow-language/cwl-v1.2/tar.gz/refs/tags/"
 
-// Limits and permissions for the fetch-and-unpack path. The size caps exist so a
-// corrupted or hostile archive cannot exhaust the disk (gosec G110); the real corpus
-// is two orders of magnitude below both.
+// Limits and permissions for fetching and unpacking.
 const (
 	fetchTimeout    = 5 * time.Minute
 	maxArchiveBytes = 256 << 20
@@ -46,12 +43,10 @@ const (
 	filePerm        = 0o600
 )
 
-// expectedDocuments is the corpus document count at the pinned tag, used only to size the
-// walk's result slice.
+// expectedDocuments pre-sizes the document list.
 const expectedDocuments = 512
 
-// Sentinel errors for the corpus acquisition path. Each is wrapped with context at
-// the point it is returned.
+// Sentinel errors for corpus acquisition.
 var (
 	errCorpusIncomplete  = errors.New("corpus directory does not contain " + manifestName)
 	errUnsafeArchivePath = errors.New("archive entry escapes the destination directory")
@@ -70,8 +65,7 @@ type corpus struct {
 	fetched bool
 }
 
-// corpusOnce memoizes the located corpus so that parallel tests in this package share a
-// single fetch instead of racing to download the same tarball.
+// corpusOnce memoizes the located corpus across parallel tests.
 var corpusOnce struct {
 	sync.Mutex
 
@@ -93,16 +87,7 @@ func sharedCorpus(ctx context.Context, tag, cacheDir string) (*corpus, error) {
 	return corpusOnce.found, corpusOnce.err
 }
 
-// openCorpus locates the corpus for tag, downloading and unpacking it into the cache
-// directory if it is not already there.
-//
-// The three sources, in order: an explicit CWL_CONFORMANCE_CORPUS checkout, a previously
-// unpacked copy in the cache, and finally GitHub. A network error is returned as-is so
-// the caller can decide to skip rather than fail.
-//
-// base is the tarball endpoint's base URL, with the tag appended to form the download
-// URL. It is a parameter rather than always codeloadBase so tests can point the download
-// path at an [net/http/httptest.Server] instead of the real network.
+// openCorpus locates the corpus, downloading from base+tag into cacheDir if needed.
 func openCorpus(ctx context.Context, base, tag, cacheDir string) (*corpus, error) {
 	explicit := strings.TrimSpace(os.Getenv(envCorpus))
 	if explicit != "" {
@@ -131,9 +116,7 @@ func (c *corpus) manifestPath() string {
 	return filepath.Join(c.root, manifestName)
 }
 
-// documents walks tests/ and returns every *.cwl document, as slash-separated paths
-// relative to the corpus root. [filepath.WalkDir] visits each directory's entries in lexical
-// order, so the result is stable between runs and the sweep report is diffable.
+// documents walks tests/ and returns every *.cwl path relative to the corpus root.
 func (c *corpus) documents() ([]string, error) {
 	testsRoot := filepath.Join(c.root, testsDirName)
 	found := make([]string, 0, expectedDocuments)
@@ -177,11 +160,7 @@ func hasManifest(dir string) bool {
 	return info.Mode().IsRegular()
 }
 
-// downloadCorpus fetches the tag's source tarball from base+tag and unpacks it into dest.
-//
-// Unpacking goes to a sibling temporary directory that is renamed into place only once
-// it is complete, so an interrupted run never leaves a half-populated cache entry that
-// the next run would mistake for a good one.
+// downloadCorpus fetches and unpacks the tag's source tarball into dest atomically.
 func downloadCorpus(ctx context.Context, base, tag, dest string) error {
 	archive, err := fetchTarball(ctx, base+tag)
 	if err != nil {
@@ -207,8 +186,7 @@ func downloadCorpus(ctx context.Context, base, tag, dest string) error {
 	if err != nil {
 		removeErr := os.RemoveAll(staging)
 
-		// Another process unpacked the same tag while this one was downloading. Its
-		// copy is as good as ours, so losing the race is not an error.
+		// Lost the rename race; the other copy is fine.
 		if hasManifest(dest) {
 			return removeErr
 		}
@@ -233,8 +211,6 @@ func fetchTarball(ctx context.Context, url string) ([]byte, error) {
 		return nil, err
 	}
 
-	// A custom RoundTripper is free to return a nil response alongside a nil error,
-	// so the body is checked before it is read rather than trusted.
 	if resp == nil || resp.Body == nil {
 		return nil, fmt.Errorf("fetching %s: %w", url, errEmptyResponse)
 	}
@@ -257,8 +233,7 @@ func fetchTarball(ctx context.Context, url string) ([]byte, error) {
 	return body, nil
 }
 
-// unpackTarGz extracts a GitHub source tarball into dest, dropping the single
-// repository-name directory GitHub wraps every archive in.
+// unpackTarGz extracts a GitHub source tarball into dest, stripping the top-level directory.
 func unpackTarGz(archive []byte, dest string) error {
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
@@ -284,9 +259,7 @@ func unpackTarGz(archive []byte, dest string) error {
 	}
 }
 
-// extractEntry writes one archive member below dest. Anything that is not a regular
-// file or a directory (symlinks, devices) is skipped: the corpus needs none of them,
-// and skipping keeps the extractor's attack surface at zero.
+// extractEntry writes one archive member below dest. Non-regular entries are skipped.
 func extractEntry(reader io.Reader, header *tar.Header, dest string) error {
 	target, ok := safeJoin(dest, stripLeadingComponent(header.Name))
 	if !ok {
@@ -328,9 +301,7 @@ func writeEntry(reader io.Reader, header *tar.Header, target string) error {
 	return errors.Join(copyErr, file.Close())
 }
 
-// stripLeadingComponent drops the first path element, which for a GitHub source
-// tarball is the "<repo>-<version>" wrapper directory. It returns "" for the wrapper
-// entry itself.
+// stripLeadingComponent drops the first path element (GitHub's wrapper directory).
 func stripLeadingComponent(name string) string {
 	_, rest, found := strings.Cut(filepath.ToSlash(name), "/")
 	if !found {
@@ -340,8 +311,7 @@ func stripLeadingComponent(name string) string {
 	return rest
 }
 
-// safeJoin resolves rel below root, reporting false when the result would escape it.
-// An empty rel yields ("", true), meaning "nothing to extract".
+// safeJoin resolves rel below root, returning false if the result escapes root.
 func safeJoin(root, rel string) (string, bool) {
 	if rel == "" {
 		return "", true
@@ -361,9 +331,7 @@ func safeJoin(root, rel string) (string, bool) {
 	return target, true
 }
 
-// defaultCacheDir is where a fetched corpus is unpacked when CWL_CONFORMANCE_CACHE is
-// unset. It falls back to the OS temporary directory when the user cache directory is
-// undiscoverable, which costs a re-download but never fails the sweep.
+// defaultCacheDir returns the corpus cache directory, falling back to [os.TempDir].
 func defaultCacheDir() string {
 	override := strings.TrimSpace(os.Getenv(envCache))
 	if override != "" {

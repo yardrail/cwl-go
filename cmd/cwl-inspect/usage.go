@@ -1,10 +1,6 @@
 package main
 
-// usageText returns the whole usage message.
-//
-// The stages are described rather than listed, because which one to reach for
-// is the only decision this tool asks its user to make and the names alone do
-// not make it.
+// usageText returns the usage message.
 func usageText() string {
 	return `cwl-inspect dumps the intermediate representation of a CWL v1.2 document,
 for debugging pkg/salad and pkg/cwlcore.

@@ -7,8 +7,7 @@ import (
 	"slices"
 )
 
-// The output-object field names the comparison treats specially, and the two class values
-// that select the filesystem rules.
+// Field names and class values used by the comparison.
 const (
 	keyClass    = "class"
 	keyPath     = "path"
@@ -23,31 +22,18 @@ const (
 )
 
 // wildcard is the expected value that matches anything.
-//
-// It is the literal string "Any", tested before everything else and at every depth, so it
-// stands in for a whole object as readily as for one field, and it matches an absent or
-// null actual value as well as a present one.
 const wildcard = "Any"
 
-// errMismatch is the sentinel every comparison failure carries. The difference is
-// described in the message; the sentinel is what lets a caller tell "the outputs differ"
-// from "the run never produced any".
+// errMismatch is the sentinel for comparison failures.
 var errMismatch = errors.New("output object does not match")
 
-// compare reports whether actual matches expected under cwltest's rules, returning nil
-// when it does and an error naming the first difference when it does not.
-//
-// It is a transcription of cwltest's compare.py rather than an interpretation of it. The
-// harness is only useful while it agrees with the authoritative one, so where the two
-// could differ this follows cwltest -- including the parts of it that read oddly, each of
-// which is called out where it appears.
+// compare reports whether actual matches expected under cwltest's rules.
 func compare(expected, actual any) error {
 	if expected == wildcard {
 		return nil
 	}
 
-	// An expectation of anything at all is not met by a missing value. The check comes
-	// before the type switch, so it also covers an expected object or list.
+	// Any non-wildcard expectation fails on a missing value.
 	if expected != nil && actual == nil {
 		return fmt.Errorf("%w: expected %s, got null", errMismatch, render(expected))
 	}
@@ -66,8 +52,7 @@ func compare(expected, actual any) error {
 	}
 }
 
-// compareObject dispatches on the expected object's class: a File and a Directory are
-// compared against the filesystem, and anything else field by field.
+// compareObject dispatches by class: File and Directory use filesystem rules, others field-by-field.
 func compareObject(expected map[string]any, actual any) error {
 	object, ok := actual.(map[string]any)
 	if !ok {
@@ -105,16 +90,7 @@ func compareList(expected []any, actual any) error {
 	return nil
 }
 
-// compareDict compares an ordinary object field by field.
-//
-// An expected field the actual object does not carry is compared against nothing, which
-// fails unless the expectation is null or the wildcard. In the other direction a field the
-// expectation never mentions is an error -- but only when it holds something: cwltest
-// tolerates a spurious key whose value is null, and so does this.
-//
-// Keys are visited in sorted order purely so that the difference reported for an object
-// with more than one is the same on every run. Go map iteration is randomised, and a
-// harness whose failure message moves about is one nobody trusts.
+// compareDict compares an ordinary object field by field. Keys visited in sorted order for determinism.
 func compareDict(expected, actual map[string]any) error {
 	for _, key := range slices.Sorted(maps.Keys(expected)) {
 		err := compare(expected[key], actual[key])
@@ -135,8 +111,7 @@ func compareDict(expected, actual map[string]any) error {
 	return nil
 }
 
-// classOf reads an object's class discriminator, answering "" when it carries none or
-// carries a non-string one.
+// classOf reads the "class" field, or "".
 func classOf(object map[string]any) string {
 	class, ok := object[keyClass].(string)
 	if !ok {

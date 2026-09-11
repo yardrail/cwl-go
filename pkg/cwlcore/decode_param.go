@@ -2,8 +2,7 @@ package cwlcore
 
 import "github.com/yardrail/cwl-go/pkg/salad"
 
-// The seven concrete parameter types, the shared ParameterBase, and the small
-// binding records the parameters hang off.
+// Decoding parameter types, ParameterBase, and binding records.
 
 // Keys the parameters, bindings and step sinks add to the shared field set.
 const (
@@ -27,10 +26,6 @@ const (
 )
 
 // parameterBase decodes the fields every input and output parameter shares.
-//
-// A record field carries the same field set under a "name" key rather than an
-// "id" one, but it is a different Go type with two binding fields of its own, so
-// decode_type.go decodes it separately instead of sharing this.
 func (d *decoder) parameterBase(node salad.Node, m *salad.MapNode) ParameterBase {
 	return ParameterBase{
 		Node:           node,
@@ -67,8 +62,7 @@ func (d *decoder) commandOutputParameter(node salad.Node) CommandOutputParameter
 	}
 }
 
-// workflowInputParameter decodes an input parameter of a Workflow or an
-// ExpressionTool.
+// workflowInputParameter decodes a Workflow or ExpressionTool input parameter.
 func (d *decoder) workflowInputParameter(node salad.Node) WorkflowInputParameter {
 	m := d.mapping(node, whatInputParameter)
 
@@ -91,8 +85,7 @@ func (d *decoder) workflowOutputParameter(node salad.Node) WorkflowOutputParamet
 	}
 }
 
-// operationInputParameter decodes an input parameter of an Operation, and the
-// generic input shape a RawProcess uses.
+// operationInputParameter decodes an Operation input parameter (also used by RawProcess).
 func (d *decoder) operationInputParameter(node salad.Node) OperationInputParameter {
 	m := d.mapping(node, whatInputParameter)
 
@@ -102,8 +95,7 @@ func (d *decoder) operationInputParameter(node salad.Node) OperationInputParamet
 	}
 }
 
-// operationOutputParameter decodes an output parameter of an Operation, and the
-// generic output shape a RawProcess uses.
+// operationOutputParameter decodes an Operation output parameter (also used by RawProcess).
 func (d *decoder) operationOutputParameter(node salad.Node) OperationOutputParameter {
 	m := d.mapping(node, whatOutputParameter)
 
@@ -117,8 +109,7 @@ func (d *decoder) expressionToolOutputParameter(node salad.Node) ExpressionToolO
 	return ExpressionToolOutputParameter{ParameterBase: d.parameterBase(node, m)}
 }
 
-// inputBinding decodes the workflow-level InputBinding, whose only field is
-// loadContents.
+// inputBinding decodes a workflow-level InputBinding.
 func (d *decoder) inputBinding(node salad.Node) *InputBinding {
 	if node == nil {
 		return nil
@@ -133,10 +124,6 @@ func (d *decoder) inputBinding(node salad.Node) *InputBinding {
 }
 
 // commandLineBinding decodes a CommandLineBinding.
-//
-// separate and shellQuote are read as OptBool rather than bool because their
-// schema default is true: reading an absent field as false would silently invert
-// the default everywhere neither is written out.
 func (d *decoder) commandLineBinding(node salad.Node) *CommandLineBinding {
 	if node == nil {
 		return nil
@@ -177,14 +164,12 @@ func (d *decoder) commandOutputBinding(node salad.Node) *CommandOutputBinding {
 	}
 }
 
-// secondaryFiles decodes a secondaryFiles field, whose schema type is one
-// SecondaryFileSchema or an array of them.
+// secondaryFiles decodes a secondaryFiles field.
 func (d *decoder) secondaryFiles(m *salad.MapNode) []SecondaryFileSchema {
 	return decodeEach(d.oneOrMany(m, keySecondaryFiles), d.secondaryFile)
 }
 
-// secondaryFile decodes one secondary-file pattern. A bare string is the
-// pattern itself, which is what the schema's secondaryFilesDSL expands to.
+// secondaryFile decodes one secondary-file pattern.
 func (d *decoder) secondaryFile(node salad.Node) SecondaryFileSchema {
 	if pattern, ok := salad.AsString(node); ok {
 		return SecondaryFileSchema{Pattern: Expression(pattern), Required: ExprBool{expr: "", kind: 0, value: false}}

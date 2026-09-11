@@ -6,24 +6,11 @@ import (
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
-// Collecting the bindings: steps 1 to 3 of the specification's command-line algorithm.
-//
-// The walk descends the input schema and the input object together, emitting one boundArg per
-// leaf binding it finds and giving each a sort key built from the positions of the levels leading
-// to it. Rendering those leaves into argv elements is clt_render.go's job, and happens only after
-// the whole set has been sorted — which is what step 5, "in the sorted order, apply the rules
-// defined in CommandLineBinding", requires.
-//
-// One rule governs the whole walk, and is worth stating up front because it is why the schema is
-// consulted so little: per CommandLineBinding, "if there is a mismatch between the type described
-// by the input schema and the effective value, such as resulting from an expression evaluation, an
-// implementation must use the data type of the effective value". The schema is therefore used only
-// to find the nested bindings a value's own shape cannot reveal — an array's item binding, a
-// record's field bindings — and every rendering decision is taken from the value.
+// Steps 1–3 of the command-line algorithm: walk schema+value to collect leaf bindings with sort keys.
+// Rendering into argv is in clt_render.go. Schema is consulted only for nested bindings; effective
+// value type always wins per the spec.
 
-// emptyBinding is what an array's items are bound with when the array's own schema declares no
-// inputBinding but the parameter does: each item still has to reach the command line, with no
-// prefix and no position of its own. It is never mutated.
+// emptyBinding is the fallback binding for array items with no declared inputBinding.
 var emptyBinding = &cwlcore.CommandLineBinding{
 	Prefix:        "",
 	ItemSeparator: "",
@@ -34,83 +21,36 @@ var emptyBinding = &cwlcore.CommandLineBinding{
 	LoadContents:  false,
 }
 
-// boundArg is one leaf binding: a binding, the value it applies to, and the sort key that decides
-// where its command-line elements land.
+// boundArg is one collected leaf binding with its sort key.
 type boundArg struct {
-	// binding is the CommandLineBinding whose rules render this leaf. Never nil.
-	binding *cwlcore.CommandLineBinding
-
-	// value is the effective value, already through valueFrom when the binding declared one.
-	value any
-
-	// origin names the parameter or arguments entry this leaf came from, for diagnostics.
-	origin string
-
-	// key is the sort key assigned by steps 1 to 3.
-	key sortKey
-
-	// computed records that value is the result of evaluating valueFrom rather than the input
-	// object's own value. It changes one rendering rule: a list produced by valueFrom has no
-	// per-item bindings to fall back on, so its elements are emitted directly.
-	computed bool
+	binding  *cwlcore.CommandLineBinding // never nil
+	value    any                         // effective value (post-valueFrom if applicable)
+	origin   string                      // parameter or arguments entry name, for diagnostics
+	key      sortKey                     // sort key from steps 1–3
+	computed bool                        // true when value came from valueFrom evaluation
 }
 
 // bindTarget is one level of the schema-and-value walk.
 type bindTarget struct {
-	// typ is the declared type at this level, used only to find nested bindings.
-	typ cwlcore.TypeRef
-
-	// binding is the inputBinding declared at this level, or nil if there is none.
-	binding *cwlcore.CommandLineBinding
-
-	// value is the input object's value at this level.
-	value any
-
-	// origin names the enclosing parameter, for diagnostics.
-	origin string
-
-	// key is the sort key of the enclosing levels.
-	key sortKey
-
-	// tie is this level's tie-break element: the field or parameter name for a named level, and
-	// the index for an array element. Spec step 3: "if and only if two bindings have the same
-	// sort key, the tie must be broken using the ordering of the field or parameter name
-	// immediately containing the leaf binding", and "for bindings on arrays and maps, the
-	// sorting key must include the array index or map key following the position".
-	tie keyElem
+	typ     cwlcore.TypeRef             // declared type, used to find nested bindings
+	binding *cwlcore.CommandLineBinding // inputBinding at this level, or nil
+	value   any                         // input value at this level
+	origin  string                      // enclosing parameter name, for diagnostics
+	key     sortKey                     // sort key of enclosing levels
+	tie     keyElem                     // tie-break: field/param name or array index
 }
 
 // cmdBuilder accumulates the leaf bindings of one command line.
 type cmdBuilder struct {
-	// eval evaluates the position and valueFrom expressions a binding may carry.
-	eval *cwlcore.Evaluator
-
-	// inputs is the resolved input object, keyed by parameter short name.
-	inputs map[string]any
-
-	// bound are the leaves collected so far, in collection order.
-	bound []boundArg
-
-	// scope is the requirement scope in effect, consulted only to resolve the named types a
-	// SchemaDefRequirement declares.
-	scope *cwlcore.RequirementScope
-
-	// runtime is the runtime.* context expressions see.
-	runtime cwlcore.RuntimeContext
+	eval    *cwlcore.Evaluator        // evaluates position and valueFrom expressions
+	inputs  map[string]any            // resolved inputs, keyed by short name
+	bound   []boundArg                // collected leaves, in collection order
+	scope   *cwlcore.RequirementScope // for resolving SchemaDefRequirement types
+	runtime cwlcore.RuntimeContext    // runtime.* context for expressions
 }
 
 // collect walks the tool's inputs and arguments, filling in b.bound.
-//
-// Inputs are collected before arguments, and both in document order, which is the order a stable
-// sort falls back on for two bindings whose keys are wholly equal.
-//
-// Each parameter's type is resolved against the SchemaDefRequirement in scope exactly once, here
-// at its root, rather than level by level during the walk. That is not only the cheaper of the two
-// — [cwlcore.ResolveTypeRef] substitutes the whole tree, descending through arrays, unions and
-// record fields — it is the correct one: a recursive declaration comes back with the edge that
-// closes its cycle left as a bare name, and re-resolving that edge further down would expand it
-// again and never terminate. Resolving once means the walk meets that residual name, finds nothing
-// nested under it, and stops.
+// Types are resolved once at the root via [cwlcore.ResolveTypeRef] to avoid infinite expansion of recursive types.
 func (b *cmdBuilder) collect(tool *cwlcore.CommandLineTool) error {
 	for index := range tool.Inputs {
 		param := &tool.Inputs[index]
@@ -141,19 +81,7 @@ func (b *cmdBuilder) collect(tool *cwlcore.CommandLineTool) error {
 	return nil
 }
 
-// bindArgument collects one CommandLineTool.arguments entry.
-//
-// Spec step 1 assigns an arguments entry the sort key [position, i], where i is its index in the
-// list. Because i is numeric and a parameter's tie-break element is its name, and because numeric
-// key elements sort before string ones, every argument sorts ahead of every input parameter that
-// shares its position — which is the ordering the reference implementation produces too.
-//
-// All three spelling of an entry — a plain string, an expression, and a full CommandLineBinding —
-// are normalized to a binding whose valueFrom carries the value, because that is what the
-// specification says an arguments entry means: "for binding objects listed in
-// CommandLineTool.arguments, the term 'value' refers to the effective value after evaluating
-// valueFrom". A plain string is returned verbatim by the evaluator, so the normalization costs
-// nothing.
+// bindArgument collects one CommandLineTool.arguments entry, normalized to a valueFrom binding.
 func (b *cmdBuilder) bindArgument(index int, arg cwlcore.CommandLineArgument) error {
 	binding := argumentBinding(arg)
 	if binding == nil {
@@ -171,8 +99,7 @@ func (b *cmdBuilder) bindArgument(index int, arg cwlcore.CommandLineArgument) er
 	return b.bindValueFrom(key, origin, binding, nil)
 }
 
-// argumentBinding normalizes one arguments entry into a binding carrying its value in valueFrom,
-// or nil when the entry is a CommandLineBinding that declares no valueFrom.
+// argumentBinding normalizes an arguments entry to a binding with valueFrom, or nil if none.
 func argumentBinding(arg cwlcore.CommandLineArgument) *cwlcore.CommandLineBinding {
 	switch arg.Kind() {
 	case cwlcore.ValueString:
@@ -207,13 +134,7 @@ func argumentBinding(arg cwlcore.CommandLineArgument) *cwlcore.CommandLineBindin
 	}
 }
 
-// bindInput collects the leaves for one level of the walk: an input parameter, a record field, or
-// an array element.
-//
-// A null value adds nothing at all, "not even the prefix" — the binding rules end with "null: Add
-// nothing", and nothing distinguishes a prefix from the rest of what a binding would have added.
-// That check comes first, so it also short-circuits valueFrom: "if the value of the associated
-// input parameter is null, valueFrom is not evaluated and nothing is added to the command line".
+// bindInput collects leaves for one level of the walk. Null values add nothing.
 func (b *cmdBuilder) bindInput(target *bindTarget) error {
 	if target.value == nil {
 		return nil
@@ -240,11 +161,7 @@ func (b *cmdBuilder) bindInput(target *bindTarget) error {
 	return b.bindNested(target, key)
 }
 
-// bindNested descends into the structure a value's type describes, looking for the bindings that
-// live below this level. Only arrays, records and enums can carry one; every other type is a leaf.
-//
-// key is this level's key, already extended by bindInput when this level had a binding of its own,
-// so a nested binding's key always begins with the keys of the levels containing it.
+// bindNested descends into arrays, records, and enums to find nested bindings.
 func (b *cmdBuilder) bindNested(target *bindTarget, key sortKey) error {
 	resolved := bindingType(target.typ, target.value)
 
@@ -260,20 +177,7 @@ func (b *cmdBuilder) bindNested(target *bindTarget, key sortKey) error {
 	}
 }
 
-// bindArray collects the bindings of an array's elements.
-//
-// The distinction the specification draws between the two bindings an array can have is the whole
-// subtlety here:
-//
-//   - The binding on the *parameter* binds the array as a whole. Its leaf renders as "first add
-//     prefix" — or, with itemSeparator, as the single joined argument.
-//   - The binding on the array *schema*, `type: {type: array, items: ..., inputBinding: ...}`,
-//     binds each element in turn. Its prefix is repeated once per element.
-//
-// Both may be present, and either may be absent. When the array schema declares none but the
-// parameter does, the elements are still emitted — "otherwise, first add prefix, then recursively
-// process individual elements" — with an empty binding standing in, unless itemSeparator has
-// already claimed them for the joined form.
+// bindArray collects bindings for each array element.
 func (b *cmdBuilder) bindArray(key sortKey, target *bindTarget, schema *cwlcore.ArraySchema) error {
 	items, ok := valueList(target.value)
 	if !ok || schema == nil {
@@ -304,8 +208,7 @@ func (b *cmdBuilder) bindArray(key sortKey, target *bindTarget, schema *cwlcore.
 	return nil
 }
 
-// itemBindingFor picks the binding an array's elements are bound with, or nil when they are not
-// bound individually at all.
+// itemBindingFor returns the per-element binding, or nil if elements are not individually bound.
 func itemBindingFor(schema *cwlcore.ArraySchema, parent *cwlcore.CommandLineBinding) *cwlcore.CommandLineBinding {
 	if schema.InputBinding != nil {
 		return schema.InputBinding
@@ -318,15 +221,7 @@ func itemBindingFor(schema *cwlcore.ArraySchema, parent *cwlcore.CommandLineBind
 	return emptyBinding
 }
 
-// bindRecord collects the bindings of a record's fields.
-//
-// The record's own value renders as "add prefix only"; its fields are then walked in schema order,
-// each with its own binding, and each keyed by its field name so that two fields sharing a
-// position order by name.
-//
-// A record schema may itself declare an inputBinding, separately from the one on the parameter
-// whose type it is. That is a second level, so it contributes its own position to the key of every
-// field below it and emits its own prefix.
+// bindRecord collects bindings for a record's fields in schema order.
 func (b *cmdBuilder) bindRecord(key sortKey, target *bindTarget, schema *cwlcore.RecordSchema) error {
 	object, ok := valueObject(target.value)
 	if !ok || schema == nil {
@@ -360,9 +255,7 @@ func (b *cmdBuilder) bindRecord(key sortKey, target *bindTarget, schema *cwlcore
 	return nil
 }
 
-// bindEnum collects the binding an enum schema may declare. An enum's value is a symbol, so there
-// is nothing below it to walk; the schema's own binding is simply a second binding of the same
-// value, alongside any the parameter declared.
+// bindEnum collects a binding declared on an enum schema, if any.
 func (b *cmdBuilder) bindEnum(key sortKey, target *bindTarget, schema *cwlcore.EnumSchema) error {
 	if schema == nil {
 		return nil
@@ -373,9 +266,7 @@ func (b *cmdBuilder) bindEnum(key sortKey, target *bindTarget, schema *cwlcore.E
 	return err
 }
 
-// schemaLevel emits the leaf for a binding declared on an inline schema rather than on the
-// parameter or field that uses it, and returns the key the levels below it hang from. A nil
-// binding is not a level at all, and leaves the key unchanged.
+// schemaLevel emits a leaf for a schema-level binding and returns the resulting key. Nil binding is a no-op.
 func (b *cmdBuilder) schemaLevel(key sortKey, target *bindTarget,
 	binding *cwlcore.CommandLineBinding,
 ) (sortKey, error) {
@@ -394,11 +285,7 @@ func (b *cmdBuilder) schemaLevel(key sortKey, target *bindTarget,
 	return nested, nil
 }
 
-// bindValueFrom evaluates a binding's valueFrom and emits the result as this binding's leaf.
-//
-// valueFrom replaces the value rather than decorating it, so the leaf is terminal: the declared
-// type's structure is not walked, because the effective value need not have that structure at all.
-// `self` is the value the binding is attached to, which for an arguments entry is null.
+// bindValueFrom evaluates valueFrom and emits the result as a terminal leaf.
 func (b *cmdBuilder) bindValueFrom(key sortKey, origin string,
 	binding *cwlcore.CommandLineBinding, self any,
 ) error {
@@ -418,18 +305,12 @@ func (b *cmdBuilder) bindValueFrom(key sortKey, origin string,
 	return nil
 }
 
-// add records one leaf binding taken straight from the input object.
+// add records one leaf binding from the input object.
 func (b *cmdBuilder) add(key sortKey, origin string, binding *cwlcore.CommandLineBinding, value any) {
 	b.bound = append(b.bound, boundArg{binding: binding, value: value, origin: origin, key: key, computed: false})
 }
 
-// position resolves a binding's `position` to the number its sort key uses.
-//
-// The schema's default is 0, so an absent position is 0. An expression is evaluated with `self`
-// bound to the value being bound, as the schema requires: "if the inputBinding is associated with
-// an input parameter, then the value of self will be the value of the input parameter". A null
-// result is read as the default rather than rejected, since the schema admits it: "expressions
-// must return a single value of type int or a null".
+// position resolves a binding's position to a sort key number. Default is 0; null expression results are 0.
 func (b *cmdBuilder) position(binding *cwlcore.CommandLineBinding, self any) (int64, error) {
 	if binding.Position.Kind() != cwlcore.ValueExpression {
 		return binding.Position.Int(), nil
@@ -454,29 +335,13 @@ func (b *cmdBuilder) position(binding *cwlcore.CommandLineBinding, self any) (in
 	return position, nil
 }
 
-// context is the symbol environment one of this command line's expressions is evaluated against.
+// context builds the expression evaluation environment.
 func (b *cmdBuilder) context(self any) *cwlcore.EvalContext {
 	return &cwlcore.EvalContext{Inputs: b.inputs, Self: self, Runtime: b.runtime}
 }
 
-// bindingType picks the union member that describes value's shape, so that the walk descends into
-// the right nested schema. A non-union type is returned unchanged.
-//
-// Only arrays, records and enums can carry nested bindings, so nothing is lost when no member
-// matches: the zero TypeRef ends the descent, which is the correct outcome for a scalar.
-//
-// A TypeKindNamed reference reaching this point ends the descent too, but by then it can only be
-// one of the two references that have no schema to descend into: a name no SchemaDefRequirement in
-// scope declares, or the edge closing a recursive declaration's cycle. Every other name was already
-// substituted at the parameter's root — see [cmdBuilder.collect].
-//
-// Two passes, and the first is what makes a union of *records* usable at all. Shape alone cannot
-// tell one record member from another — every one of them is an object — so a union like
-// `[Map1, Map2, Map3, Map4]` would always resolve to its first member, and every field the other
-// members declare and that one does not would silently never reach the command line. The first pass
-// therefore asks which member actually accepts the value, and the second pass falls back to shape
-// only when no member accepted it — so that a value no declared member fits still binds the way it
-// used to rather than vanishing.
+// bindingType picks the union member matching value. First pass checks acceptance (needed to
+// disambiguate records); second pass falls back to shape matching.
 func bindingType(typ cwlcore.TypeRef, value any) cwlcore.TypeRef {
 	if typ.Kind() != cwlcore.TypeKindUnion {
 		return typ
@@ -499,7 +364,7 @@ func bindingType(typ cwlcore.TypeRef, value any) cwlcore.TypeRef {
 	return cwlcore.TypeRef{}
 }
 
-// describesValue reports whether option is the union member value takes its shape from.
+// describesValue reports whether option matches value's shape.
 func describesValue(option cwlcore.TypeRef, value any) bool {
 	switch option.Kind() {
 	case cwlcore.TypeKindArray:
@@ -517,9 +382,7 @@ func describesValue(option cwlcore.TypeRef, value any) bool {
 	}
 }
 
-// acceptsValue reports whether option not only has value's shape but admits its content. It is
-// [describesValue] sharpened for the two kinds a union can hold several of and tell apart by
-// content: a record, by which fields it declares, and an enum, by which symbols it permits.
+// acceptsValue reports whether option matches value's shape and admits its content.
 func acceptsValue(option cwlcore.TypeRef, value any) bool {
 	switch option.Kind() {
 	case cwlcore.TypeKindRecord:
@@ -531,12 +394,7 @@ func acceptsValue(option cwlcore.TypeRef, value any) bool {
 	}
 }
 
-// recordAccepts reports whether value is a record at all, and if so whether every key of it names a
-// field this schema declares and every field the schema declares admits what it holds for it.
-//
-// A schema-less record type accepts nothing: it declares no fields, so there is no evidence it is
-// the member value came from, and the fallback pass in [bindingType] will reach it anyway if no
-// other member fits.
+// recordAccepts reports whether value is a record whose keys and values match the schema's fields.
 func recordAccepts(schema *cwlcore.RecordSchema, value any) bool {
 	object, ok := valueObject(value)
 	if !ok || schema == nil || !isRecordValue(value) {
@@ -565,12 +423,7 @@ func recordAccepts(schema *cwlcore.RecordSchema, value any) bool {
 	return true
 }
 
-// fieldAccepts reports whether a record field's declared type admits the value present for it.
-//
-// Only the two checks that actually discriminate one record member of a union from another are
-// made: a field with no value has to be optional, and a field declared as an enum has to permit the
-// symbol given. Anything deeper would be re-validating the input object, which the job order has
-// already been through.
+// fieldAccepts reports whether a field's type admits the given value.
 func fieldAccepts(field *cwlcore.RecordField, value any) bool {
 	if value == nil {
 		return field.Type.IsOptional()
@@ -584,8 +437,7 @@ func fieldAccepts(field *cwlcore.RecordField, value any) bool {
 	return enumOptionsAccept(field.Type, symbol)
 }
 
-// enumOptionsAccept reports whether symbol is one an enum-typed field admits. A type with no enum
-// among its options constrains nothing here and accepts anything.
+// enumOptionsAccept reports whether symbol is permitted by any enum in the type's options.
 func enumOptionsAccept(typ cwlcore.TypeRef, symbol string) bool {
 	options := []cwlcore.TypeRef{typ}
 	if typ.Kind() == cwlcore.TypeKindUnion {
@@ -609,9 +461,7 @@ func enumOptionsAccept(typ cwlcore.TypeRef, symbol string) bool {
 	return !constrained
 }
 
-// enumAccepts reports whether an enum schema declares value as one of its symbols. Symbols are
-// resolved to absolute identifiers, while the value carries the short spelling the document wrote,
-// so both are compared.
+// enumAccepts reports whether value is a symbol declared by the enum schema.
 func enumAccepts(schema *cwlcore.EnumSchema, value any) bool {
 	symbol, ok := value.(string)
 	if !ok || schema == nil {

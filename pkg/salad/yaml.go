@@ -21,31 +21,13 @@ const (
 	bitsPerFloat64 = 64
 )
 
-// The YAML 1.2 core schema's own tag-resolution regular expressions for int and
-// float, in their base-ten forms. goccy's scanner recognizes a narrower set than
-// these — see [coreSchemaNumber] — so they are spelled out here to recover the
-// literals it leaves behind. Go's \d is ASCII-only, which is what the schema
-// means by a digit.
+// YAML 1.2 core schema int/float patterns for recovering literals goccy misses.
 var (
 	coreSchemaInt   = regexp.MustCompile(`^[-+]?\d+$`)
 	coreSchemaFloat = regexp.MustCompile(`^[-+]?(\.\d+|\d+(\.\d*)?)([eE][-+]?\d+)?$`)
 )
 
-// Parse parses a Schema Salad document from src and returns its Node tree.
-//
-// Both YAML and JSON are accepted through the same code path: YAML 1.2 is a
-// superset of JSON, and the parser records accurate line/column positions for
-// JSON-style flow collections, so no separate JSON reader is needed.
-//
-// name is recorded as the File component of every SourceLine in the result; pass
-// the normalized URL the document was fetched from.
-//
-// YAML anchors and aliases are expanded, including the merge key "<<": keys
-// defined by the mapping itself always win over merged keys, and when several
-// mappings are merged the earlier ones win, per the YAML merge specification.
-// Duplicate keys are rejected, in block, flow and JSON syntax alike. Documents
-// containing more than one YAML document are rejected, since Schema Salad has no
-// semantics for them; use $graph instead.
+// Parse parses a YAML/JSON document into a Node tree. Anchors, aliases and merge keys are expanded.
 func Parse(name string, src []byte) (Node, error) {
 	file, err := parser.ParseBytes(src, 0)
 	if err != nil {
@@ -86,8 +68,7 @@ func Parse(name string, src []byte) (Node, error) {
 	return c.node(file.Docs[0].Body)
 }
 
-// parseError converts a goccy parse failure into a *Error, recovering the
-// position from the offending token when the parser reports one.
+// parseError converts a goccy parse failure into a *Error.
 func parseError(name string, err error) *Error {
 	if syntax, ok := errors.AsType[*yaml.SyntaxError](err); ok {
 		return &Error{Msg: syntax.Message, Children: nil, Loc: tokenLoc(name, syntax.Token), Warning: false}
@@ -114,8 +95,7 @@ func parseError(name string, err error) *Error {
 	}
 }
 
-// tokenLoc converts a goccy token position into a SourceLine. goccy reports
-// 1-based byte offsets; SourceLine.Offset is 0-based.
+// tokenLoc converts a goccy token position into a SourceLine.
 func tokenLoc(file string, tk *token.Token) SourceLine {
 	if tk == nil || tk.Position == nil {
 		return SourceLine{
@@ -134,16 +114,14 @@ func tokenLoc(file string, tk *token.Token) SourceLine {
 	return SourceLine{File: file, Start: pos, End: pos}
 }
 
-// yamlConverter walks a goccy AST and builds the equivalent Node tree. It is
-// single-use: one converter per parsed document.
+// yamlConverter walks a goccy AST and builds the equivalent Node tree.
 type yamlConverter struct {
 	anchors   map[string]ast.Node
 	resolving map[string]bool
 	file      string
 }
 
-// node converts any AST node, dispatching containers and indirections here and
-// leaf values to scalar.
+// node converts any AST node.
 func (c *yamlConverter) node(n ast.Node) (Node, error) {
 	switch v := n.(type) {
 	case nil:
@@ -167,8 +145,7 @@ func (c *yamlConverter) node(n ast.Node) (Node, error) {
 	}
 }
 
-// indirect converts the AST nodes that wrap another value: anchors, aliases and
-// tags. Anything else is a leaf scalar.
+// indirect converts anchors, aliases and tags; anything else is a scalar.
 func (c *yamlConverter) indirect(n ast.Node) (Node, error) {
 	switch v := n.(type) {
 	case *ast.AnchorNode:
@@ -227,8 +204,7 @@ func (c *yamlConverter) entry(mv *ast.MappingValueNode) (MapEntry, error) {
 	return MapEntry{Key: key, Value: value}, nil
 }
 
-// ownKeys collects the keys the mapping declares directly, which take precedence
-// over anything pulled in by a merge key regardless of position.
+// ownKeys collects the mapping's direct keys (take precedence over merges).
 func (c *yamlConverter) ownKeys(values []*ast.MappingValueNode) map[string]bool {
 	own := make(map[string]bool, len(values))
 	for _, mv := range values {
@@ -245,8 +221,7 @@ func (c *yamlConverter) ownKeys(values []*ast.MappingValueNode) map[string]bool 
 	return own
 }
 
-// mergeEntries expands a "<<" merge key into the entries it contributes, skipping
-// keys the mapping owns and keys an earlier merge already supplied.
+// mergeEntries expands a merge key, skipping owned and already-merged keys.
 func (c *yamlConverter) mergeEntries(value ast.Node, own, seen map[string]bool) ([]MapEntry, error) {
 	sources, err := c.mergeSources(value)
 	if err != nil {
@@ -351,14 +326,7 @@ func (c *yamlConverter) alias(v *ast.AliasNode) (Node, error) {
 	return c.node(target)
 }
 
-// tagged converts a tagged value. Only the "!!str" core-schema tag changes the
-// result; every other tag is transparent, since Schema Salad documents have no
-// meaning for YAML tags.
-//
-// A scalar under an unrecognized tag keeps the text goccy hands back rather than
-// being re-resolved by [stringOrNumber]: a tag the application does not know is
-// not an instruction to resolve the content against the core schema, so the raw
-// presentation is what survives.
+// tagged converts a tagged value. Only !!str changes the result; other tags are transparent.
 func (c *yamlConverter) tagged(v *ast.TagNode) (Node, error) {
 	if v.Start != nil && v.Start.Value == strTagName {
 		return NewStringNode(c.nodeLoc(v.Value), scalarText(v.Value)), nil
@@ -400,13 +368,7 @@ func (c *yamlConverter) numeric(n ast.Node, loc SourceLine) (Node, error) {
 	}
 }
 
-// integerLiteral converts a goccy integer, keeping the literal it was written as
-// so that rendering can reproduce it.
-//
-// The kind the literal resolves to is checked rather than assumed: goccy's
-// integer grammar is wider than the core schema's base-ten one — it takes hex and
-// octal too — and a literal [ParseDecimal] does not recognize keeps the value
-// goccy already parsed.
+// integerLiteral converts a goccy integer, preserving the original literal.
 func integerLiteral(loc SourceLine, v *ast.IntegerNode) *ScalarNode {
 	if value, ok := ParseDecimal(scalarText(v)); ok && !value.IsFloatForm() {
 		return NewNumberNode(loc, value)
@@ -415,11 +377,7 @@ func integerLiteral(loc SourceLine, v *ast.IntegerNode) *ScalarNode {
 	return integerNode(loc, v)
 }
 
-// floatLiteral converts a goccy float, keeping the literal it was written as.
-//
-// This is where 1230000 declared as a float keeps its integer spelling and
-// 0.00001 keeps its point: the reference implementation renders a document's
-// float from the text the document wrote, and a float64 no longer knows it.
+// floatLiteral converts a goccy float, preserving the original literal.
 func floatLiteral(loc SourceLine, v *ast.FloatNode) *ScalarNode {
 	if value, ok := ParseDecimal(scalarText(v)); ok && value.IsFloatForm() {
 		return NewNumberNode(loc, value)
@@ -428,8 +386,7 @@ func floatLiteral(loc SourceLine, v *ast.FloatNode) *ScalarNode {
 	return NewFloatNode(loc, v.Value)
 }
 
-// special converts the IEEE-754 special values, and reports anything left over as
-// an unsupported node kind.
+// special converts IEEE-754 special values (infinity, NaN).
 func (c *yamlConverter) special(n ast.Node, loc SourceLine) (Node, error) {
 	switch v := n.(type) {
 	case *ast.InfinityNode:
@@ -441,9 +398,7 @@ func (c *yamlConverter) special(n ast.Node, loc SourceLine) (Node, error) {
 	}
 }
 
-// mapKey renders a mapping key as a string. Schema Salad keys are strings, but
-// YAML permits any scalar, so numeric and boolean keys are accepted using their
-// source text.
+// mapKey renders a mapping key as a string.
 func (c *yamlConverter) mapKey(k ast.MapKeyNode) (string, error) {
 	switch v := k.(type) {
 	case *ast.StringNode:
@@ -472,8 +427,7 @@ func (c *yamlConverter) nodeLoc(n ast.Node) SourceLine {
 	return tokenLoc(c.file, n.GetToken())
 }
 
-// mappingLoc points a mapping at its first key rather than at the ":" token that
-// goccy reports, which reads better in error messages.
+// mappingLoc points a mapping at its first key for better error messages.
 func (c *yamlConverter) mappingLoc(v *ast.MappingNode) SourceLine {
 	if len(v.Values) > 0 {
 		return c.nodeLoc(v.Values[0].Key)
@@ -489,19 +443,8 @@ func isMergeKey(k ast.MapKeyNode) bool {
 	return ok
 }
 
-// stringOrNumber converts a goccy string leaf, recovering the numbers goccy's
-// scanner declines to type.
-//
-// goccy resolves a plain scalar to a number only when it is an exponent-free
-// decimal fitting an int64 or a uint64, or a float written with a decimal point.
-// The YAML 1.2 core schema is wider on both counts: "1e40" is a float, and an
-// integer literal is an integer whatever its magnitude. Those arrive here as
-// plain strings, so they are re-resolved against the core schema's own grammar
-// rather than silently reaching a consumer as text.
-//
-// A quoted scalar is never reconsidered. Quoting is how a document says that a
-// value is a string, and honouring that is the difference between 1e40 and
-// "1e40" meaning different things, which is what YAML promises.
+// stringOrNumber converts a goccy string, recovering numbers goccy's scanner missed.
+// Quoted scalars are always strings.
 func stringOrNumber(loc SourceLine, v *ast.StringNode) Node {
 	if !isPlainScalar(v) {
 		return NewStringNode(loc, v.Value)
@@ -514,25 +457,14 @@ func stringOrNumber(loc SourceLine, v *ast.StringNode) Node {
 	return NewStringNode(loc, v.Value)
 }
 
-// isPlainScalar reports whether a string leaf was written unquoted, which is the
-// only form whose type the YAML schema resolves from its spelling.
+// isPlainScalar reports whether a string was written unquoted.
 func isPlainScalar(v *ast.StringNode) bool {
 	tk := v.GetToken()
 
 	return tk != nil && tk.Type == token.StringType
 }
 
-// coreSchemaNumber resolves a plain scalar against the core schema's numeric
-// grammar, reporting false for the text that is genuinely a string.
-//
-// The literal travels with the value. [NewNumberNode] decides the kind from it,
-// which is how an integer too large for an int64 keeps every digit and how a
-// float written 1.23e-05 can still be written back as 0.0000123 — neither of
-// which survives a float64.
-//
-// A literal the grammar accepts but [ParseDecimal] will not hold — one whose
-// exponent would expand into megabytes of digits — falls back to being parsed as
-// a float, where it becomes the infinity or the signed zero it always was.
+// coreSchemaNumber resolves a plain scalar against the core schema's numeric grammar.
 func coreSchemaNumber(loc SourceLine, text string) (*ScalarNode, bool) {
 	if !coreSchemaInt.MatchString(text) && !coreSchemaFloat.MatchString(text) {
 		return nil, false
@@ -545,13 +477,7 @@ func coreSchemaNumber(loc SourceLine, text string) (*ScalarNode, bool) {
 	return floatNode(loc, text)
 }
 
-// floatNode converts a literal the core-schema grammar has already accepted but
-// [ParseDecimal] declined to hold exactly.
-//
-// A magnitude outside float64's range is kept as the saturated infinity — or
-// signed zero — that IEEE 754 rounding produces, rather than rejected: the
-// document did write a number, and refusing to parse it would put it back where
-// it started, as a string. Any other parse failure leaves the text a string.
+// floatNode converts a literal ParseDecimal declined, falling back to float64.
 func floatNode(loc SourceLine, text string) (*ScalarNode, bool) {
 	value, err := strconv.ParseFloat(text, bitsPerFloat64)
 	if err != nil && !errors.Is(err, strconv.ErrRange) {
@@ -561,7 +487,7 @@ func floatNode(loc SourceLine, text string) (*ScalarNode, bool) {
 	return NewFloatNode(loc, value), true
 }
 
-// integerNode converts a goccy integer, which holds either an int64 or a uint64.
+// integerNode converts a goccy integer (int64 or uint64).
 func integerNode(loc SourceLine, v *ast.IntegerNode) *ScalarNode {
 	switch n := v.Value.(type) {
 	case int64:

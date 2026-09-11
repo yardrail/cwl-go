@@ -2,19 +2,7 @@ package cwlcore
 
 import "github.com/yardrail/cwl-go/pkg/salad"
 
-// Requirements and hints.
-//
-// A requirements entry whose class this package models decodes into that class's
-// struct; anything else becomes a RawRequirement. Neither is an error here.
-// Whether a document is schema-valid was pkg/salad's question and has already
-// been answered, and whether an unrecognized requirement is fatal is a question
-// about the runner's capabilities rather than about the document — requirements.go
-// makes that call, after a downstream package has had its chance to claim the
-// class.
-//
-// Hints are more permissive still: WorkflowStep.hints is typed Any[] by the
-// schema, so an entry naming an unknown class, or holding something that is not
-// even a mapping, is expected rather than exceptional and never records an error.
+// Decoding requirements and hints from validated salad nodes.
 
 // Keys the requirement records add to the shared field set.
 const (
@@ -48,12 +36,7 @@ const (
 	whatRequirementDeclaration = "a requirement"
 )
 
-// requirementDecoders maps a requirement class to the decoder for it.
-//
-// It is a table rather than a switch because seventeen classes is well past what
-// revive's cyclomatic-complexity limit allows in one function, and because the
-// same table serves both requirements and hints: a hints entry may name any core
-// requirement class, and when it does it decodes into the same struct.
+// requirementDecoders maps requirement class names to their decoders.
 var requirementDecoders = map[string]func(*decoder, *salad.MapNode) ProcessRequirement{
 	ClassInlineJavascriptRequirement:     (*decoder).inlineJavascriptRequirement,
 	ClassSchemaDefRequirement:            (*decoder).schemaDefRequirement,
@@ -99,9 +82,7 @@ func (d *decoder) hints(m *salad.MapNode, key string) []Hint {
 	return decodeEach(d.listItems(m, key, keyClass, ""), d.hint)
 }
 
-// hint decodes one hints entry, and never records an error: the specification
-// requires an implementation to ignore a hint it does not understand rather than
-// reject the document.
+// hint decodes one hints entry. Unknown hints are silently accepted per spec.
 func (d *decoder) hint(node salad.Node) Hint {
 	m, ok := salad.AsMap(node)
 	if !ok {
@@ -124,9 +105,7 @@ func (d *decoder) inlineJavascriptRequirement(m *salad.MapNode) ProcessRequireme
 	}
 }
 
-// schemaDefRequirement decodes a SchemaDefRequirement. Its type schemas stay
-// salad nodes: one of them may refer by name to another declared alongside it,
-// and untangling that needs the whole requirement scope rather than one node.
+// schemaDefRequirement decodes a SchemaDefRequirement.
 func (d *decoder) schemaDefRequirement(m *salad.MapNode) ProcessRequirement {
 	return &SchemaDefRequirement{requirementBase: requirementBase{}, Types: d.listItems(m, keyTypes, keyName, keyType)}
 }
@@ -194,16 +173,12 @@ func (d *decoder) environmentDef(node salad.Node) EnvironmentDef {
 	}
 }
 
-// shellCommandRequirement decodes a ShellCommandRequirement, which is a marker
-// with no fields beyond its class.
+// shellCommandRequirement decodes a ShellCommandRequirement marker.
 func (*decoder) shellCommandRequirement(*salad.MapNode) ProcessRequirement {
 	return &ShellCommandRequirement{requirementBase: requirementBase{}}
 }
 
-// resourceRequirement decodes a ResourceRequirement. Every field may legitimately
-// be unset: the schema declines to declare defaults for the minima so that an
-// implementation can tell a value that was not provided from one that happens to
-// equal the documented default.
+// resourceRequirement decodes a ResourceRequirement.
 func (d *decoder) resourceRequirement(m *salad.MapNode) ProcessRequirement {
 	return &ResourceRequirement{
 		requirementBase: requirementBase{},

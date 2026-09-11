@@ -6,13 +6,6 @@ import (
 )
 
 // scanState is one frame of the expression scanner's state stack.
-//
-// A stack rather than a counter is what lets the scanner honour the spec's
-// requirement that it "must permit any syntactically valid Javascript and
-// account for nesting of parenthesis or braces and that strings that may
-// contain parenthesis or braces": a quote frame suspends delimiter counting
-// until the matching quote, and a backslash frame swallows the next character
-// wherever it appears.
 type scanState int
 
 const (
@@ -38,35 +31,27 @@ const (
 	scanBackslash
 )
 
-// scanWindow is the half-open byte range [start, end) of one scanned fragment.
-// escape distinguishes the two kinds the scanner reports: an expression
-// fragment, where src[start] is '$' and src[end-1] closes it, and a backslash
-// escape, where src[start] is '\' and src[end-1] is the escaped character.
+// scanWindow is the byte range [start, end) of one scanned fragment or escape.
 type scanWindow struct {
 	start  int
 	end    int
 	escape bool
 }
 
-// exprScanner finds the first fragment in a string. It is single use: callers
-// go through scanFragment, which rescans the remaining text after each hit,
-// mirroring the reference implementation.
+// exprScanner finds the first expression fragment or escape in a string.
 type exprScanner struct {
 	src   string
 	stack []scanState
 	pos   int
 
-	// fragStart is the offset of the '$' that opened the innermost fragment.
+	// fragStart is the offset of the '$' that opened the fragment.
 	fragStart int
 
 	// escStart is the offset of the most recent '\'.
 	escStart int
 }
 
-// scanFragment returns the first expression fragment or backslash escape in
-// src. found is false when src holds neither, and an error reports an
-// unterminated fragment — the scanner never runs past the end of the string
-// looking for a delimiter that is not there.
+// scanFragment returns the first expression fragment or escape in src.
 func scanFragment(src string) (scanWindow, bool, error) {
 	scanner := &exprScanner{src: src, stack: []scanState{scanText}, pos: 0, fragStart: 0, escStart: 0}
 
@@ -82,7 +67,7 @@ func scanFragment(src string) (scanWindow, bool, error) {
 	return scanWindow{start: 0, end: 0, escape: false}, false, scanner.unterminated()
 }
 
-// step consumes one rune in the current state and reports a completed window.
+// step consumes one rune and reports a completed window if any.
 func (s *exprScanner) step(char rune, size int) (scanWindow, bool) {
 	switch s.top() {
 	case scanText:
@@ -123,14 +108,8 @@ func (s *exprScanner) stepText(char rune, size int) (scanWindow, bool) {
 	return scanWindow{start: 0, end: 0, escape: false}, false
 }
 
-// stepBackslash consumes the escaped rune. An escape that lands back in
-// literal text is itself reported, so the interpolator can apply the spec's
-// escaping rules to it; one nested in a string literal is merely swallowed.
-//
-// The window over "\$(" and "\${" covers the opening delimiter as well as the
-// dollar, because the spec escapes the pair — "The substrings \$( and \${ are
-// replaced by $( and ${ respectively" — and because leaving the delimiter in
-// the unscanned remainder would let the next pass mistake it for a fragment.
+// stepBackslash consumes the escaped rune. In literal text, reports the escape window.
+// For \$( and \${, the window covers the opening delimiter too.
 func (s *exprScanner) stepBackslash(char rune, size int) (scanWindow, bool) {
 	s.pop()
 	s.pos += size
@@ -146,15 +125,12 @@ func (s *exprScanner) stepBackslash(char rune, size int) (scanWindow, bool) {
 	return scanWindow{start: s.escStart, end: s.pos, escape: true}, true
 }
 
-// opensFragment reports whether the byte at the scanner's position would open
-// a fragment.
+// opensFragment reports whether the byte at pos would open a fragment.
 func (s *exprScanner) opensFragment() bool {
 	return s.pos < len(s.src) && (s.src[s.pos] == '(' || s.src[s.pos] == '{')
 }
 
-// stepDollar decides whether the "$" just seen opens a fragment. If it does
-// not, the frame is dropped without consuming the rune, so a "$" followed by
-// another "$" still opens on the second one.
+// stepDollar decides whether the "$" just seen opens a fragment.
 func (s *exprScanner) stepDollar(char rune, size int) (scanWindow, bool) {
 	switch char {
 	case '(':
@@ -172,11 +148,7 @@ func (s *exprScanner) stepDollar(char rune, size int) (scanWindow, bool) {
 	return scanWindow{start: 0, end: 0, escape: false}, false
 }
 
-// stepGroup scans inside a fragment, tracking nested delimiters of the same
-// kind and handing off to a quote frame at a string literal. Delimiters of the
-// other kind need no tracking: JavaScript cannot close a paren with a brace,
-// so an unbalanced one inside the fragment is a syntax error the engine
-// reports, not something the scanner must anticipate.
+// stepGroup scans inside a fragment, tracking nested delimiters.
 func (s *exprScanner) stepGroup(char, openRune, closeRune rune, size int) (scanWindow, bool) {
 	state := s.top()
 	s.pos += size
@@ -200,8 +172,7 @@ func (s *exprScanner) stepGroup(char, openRune, closeRune rune, size int) (scanW
 	return scanWindow{start: 0, end: 0, escape: false}, false
 }
 
-// stepQuoted scans inside a JavaScript string literal, where delimiters are
-// inert and only the closing quote and a backslash matter.
+// stepQuoted scans inside a JavaScript string literal.
 func (s *exprScanner) stepQuoted(char, quote rune, size int) (scanWindow, bool) {
 	s.pos += size
 
@@ -217,10 +188,7 @@ func (s *exprScanner) stepQuoted(char, quote rune, size int) (scanWindow, bool) 
 	return scanWindow{start: 0, end: 0, escape: false}, false
 }
 
-// unterminated reports the fragment left open at end of input, if any.
-//
-// A trailing lone "$" or "\" is not an error: neither can open a fragment on
-// its own, and both are ordinary literal characters at the end of a string.
+// unterminated reports a fragment left open at end of input, if any.
 func (s *exprScanner) unterminated() error {
 	if len(s.stack) <= 1 {
 		return nil
@@ -244,8 +212,7 @@ func (s *exprScanner) push(state scanState) {
 	s.stack = append(s.stack, state)
 }
 
-// pop leaves the current state, never emptying the stack: the outermost
-// scanText frame is permanent.
+// pop leaves the current state.
 func (s *exprScanner) pop() {
 	if len(s.stack) > 1 {
 		s.stack = s.stack[:len(s.stack)-1]

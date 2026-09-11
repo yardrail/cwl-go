@@ -7,54 +7,27 @@ import (
 	"sync"
 )
 
-// metaschemaMount is the synthetic base URL the embedded Schema Salad metaschema
-// is served from. Nothing is ever fetched from the network for it; the mount
-// point exists so that the relative $import and $include references between the
-// vendored files resolve against a stable absolute base.
+// metaschemaMount is the synthetic base URL for the embedded metaschema.
 const metaschemaMount = "file:///schema-salad/"
 
-// metaschemaRef is the entry point of the embedded metaschema. Paths inside the
-// embedded file system are rooted at "metaschema/", matching the on-disk layout.
+// metaschemaRef is the entry point of the embedded metaschema.
 const metaschemaRef = metaschemaMount + "metaschema/metaschema.yml"
 
-// LoadedSchema bundles everything needed to load and validate instance documents
-// against one schema. It groups what schema-salad's load_schema returns as a
-// four-tuple into a single value.
+// LoadedSchema bundles everything needed to load and validate instance documents.
 type LoadedSchema struct {
 	// Schema is the flattened schema type graph.
 	Schema *Schema
 	// Context is the context and vocabulary used when resolving instance documents.
 	Context *Context
-	// Loader is configured to resolve $import and $include in instance documents.
-	// It is built with the schema's context and the default fetcher, because a
-	// schema is often served from somewhere the documents validated against it are
-	// not — an embedded file system, say. Replace it to load instance documents
-	// through a fetcher of your own.
+	// Loader resolves $import/$include in instance documents.
 	Loader *Loader
 	// Metadata holds the schema document's own $namespaces, $schemas and $base directives.
 	Metadata *MapNode
-	// SchemaDoc is the resolved schema document root, retained so that
-	// MergeSchemas can re-collect the raw type definitions for a combined
-	// flatten pass.
+	// SchemaDoc is the resolved schema document root, retained for [MergeSchemas].
 	SchemaDoc Node
 }
 
-// LoadSchema loads a Schema Salad schema document, validates it against the
-// Salad metaschema, flattens extends and specialize, and returns a
-// validator-ready Schema together with the Loader and Context configured for
-// loading instance documents against it.
-//
-// LoadSchema followed by LoadedSchema.LoadAndValidate is the two-call flow every
-// consumer of this package uses: load the schema once, then validate each
-// document against it.
-//
-// The options configure how the schema document itself is fetched and where its
-// relative references resolve from; they do not carry over to the returned
-// Loader, since a schema is commonly served from somewhere its instance documents
-// are not. WithContext is overridden: a schema document is read with the built-in
-// Schema Salad vocabulary, which is the whole point of the metaschema.
-//
-// It is the analogue of schema.load_schema.
+// LoadSchema loads, validates, and flattens a Schema Salad schema document.
 func LoadSchema(ref string, opts ...LoaderOption) (*LoadedSchema, error) {
 	meta, metaCtx, err := Metaschema()
 	if err != nil {
@@ -95,10 +68,7 @@ func LoadSchema(ref string, opts ...LoaderOption) (*LoadedSchema, error) {
 	}, nil
 }
 
-// LoadAndValidate loads an instance document, resolving its references, and
-// validates it against the loaded schema.
-//
-// It is the analogue of schema.load_and_validate.
+// LoadAndValidate loads and validates an instance document against the schema.
 func (ls *LoadedSchema) LoadAndValidate(ref string, opts ...ValidateOption) (*Document, error) {
 	if ls == nil || ls.Loader == nil || ls.Schema == nil {
 		return nil, Errorf(
@@ -125,13 +95,7 @@ func (ls *LoadedSchema) LoadAndValidate(ref string, opts ...ValidateOption) (*Do
 	return doc, nil
 }
 
-// LoadExtensionSchema loads a Schema Salad schema document and builds its
-// context, but does not flatten it. The extension's type definitions are meant
-// to be flattened together with a base schema by MergeSchemas, because an
-// extension typically extends types the base schema defines.
-//
-// The returned LoadedSchema has a nil Schema field and a nil Loader: both are
-// built by MergeSchemas from the combined definitions.
+// LoadExtensionSchema loads a schema without flattening, for use with [MergeSchemas].
 func LoadExtensionSchema(ref string, opts ...LoaderOption) (*LoadedSchema, error) {
 	meta, metaCtx, err := Metaschema()
 	if err != nil {
@@ -166,15 +130,7 @@ func LoadExtensionSchema(ref string, opts ...LoaderOption) (*LoadedSchema, error
 // SchemaDoc field is nil.
 var ErrMissingSchemaDoc = errors.New("both schemas must retain their SchemaDoc for merging")
 
-// MergeSchemas combines two loaded schemas into one by concatenating their raw
-// type definitions and re-flattening the combined set. The base schema's
-// definitions come first, so the extension schema's types can extend them:
-// an extension record declaring extends: [base#Process] resolves against the
-// base's Process definition naturally, because both are in the same flattener
-// name table.
-//
-// Both schemas must retain their SchemaDoc (the resolved document root), which
-// LoadSchema populates automatically.
+// MergeSchemas combines two schemas by concatenating definitions and re-flattening.
 func MergeSchemas(base, ext *LoadedSchema) (*LoadedSchema, error) {
 	if base.SchemaDoc == nil || ext.SchemaDoc == nil {
 		return nil, ErrMissingSchemaDoc
@@ -224,15 +180,7 @@ func MergeSchemas(base, ext *LoadedSchema) (*LoadedSchema, error) {
 	}, nil
 }
 
-// Flatten applies extends and specialize to already-resolved schema definitions
-// and produces the flattened type graph.
-//
-// Inherited fields are merged base-first then own, preserving declaration order,
-// and any re-specified field must narrow rather than widen the inherited type,
-// which is checked with Schema.IsSubtype.
-//
-// It is exposed for tooling and testing; most callers use LoadSchema instead. It
-// is the analogue of extend_and_specialize followed by make_avro_schema.
+// Flatten applies extends/specialize to schema definitions and produces the type graph.
 func Flatten(schemaDefs Node, ctx *Context) (*Schema, error) {
 	s, err := flattenSchema(schemaDefs, ctx)
 	if err != nil {
@@ -242,8 +190,7 @@ func Flatten(schemaDefs Node, ctx *Context) (*Schema, error) {
 	return s, nil
 }
 
-// flattenSchema is Flatten with the package's own error type, so that the stages
-// can group their diagnostics.
+// flattenSchema is Flatten with the internal error type.
 func flattenSchema(schemaDefs Node, ctx *Context) (*Schema, *Error) {
 	defs, err := collectDefinitions(schemaDefs)
 	if err != nil {
@@ -272,17 +219,7 @@ func flattenSchema(schemaDefs Node, ctx *Context) (*Schema, *Error) {
 	return s, nil
 }
 
-// Metaschema returns the built-in Schema Salad metaschema and its context, used
-// to validate schema documents themselves. It is served from the metaschemaFS
-// embedded file system, so it is never fetched at runtime; the result is
-// memoized, since every LoadSchema call needs it.
-//
-// The context returned is the built-in Schema Salad vocabulary, which is what a
-// schema document is read with: it is the term table that makes name, type,
-// fields, symbols, extends and specialize mean what the specification says they
-// mean, before any schema has told the loader anything.
-//
-// It is the analogue of schema.get_metaschema.
+// Metaschema returns the memoized built-in Schema Salad metaschema and its context.
 func Metaschema() (*Schema, *Context, error) {
 	loaded := metaschema()
 
@@ -304,15 +241,7 @@ func loadMetaschema() *metaschemaLoad {
 	return loadMetaschemaFrom(metaschemaFS)
 }
 
-// loadMetaschemaFrom loads and flattens the Schema Salad metaschema out of
-// fsys, mounted at metaschemaMount.
-//
-// It is loadMetaschema's pure logic, factored out so that its two error
-// branches can be exercised directly against a broken file system: metaschema
-// = [sync.OnceValue](loadMetaschema) is a package-level, process-wide memoized
-// singleton, so once any caller has resolved it against the real embedded
-// metaschema, loadMetaschema itself can never be made to fail again within the
-// same process.
+// loadMetaschemaFrom loads and flattens the metaschema from fsys. Factored out for testing.
 func loadMetaschemaFrom(fsys fs.FS) *metaschemaLoad {
 	ctx := saladBootstrapContext()
 
@@ -339,8 +268,7 @@ func loadMetaschemaFrom(fsys fs.FS) *metaschemaLoad {
 	return &metaschemaLoad{schema: schema, ctx: ctx, err: nil}
 }
 
-// withContext returns opts with ctx appended, so that the context a loader is
-// built with is the one this package derived rather than one a caller supplied.
+// withContext appends ctx to opts, overriding any caller-supplied context.
 func withContext(opts []LoaderOption, ctx *Context) []LoaderOption {
 	out := make([]LoaderOption, 0, len(opts)+1)
 	out = append(out, opts...)
@@ -348,8 +276,7 @@ func withContext(opts []LoaderOption, ctx *Context) []LoaderOption {
 	return append(out, WithContext(ctx))
 }
 
-// asError recovers the diagnostic tree from an error so that it can be grouped
-// under a context line, falling back to a leaf when the error is not one of ours.
+// asError recovers the *Error tree, falling back to a leaf.
 func asError(err error) *Error {
 	if e, ok := errors.AsType[*Error](err); ok {
 		return e

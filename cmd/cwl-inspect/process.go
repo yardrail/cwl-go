@@ -6,14 +6,6 @@ import (
 )
 
 // processObject dumps a decoded process.
-//
-// The dump is a deliberate projection, not a reflection of the Go struct.
-// Reflecting the struct would be both less and more than what a debugger
-// wants: less, because the model's opaque value types (TypeRef, ExprLong,
-// OptBool) carry unexported fields and would come out empty; and more, because
-// every parameter carries the salad node it was decoded from, which would
-// repeat the whole document inside its own decoded form. Everything here is
-// rendered through the accessors the model provides for exactly this purpose.
 func processObject(p cwlcore.Process) *cwlcli.Object {
 	base := p.Base()
 
@@ -33,11 +25,7 @@ func processObject(p cwlcore.Process) *cwlcli.Object {
 	return o
 }
 
-// addBody adds the fields that belong to one process class.
-//
-// The type switch is exhaustive over a sealed interface, so the compiler's
-// case list is the specification's class list; a process kind added later
-// shows up here as a missing case rather than as a silently thinner dump.
+// addBody adds class-specific fields to the dump.
 func addBody(o *cwlcli.Object, p cwlcore.Process) {
 	switch t := p.(type) {
 	case *cwlcore.CommandLineTool:
@@ -56,9 +44,7 @@ func addBody(o *cwlcli.Object, p cwlcore.Process) {
 		o.Set("inputs", operationInputItems(t.Inputs))
 		o.Set("outputs", operationOutputItems(t.Outputs))
 	default:
-		// Unreachable: Process is sealed by an unexported method, so
-		// the cases above are the whole of it. A process kind added
-		// later lands here, and the shared fields are still dumped.
+		// Unreachable: Process is sealed.
 	}
 }
 
@@ -83,8 +69,7 @@ func addWorkflowBody(o *cwlcli.Object, w *cwlcore.Workflow) {
 	o.Set("steps", stepItems(w.Steps))
 }
 
-// stepItems dumps a workflow's steps in document order, which is also the
-// order the scheduler reads them in.
+// stepItems dumps a workflow's steps in document order.
 func stepItems(steps []cwlcore.WorkflowStep) []any {
 	out := make([]any, 0, len(steps))
 
@@ -110,10 +95,7 @@ func stepItems(steps []cwlcore.WorkflowStep) []any {
 	return out
 }
 
-// runObject dumps a step's run target, distinguishing a reference to a process
-// defined elsewhere from a process embedded inline. Which of the two it is
-// decides whether the step's requirements are inherited by anything visible in
-// this document, so the dump says so rather than making the reader infer it.
+// runObject dumps a step's run target (ref or embedded process).
 func runObject(run cwlcore.StepRun) *cwlcli.Object {
 	o := cwlcli.NewObject()
 	if run.IsRef() {

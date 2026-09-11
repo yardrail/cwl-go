@@ -2,18 +2,10 @@ package salad
 
 import "strings"
 
-// jsonldID is the JSON-LD keyword a jsonldPredicate uses to say that a field
-// holds an identifier (as its _id) or a link to one (as its _type).
+// jsonldID is the JSON-LD keyword for identifier/link fields.
 const jsonldID = "@id"
 
-// indexIdentifiers collects, before validation begins, every identifier the
-// document declares, so that a link can be checked whether or not its target
-// appears earlier in the document than the reference to it.
-//
-// The walk is driven by key name rather than by resolving each subtree's type:
-// which keys are identifiers is a property of the schema, and collecting a value
-// that happens to sit under the same key somewhere the schema does not declare
-// an identifier only ever makes link checking more permissive, never less.
+// indexIdentifiers collects all identifiers before validation for link checking.
 func (v *validator) indexIdentifiers(doc Node) {
 	v.idents = make(map[string]bool)
 
@@ -25,8 +17,7 @@ func (v *validator) indexIdentifiers(doc Node) {
 	collectIdentifiers(doc, keys, v.idents)
 }
 
-// identifierKeys returns the set of keys that name an identifier field anywhere
-// in the schema, under both their full and short spellings.
+// identifierKeys returns the set of identifier field keys (full and short).
 func (v *validator) identifierKeys() map[string]bool {
 	keys := make(map[string]bool)
 
@@ -59,8 +50,7 @@ func mustRecord(s *Schema, name string) (*RecordType, bool) {
 	return r, ok
 }
 
-// collectIdentifiers walks a document tree, recording the string value of every
-// entry whose key names an identifier field.
+// collectIdentifiers walks a document, recording values of identifier-keyed entries.
 func collectIdentifiers(n Node, keys, out map[string]bool) {
 	switch node := n.(type) {
 	case *MapNode:
@@ -79,20 +69,7 @@ func collectIdentifiers(n Node, keys, out map[string]bool) {
 	}
 }
 
-// checkLink validates that a field declared to hold a link refers to an
-// identifier the document declares.
-//
-// Only references this package can settle on its own are checked. A value
-// carrying a URI scheme names something in another document, which only the
-// loader — which fetches those documents and holds the identifier index across
-// them — is in a position to resolve, so it is left alone. A field whose
-// jsonldPredicate sets identity is likewise left alone: the specification says
-// for such a field that "absence of an object in the loaded document with the
-// URI is not an error".
-//
-// Because a reference is often legitimately resolvable only with the loader's
-// wider view, an unresolved link is advisory by default and is promoted to an
-// error by Strict.
+// checkLink validates that link fields refer to declared identifiers.
 func (v *validator) checkLink(f *Field, value Node) *Error {
 	if !isLinkField(f) {
 		return nil
@@ -136,14 +113,7 @@ func (v *validator) checkLinkTarget(s *ScalarNode) *Error {
 		"the link %q refers to no identifier declared in this document", target)
 }
 
-// isLinkField reports whether a field holds a link to an identifier, rather than
-// declaring one or being exempt from link checking.
-//
-// Three jsonldPredicate settings exempt a field. A field whose _id is "@id"
-// declares an identifier instead of referring to one. identity says that
-// "absence of an object in the loaded document with the URI is not an error".
-// noLinkCheck says that validation traversal must stop at the field, so nothing
-// below it is a link at all.
+// isLinkField reports whether a field holds a link (not an identifier or exempt).
 func isLinkField(f *Field) bool {
 	pred := f.JSONLDPred
 	if pred == nil || pred.Type != jsonldID {
@@ -153,8 +123,7 @@ func isLinkField(f *Field) bool {
 	return pred.ID != jsonldID && !pred.Identity && !pred.NoLinkCheck
 }
 
-// hasURIScheme reports whether a reference is absolute, which is to say resolved
-// against some document other than the one being validated.
+// hasURIScheme reports whether a reference has a URI scheme (is absolute).
 func hasURIScheme(ref string) bool {
 	i := strings.IndexByte(ref, ':')
 	if i <= 0 {
@@ -164,8 +133,7 @@ func hasURIScheme(ref string) bool {
 	return isSchemeName(ref[:i])
 }
 
-// isSchemeName reports whether s is shaped like a URI scheme: a letter followed
-// by letters, digits, "+", "-" or ".".
+// isSchemeName reports whether s is a valid URI scheme name.
 func isSchemeName(s string) bool {
 	if !isSchemeLetter(rune(s[0])) {
 		return false
@@ -185,8 +153,7 @@ func isSchemeLetter(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
 }
 
-// isSchemeSymbol reports whether r may appear after the first character of a URI
-// scheme.
+// isSchemeSymbol reports whether r is valid after a URI scheme's first character.
 func isSchemeSymbol(r rune) bool {
 	return (r >= '0' && r <= '9') || r == '+' || r == '-' || r == '.'
 }

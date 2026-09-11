@@ -1,32 +1,4 @@
-// Command conformance-run drives the official CWL v1.2 conformance suite
-// (Stage 1+) against the cwl-run binary.
-//
-// The authoritative harness is cwltest, the engine-agnostic runner the
-// specification repository ships. This command locates it, points it at the
-// pinned corpus the Stage 0 sweep already fetches, and turns its per-tag badge
-// output into a machine-readable report.
-//
-// It is deliberately hard to fail for the wrong reason. A missing cwltest, a
-// missing corpus or a missing runner is reported and exits 0, because none of
-// them is evidence that the engine regressed; only a failing test fails the
-// build.
-//
-// cwltest itself is taken from PATH by name, so a virtualenv install is
-// selected by activating it rather than by a flag.
-//
-// Usage:
-//
-//	go run ./scripts/conformance-run [flags]
-//
-// Flags:
-//
-//	-corpus DIR    corpus root (default: $CWL_CONFORMANCE_CORPUS, else the Stage 0 cache)
-//	-runner PATH   the cwl-runner-compatible binary under test (default: bin/cwl-run)
-//	-out DIR       where the JUnit XML and badge files are written
-//	-badges DIR    read a previous run's badge directory instead of running
-//	-jobs N        how many tests cwltest runs at once
-//	-timeout D     per-test timeout
-//	-gate-required fail when the required subset is not at 100%
+// Command conformance-run drives the CWL v1.2 conformance suite against cwl-run.
 package main
 
 import (
@@ -37,8 +9,7 @@ import (
 	"os"
 )
 
-// exit statuses. Anything other than a genuine regression exits 0, so that a
-// machine without cwltest installed does not turn the build red.
+// Exit statuses.
 const (
 	exitOK      = 0
 	exitRegress = 1
@@ -58,9 +29,6 @@ func main() {
 func dispatch(ctx context.Context, cfg *config) int {
 	report, err := gather(ctx, cfg)
 
-	// The whole error is printed rather than its cause: errSkipped is wrapped
-	// alongside the underlying failure with two %w verbs, so Unwrap returns nil
-	// and only the rendered text carries the reason.
 	if errors.Is(err, errSkipped) {
 		fmt.Fprintf(os.Stderr, "conformance-run: %v\n", err)
 
@@ -98,8 +66,7 @@ func settle(cfg *config, report *report) int {
 	return status
 }
 
-// parseFlags builds the run configuration from the command line and the
-// environment.
+// parseFlags builds the run configuration from the command line.
 func parseFlags(args []string, stderr *os.File) (*config, error) {
 	cfg := defaultConfig()
 

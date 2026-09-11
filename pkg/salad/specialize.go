@@ -1,25 +1,15 @@
 package salad
 
-// Keys of a schema node whose value is itself a type expression. A specialize
-// rewrite descends exactly these, which is what confines it to type references
-// and keeps it away from documentation, defaults and jsonldPredicate values.
+// Keys whose values are type expressions, traversed by specialize rewrites.
 var typeStructureKeys = []string{keyType, keyItems, keyFields, keyValues, keyNames}
 
-// substitution rewrites type references according to a record's specialize
-// declaration.
-//
-// It is a real substitution over the resolved node tree, not the string search
-// and replace over rendered types that schema-salad performs: a reference is only
-// rewritten where the schema says a type belongs, so a documentation string or a
-// default value that happens to spell a type name is never touched.
+// substitution rewrites type references per a record's specialize declaration.
 type substitution struct {
 	spec  map[string]string
 	vocab map[string]string
 }
 
-// newSubstitution builds the substitution a record's specialize map describes.
-// The context supplies the vocabulary, so that a reference written as a short
-// name matches a specializeFrom resolved to a full IRI.
+// newSubstitution builds a substitution from the specialize map and vocabulary.
 func newSubstitution(spec map[string]string, ctx *Context) *substitution {
 	return &substitution{spec: spec, vocab: ctx.Vocab()}
 }
@@ -29,8 +19,7 @@ func (s *substitution) empty() bool {
 	return len(s.spec) == 0
 }
 
-// apply returns n with every type reference the substitution names replaced.
-// Nodes with nothing to rewrite are returned as they are.
+// apply returns n with matching type references replaced.
 func (s *substitution) apply(n Node) Node {
 	if s.empty() {
 		return n
@@ -48,8 +37,7 @@ func (s *substitution) apply(n Node) Node {
 	}
 }
 
-// applyObject applies the substitution to a mapping, which is what a field or a
-// type definition is.
+// applyObject applies the substitution to a mapping.
 func (s *substitution) applyObject(m *MapNode) *MapNode {
 	if s.empty() {
 		return m
@@ -58,8 +46,7 @@ func (s *substitution) applyObject(m *MapNode) *MapNode {
 	return s.applyMap(m)
 }
 
-// applyMap rewrites the type-bearing entries of a mapping, leaving every other
-// entry untouched.
+// applyMap rewrites type-bearing entries of a mapping.
 func (s *substitution) applyMap(m *MapNode) *MapNode {
 	out := m
 
@@ -78,8 +65,7 @@ func (s *substitution) applyMap(m *MapNode) *MapNode {
 	return out
 }
 
-// applySeq rewrites every item of a sequence, which is what a union of types or a
-// list of field definitions is.
+// applySeq rewrites every item of a sequence.
 func (s *substitution) applySeq(seq *SeqNode) Node {
 	items := make([]Node, 0, seq.Len())
 	changed := false
@@ -113,8 +99,7 @@ func (s *substitution) applyScalar(n *ScalarNode) Node {
 	return NewStringNode(n.Loc(), to)
 }
 
-// lookup finds the replacement for a type reference, matching it both as written
-// and as the IRI the vocabulary expands it to.
+// lookup finds the replacement for a type reference by name or vocabulary IRI.
 func (s *substitution) lookup(name string) (string, bool) {
 	if to, ok := s.spec[name]; ok {
 		return to, true

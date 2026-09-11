@@ -5,8 +5,7 @@ import (
 	"strings"
 )
 
-// Message templates shared by the validator, collected so that one kind of
-// diagnostic is always worded the same way wherever it is raised.
+// Validator diagnostic message templates.
 const (
 	msgWrongType    = "the value is %s, but %s was expected"
 	msgFieldContext = "the %q field is not valid, because"
@@ -14,10 +13,7 @@ const (
 	msgTriedSuffix  = ", but"
 )
 
-// errNoMatch stands in for a real diagnostic while a candidate type is being
-// probed quietly. Probing only ever asks whether a candidate matched, so
-// formatting a message that will be thrown away is wasted work; the verbose
-// re-run builds the message that a reader actually sees.
+// errNoMatch is the placeholder error used during quiet probing.
 var errNoMatch = &Error{
 	Msg:      "the value does not match the expected type",
 	Children: nil,
@@ -29,9 +25,7 @@ var errNoMatch = &Error{
 	Warning: false,
 }
 
-// severity says whether a diagnostic invalidates the document or is merely
-// advisory. It is an enumeration rather than a bool so that the decision can be
-// handed to a helper without turning that helper into a flag parameter.
+// severity says whether a diagnostic invalidates the document or is advisory.
 type severity int
 
 const (
@@ -51,23 +45,17 @@ type validateConfig struct {
 // Schema.ValidateAgainst or LoadedSchema.LoadAndValidate.
 type ValidateOption func(*validateConfig)
 
-// Strict controls whether conditions that the specification permits an
-// implementation to tolerate — such as an unrecognized field — are reported as
-// errors rather than warnings.
+// Strict promotes tolerant conditions (e.g. unrecognized fields) to errors.
 func Strict(strict bool) ValidateOption {
 	return func(c *validateConfig) { c.strict = strict }
 }
 
-// StrictForeign controls whether properties from a foreign vocabulary, those
-// carrying a namespace prefix the schema does not define, are rejected.
+// StrictForeign rejects properties from foreign vocabularies.
 func StrictForeign(strict bool) ValidateOption {
 	return func(c *validateConfig) { c.strictForeign = strict }
 }
 
-// typeNode is one (schema type, document node) pair currently on the validation
-// stack. Re-entering the same pair means the schema is self-referential in a way
-// that consumes no document, so the pair set is what stops such a schema from
-// recursing forever.
+// typeNode is one (type, node) pair on the validation stack, guarding against infinite recursion.
 type typeNode struct {
 	typ  Type
 	node Node
@@ -101,24 +89,7 @@ func newValidator(s *Schema, opts []ValidateOption) *validator {
 	return v
 }
 
-// Validate checks doc against the schema, trying each documentRoot type in turn
-// as a candidate for the root of the document. It is an error for the schema to
-// declare no documentRoot types at all.
-//
-// The document itself must be a mapping, or a sequence of mappings, in which
-// case every entry is validated against the documentRoot candidates
-// independently.
-//
-// Failure returns an *Error tree: one child per candidate root that was
-// tried, each explaining why that candidate did not match. Recover it with
-// [errors.As] and render it with [Error.Pretty].
-//
-// Diagnostics that the specification lets an implementation tolerate — an
-// unrecognized field, a link with no visible target — are advisory unless the
-// matching option promotes them, and an otherwise valid document that produces
-// only advisories validates successfully.
-//
-// It is the analogue of schema.validate_doc.
+// Validate checks doc against the schema's documentRoot types.
 func (s *Schema) Validate(doc Node, opts ...ValidateOption) error {
 	roots := s.DocumentRoots()
 	if len(roots) == 0 {
@@ -131,18 +102,7 @@ func (s *Schema) Validate(doc Node, opts ...ValidateOption) error {
 	return result(v.checkDocument(doc, roots))
 }
 
-// ValidateAgainst validates node against one specific named type, bypassing the
-// documentRoot candidate search. It is the entry point for consumers that
-// already know the concrete type a subtree must have, and for validating nested
-// subtrees.
-//
-// typeName is matched exactly against the schema's name table first. Because
-// consumers usually reach this call holding a short name read out of the
-// document — the value of a class field, say — a name that matches nothing
-// exactly is then matched against the short name of every defined type, and is
-// accepted when exactly one type matches.
-//
-// It is the analogue of validate.validate_ex against a single expected schema.
+// ValidateAgainst validates node against a specific named type.
 func (s *Schema) ValidateAgainst(typeName string, node Node, opts ...ValidateOption) error {
 	t, lookupErr := s.lookupType(typeName, node)
 	if lookupErr != nil {
@@ -155,8 +115,7 @@ func (s *Schema) ValidateAgainst(typeName string, node Node, opts ...ValidateOpt
 	return result(v.check(t, node))
 }
 
-// lookupType resolves typeName to a type of s, exactly if possible and by short
-// name otherwise.
+// lookupType resolves typeName by exact match or unique short name.
 func (s *Schema) lookupType(typeName string, node Node) (Type, *Error) {
 	if t, ok := s.Type(typeName); ok {
 		return t, nil
@@ -188,8 +147,7 @@ func (s *Schema) lookupType(typeName string, node Node) (Type, *Error) {
 		"the type name %q is ambiguous: it could be any of %s", typeName, strings.Join(names, ", "))
 }
 
-// result converts an accumulated diagnostic tree into what a public entry point
-// returns: nil unless the tree holds at least one leaf that is not advisory.
+// result returns nil unless the tree contains a non-advisory leaf.
 func result(e *Error) error {
 	if !isFatal(e) {
 		return nil
@@ -198,8 +156,7 @@ func result(e *Error) error {
 	return e
 }
 
-// isFatal reports whether a diagnostic tree contains any leaf that invalidates
-// the document, as opposed to only warnings.
+// isFatal reports whether the tree contains any non-warning leaf.
 func isFatal(e *Error) bool {
 	if e == nil {
 		return false
@@ -256,11 +213,7 @@ func rootHeader(n Node) string {
 	return fmt.Sprintf("the value is %s, but it matches no documentRoot type of the schema", describe(n))
 }
 
-// check validates n against t, returning nil when n is valid.
-//
-// It is the single dispatch point of the recursion: every kind of Type has one
-// small checker of its own, and the pair set that guards against a
-// self-referential schema is maintained here rather than in each of them.
+// check validates n against t. Single dispatch point for the recursion.
 func (v *validator) check(t Type, n Node) *Error {
 	if t == nil {
 		return v.fail(nodeLoc(n), "the schema declares no type for this value")
@@ -294,9 +247,7 @@ func (v *validator) check(t Type, n Node) *Error {
 	}
 }
 
-// probe reports whether n is valid against t, suppressing diagnostics. It is the
-// silent half of the union strategy: candidates are probed first, and only when
-// every one of them fails does the caller re-run them verbosely.
+// probe reports whether n is valid against t, suppressing diagnostics.
 func (v *validator) probe(t Type, n Node) bool {
 	if v.quiet {
 		return v.check(t, n) == nil
@@ -318,7 +269,7 @@ func (v *validator) fail(loc SourceLine, format string, a ...any) *Error {
 	return Errorf(loc, format, a...)
 }
 
-// diag raises a diagnostic whose severity the run's options decided.
+// diag raises a diagnostic at the configured severity.
 func (v *validator) diag(sev severity, loc SourceLine, format string, a ...any) *Error {
 	if sev == severityError {
 		return v.fail(loc, format, a...)
@@ -331,9 +282,7 @@ func (v *validator) diag(sev severity, loc SourceLine, format string, a ...any) 
 	return Warnf(loc, format, a...)
 }
 
-// group gathers child diagnostics under a context line, dropping the nil ones.
-// It returns nil when nothing went wrong, so callers can build a group
-// unconditionally and let it decide whether there is anything to report.
+// group gathers child diagnostics under a context line. Returns nil if all nil.
 func (v *validator) group(loc SourceLine, msg string, children ...*Error) *Error {
 	kept := make([]*Error, 0, len(children))
 
@@ -372,8 +321,7 @@ func (v *validator) foreignSeverity() severity {
 	return severityWarning
 }
 
-// wrongType is the diagnostic for a value of an entirely different shape than
-// the schema calls for.
+// wrongType reports a type mismatch.
 func (v *validator) wrongType(n Node, want string) *Error {
 	return v.fail(nodeLoc(n), msgWrongType, describe(n), want)
 }
@@ -391,7 +339,7 @@ func nodeLoc(n Node) SourceLine {
 	return n.Loc()
 }
 
-// describe names the kind of value n is, with an article, for use in a sentence.
+// describe returns the kind of n with an article (e.g. "a string").
 func describe(n Node) string {
 	kind := NodeKind(n)
 

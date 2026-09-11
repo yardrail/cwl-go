@@ -10,13 +10,8 @@ type fieldOverride struct {
 	base      string
 }
 
-// flattener applies extends and specialize to a set of resolved schema
-// definitions.
-//
-// Definitions are flattened on demand and memoized, so a base declared after the
-// record that extends it is still fully flattened first. schema-salad instead
-// walks the document in order and inherits whatever state a base happens to be
-// in, which quietly makes multi-level inheritance depend on declaration order.
+// flattener applies extends and specialize to resolved schema definitions.
+// Definitions are flattened on demand and memoized.
 type flattener struct {
 	ctx       *Context
 	raw       map[string]*MapNode
@@ -26,9 +21,7 @@ type flattener struct {
 	overrides []fieldOverride
 }
 
-// newFlattener indexes the definitions by name, preserving declaration order. If
-// a name repeats, the last definition wins and keeps the first one's position,
-// matching how a Schema's name table resolves the same conflict.
+// newFlattener indexes definitions by name in declaration order.
 func newFlattener(defs []*MapNode, ctx *Context) *flattener {
 	f := &flattener{
 		ctx:       ctx,
@@ -67,9 +60,7 @@ func (f *flattener) definitions() ([]*MapNode, *Error) {
 	return out, nil
 }
 
-// resolve flattens one definition, memoizing the result. loc is where the
-// definition was asked for, so that an undefined base is reported at the extends
-// declaration that names it.
+// resolve flattens one definition, memoizing the result.
 func (f *flattener) resolve(name string, loc SourceLine) (*MapNode, *Error) {
 	if done, ok := f.flat[name]; ok {
 		return done, nil
@@ -114,12 +105,7 @@ func (f *flattener) expand(name string, def *MapNode) (*MapNode, *Error) {
 	}
 }
 
-// expandRecord merges the fields a record inherits with the ones it declares.
-//
-// Inherited fields come first, in the order the base records declare them, with a
-// record's specialize declaration applied to them; the record's own fields follow.
-// A field the record re-specifies replaces the inherited one in place, keeping the
-// inherited position.
+// expandRecord merges inherited fields with the record's own fields.
 func (f *flattener) expandRecord(name string, def *MapNode, bases []string) (*MapNode, *Error) {
 	sub := newSubstitution(specializeMap(def), f.ctx)
 	inherited := newFieldList()
@@ -155,8 +141,7 @@ func (f *flattener) baseFields(def *MapNode, base string) ([]*MapNode, *Error) {
 	return fieldDefinitions(baseDef)
 }
 
-// merge combines the inherited fields with the record's own, recording each
-// re-specified field so that its narrowing can be checked later.
+// merge combines inherited and own fields, recording overrides for narrowing checks.
 func (f *flattener) merge(name string, inherited *fieldList, own []*MapNode) []Node {
 	ownFields := newFieldList()
 	for _, field := range own {
@@ -204,8 +189,7 @@ func (f *flattener) recordOverride(name string, inherited, own *MapNode) {
 	})
 }
 
-// expandEnum prepends the symbols an enum inherits to the ones it declares,
-// dropping any symbol that is already present.
+// expandEnum merges inherited symbols with the enum's own, deduplicating.
 func (f *flattener) expandEnum(def *MapNode, bases []string) (*MapNode, *Error) {
 	symbols := make([]Node, 0)
 	seen := make(map[string]bool)
@@ -225,9 +209,7 @@ func (f *flattener) expandEnum(def *MapNode, bases []string) (*MapNode, *Error) 
 	return def.With(MapEntry{Key: keySymbols, Value: NewSeqNode(nodeLoc(own), symbols)}), nil
 }
 
-// checkNarrowing verifies that every re-specified field narrows the type it was
-// inherited with, which is the one thing the specification says an extending
-// record may do to an inherited field.
+// checkNarrowing verifies that every re-specified field narrows its inherited type.
 func (f *flattener) checkNarrowing(s *Schema, b *typeBuilder) *Error {
 	for _, ov := range f.overrides {
 		err := f.checkOverride(s, b, ov)
@@ -264,17 +246,8 @@ func (f *flattener) checkOverride(s *Schema, b *typeBuilder, ov fieldOverride) *
 		shortName(ov.record), fieldShortName(ov.own), shortName(ov.base), typeLabel(sub), typeLabel(super))
 }
 
-// overrideNarrows reports whether checkOverride should accept a re-specified
-// field.
-//
-// For a genuinely different enum-vs-enum pair — the "class" discriminator
-// pattern — the generic structural walk is the wrong tool: Schema.IsSubtype
-// matches symbols by short name regardless of which record declared them,
-// which would narrow one record's class enum into a completely unrelated one.
-// That case is judged solely by whether the overriding record supplied its own
-// name as a symbol. A pair that is the identical named enum restated
-// unchanged (not a real override) still goes through Schema.IsSubtype, as does
-// every non-enum pair (scalar, array, union, record...), exactly as before.
+// overrideNarrows reports whether a re-specified field narrows acceptably.
+// Different enums use the class-discriminator pattern; all else uses [Schema.IsSubtype].
 func overrideNarrows(s *Schema, sub, super Type, recordName string) bool {
 	subEnum, subIsEnum := sub.(*EnumType)
 	superEnum, superIsEnum := super.(*EnumType)
@@ -286,8 +259,7 @@ func overrideNarrows(s *Schema, sub, super Type, recordName string) bool {
 	return s.IsSubtype(sub, super)
 }
 
-// markInherited records which base record a field was copied down from, unless it
-// already carries that note from a base of its own.
+// markInherited tags a field with the base record it was inherited from.
 func markInherited(field *MapNode, base string) *MapNode {
 	if field.Has(keyInheritedFrom) {
 		return field
@@ -296,12 +268,7 @@ func markInherited(field *MapNode, base string) *MapNode {
 	return field.With(MapEntry{Key: keyInheritedFrom, Value: NewStringNode(field.Loc(), base)})
 }
 
-// appendSymbols appends the symbols of one enum, skipping those already seen.
-//
-// Symbols are compared by short name, because that is what the specification
-// matches a document value against: an inherited symbol and a symbol the
-// extending enum restates resolve to different IRIs, one scoped to each enum, but
-// they are the same symbol.
+// appendSymbols appends enum symbols not already seen, comparing by short name.
 func appendSymbols(dst []Node, seen map[string]bool, symbols Node) []Node {
 	seq, ok := AsSeq(symbols)
 	if !ok {
@@ -322,9 +289,7 @@ func appendSymbols(dst []Node, seen map[string]bool, symbols Node) []Node {
 	return dst
 }
 
-// fieldList is an ordered set of field definitions keyed by short name. Merging
-// inherited fields needs both properties: order is significant, and a field
-// redeclared by a later base replaces the earlier one where it already sits.
+// fieldList is an ordered set of field definitions keyed by short name.
 type fieldList struct {
 	index map[string]int
 	items []*MapNode
@@ -359,16 +324,12 @@ func (l *fieldList) get(short string) (*MapNode, bool) {
 	return l.items[i], true
 }
 
-// collectDefinitions gathers the top-level type definitions of a resolved schema
-// document, in declaration order.
+// collectDefinitions gathers top-level type definitions in declaration order.
 func collectDefinitions(n Node) ([]*MapNode, *Error) {
 	return appendDefinitions(make([]*MapNode, 0), n)
 }
 
-// appendDefinitions walks a schema document, appending the type definitions it
-// declares. A $graph wrapper is descended into; anything that is not a type
-// definition is skipped, which is how a documentation-only entry or a stray
-// directive is tolerated.
+// appendDefinitions walks a schema document, appending type definitions.
 func appendDefinitions(dst []*MapNode, n Node) ([]*MapNode, *Error) {
 	switch v := n.(type) {
 	case *SeqNode:
@@ -394,8 +355,7 @@ func appendDefinitionSeq(dst []*MapNode, seq *SeqNode) ([]*MapNode, *Error) {
 	return dst, nil
 }
 
-// appendDefinitionMap appends one mapping, which is either a $graph wrapper or a
-// type definition.
+// appendDefinitionMap appends a $graph wrapper or a type definition.
 func appendDefinitionMap(dst []*MapNode, m *MapNode) ([]*MapNode, *Error) {
 	if graph, ok := m.Get(dirGraph); ok {
 		return appendDefinitions(dst, graph)

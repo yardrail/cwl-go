@@ -2,8 +2,7 @@ package salad
 
 import "fmt"
 
-// checkArray validates that n is a sequence whose every item matches the array's
-// item type.
+// checkArray validates that n is a sequence matching the array's item type.
 func (v *validator) checkArray(a *ArrayType, n Node) *Error {
 	seq, ok := AsSeq(n)
 	if !ok {
@@ -28,8 +27,7 @@ func (v *validator) checkArray(a *ArrayType, n Node) *Error {
 	return v.group(nodeLoc(n), "", children...)
 }
 
-// checkMap validates that n is a mapping whose every value matches the map's
-// value type. Keys are strings by construction, so only the values are checked.
+// checkMap validates that n is a mapping whose values match the map's value type.
 func (v *validator) checkMap(mt *MapType, n Node) *Error {
 	m, ok := AsMap(n)
 	if !ok {

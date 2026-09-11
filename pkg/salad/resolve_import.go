@@ -2,12 +2,7 @@ package salad
 
 import "strings"
 
-// resolveImport replaces an $import directive with the fully-resolved document,
-// or the fully-resolved object, that it names.
-//
-// It is an error for the mapping to carry any field other than $import: the
-// specification defines the directive as "an object consisting of exactly one
-// field".
+// resolveImport replaces an $import directive with the resolved target.
 func (r *resolver) resolveImport(m *MapNode, sc scope) (Node, error) {
 	ref, err := directiveTarget(m, dirImport)
 	if err != nil {
@@ -22,8 +17,7 @@ func (r *resolver) resolveImport(m *MapNode, sc scope) (Node, error) {
 	return r.loadReference(target, m.Loc(), sc.ctx, false)
 }
 
-// resolveInclude replaces an $include directive with the raw text of the
-// resource it names. The text is never parsed: it becomes a string scalar.
+// resolveInclude replaces an $include directive with the raw text as a string.
 func (r *resolver) resolveInclude(m *MapNode, sc scope) (Node, error) {
 	ref, err := directiveTarget(m, dirInclude)
 	if err != nil {
@@ -43,9 +37,7 @@ func (r *resolver) resolveInclude(m *MapNode, sc scope) (Node, error) {
 	return NewStringNode(m.Loc(), string(text)), nil
 }
 
-// normalize resolves a directive's target with the link resolution rules and
-// then through the fetcher, so that the result is the cache key that identifies
-// the document.
+// normalize resolves a directive's target to a canonical document URL.
 func (r *resolver) normalize(sc scope, ref string, loc SourceLine) (string, error) {
 	target, err := r.fetcher.Normalize(sc.fileBase, sc.ctx.expandPrefix(ref))
 	if err != nil {
@@ -72,8 +64,7 @@ func directiveTarget(m *MapNode, directive string) (string, error) {
 	return ref, nil
 }
 
-// loadReference resolves the document a URL names, following a fragment
-// identifier to the object it selects.
+// loadReference resolves a URL, following any fragment to the target object.
 func (r *resolver) loadReference(target string, loc SourceLine, ctx *Context, top bool) (Node, error) {
 	docURL, fragment, _ := strings.Cut(target, "#")
 
@@ -94,8 +85,7 @@ func (r *resolver) loadReference(target string, loc SourceLine, ctx *Context, to
 	return obj, nil
 }
 
-// loadDocument fetches, parses and resolves one document, memoizing the result
-// and refusing to re-enter a document that is still being resolved.
+// loadDocument fetches, parses and resolves one document, detecting cycles.
 func (r *resolver) loadDocument(docURL string, loc SourceLine, ctx *Context, top bool) (Node, error) {
 	if cached, ok := r.docs[docURL]; ok {
 		return cached, nil
@@ -127,8 +117,7 @@ func (r *resolver) loadDocument(docURL string, loc SourceLine, ctx *Context, top
 	return resolved, nil
 }
 
-// cycleError reports an import cycle, naming every document on the path back to
-// the one being re-entered.
+// cycleError reports an import cycle.
 func (r *resolver) cycleError(docURL string, loc SourceLine) error {
 	path := make([]string, 0, len(r.stack)+1)
 

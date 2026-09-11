@@ -1,33 +1,18 @@
 package salad
 
-// typePair is one (sub, super) pair currently on the subtype-check stack. The
-// flattened type graph is cyclic — a record's field may lead back to the record
-// itself — so the walk has to remember which pairs it is already deciding.
+// typePair is one (sub, super) pair on the subtype-check stack, guarding against cycles.
 type typePair struct {
 	sub   Type
 	super Type
 }
 
-// subtypeCheck carries the state of one IsSubtype call. It is not safe for
-// concurrent use; each call builds its own.
+// subtypeCheck carries the state of one [Schema.IsSubtype] call.
 type subtypeCheck struct {
 	schema *Schema
 	active map[typePair]bool
 }
 
-// IsSubtype reports whether sub is a structural subtype of super, resolving named
-// references through the schema's name table.
-//
-// It descends arrays, maps, unions, enums and records, and is the check that
-// validates that a field re-specified by an extending record narrows the
-// inherited type rather than widening it.
-//
-// A pair already being decided further up the walk is assumed to hold, which is
-// what lets a self-referential schema be compared at all: the answer is the
-// greatest fixed point, the same convention recursive structural subtyping uses
-// elsewhere.
-//
-// It is the analogue of avro.schema.is_subtype.
+// IsSubtype reports whether sub is a structural subtype of super.
 func (s *Schema) IsSubtype(sub, super Type) bool {
 	c := &subtypeCheck{schema: s, active: make(map[typePair]bool)}
 
@@ -56,11 +41,6 @@ func (c *subtypeCheck) check(sub, super Type) bool {
 }
 
 // compare decides a pair that is neither nil nor already on the stack.
-//
-// Any and the unions are handled before the per-kind comparison because they are
-// not structural: Any admits every type that cannot be null, a union on the sub
-// side must have every alternative admitted, and a union on the super side needs
-// only one alternative to admit the value.
 func (c *subtypeCheck) compare(sub, super Type) bool {
 	if isAnyType(super) {
 		return narrowsAny(sub)
@@ -77,8 +57,7 @@ func (c *subtypeCheck) compare(sub, super Type) bool {
 	return c.compareKinds(sub, super)
 }
 
-// compareKinds decides a pair of concrete, non-union types whose shape is what
-// settles the question.
+// compareKinds decides a pair of concrete, non-union types.
 func (c *subtypeCheck) compareKinds(sub, super Type) bool {
 	switch sup := super.(type) {
 	case *PrimitiveType:
@@ -98,9 +77,7 @@ func (c *subtypeCheck) compareKinds(sub, super Type) bool {
 	}
 }
 
-// compareDeclared decides a pair of types the schema declares by name, where the
-// declaration itself carries the answer: an enum's symbols, or a record's bases
-// and fields.
+// compareDeclared decides a pair of named types (enums or records).
 func (c *subtypeCheck) compareDeclared(sub, super Type) bool {
 	switch sup := super.(type) {
 	case *EnumType:
@@ -144,8 +121,7 @@ func (c *subtypeCheck) someOption(sub Type, opts []Type) bool {
 	return false
 }
 
-// enumNarrows reports whether one enum's symbols are a subset of another's. The
-// same enum by name is trivially a subtype of itself.
+// enumNarrows reports whether sub's symbols are a subset of super's.
 func (c *subtypeCheck) enumNarrows(sub, super *EnumType) bool {
 	if sameTypeName(sub.Name, super.Name) {
 		return true
@@ -160,11 +136,7 @@ func (c *subtypeCheck) enumNarrows(sub, super *EnumType) bool {
 	return true
 }
 
-// recordNarrows reports whether one record narrows another.
-//
-// A record narrows a record it declares, directly or transitively, as a base:
-// that is what extends means, and it is the case the flattener's narrowing check
-// exists to accept. Failing that the comparison is structural.
+// recordNarrows reports whether sub narrows super, by extends or structurally.
 func (c *subtypeCheck) recordNarrows(sub, super *RecordType) bool {
 	if sameTypeName(sub.Name, super.Name) {
 		return true
@@ -177,16 +149,7 @@ func (c *subtypeCheck) recordNarrows(sub, super *RecordType) bool {
 	return c.fieldsNarrow(sub, super)
 }
 
-// fieldsNarrow reports whether sub supplies every field super requires, each at a
-// narrowing type.
-//
-// A field super declares but sub does not is fatal unless super lets it be null,
-// since a value of the narrower record would then be missing something the wider
-// record requires. schema-salad checks this the other way round — every field of
-// the narrower record must appear in the wider one — which makes a record a
-// subtype of anything that merely declares a superset of its fields. The
-// specification says an extending record may re-specify inherited fields "to
-// narrow their type", so narrowing is what is checked here.
+// fieldsNarrow reports whether sub supplies every field super requires at a narrowing type.
 func (c *subtypeCheck) fieldsNarrow(sub, super *RecordType) bool {
 	for _, sf := range super.Fields {
 		f, ok := sub.Field(sf.Name)
@@ -206,8 +169,7 @@ func (c *subtypeCheck) fieldsNarrow(sub, super *RecordType) bool {
 	return true
 }
 
-// extendsTransitively reports whether sub reaches superName by following extends
-// declarations through the schema's name table.
+// extendsTransitively reports whether sub transitively extends superName.
 func (c *subtypeCheck) extendsTransitively(sub *RecordType, superName string) bool {
 	if superName == "" {
 		return false
@@ -258,8 +220,7 @@ func isAnyType(t Type) bool {
 	return ok && p.Kind == PrimitiveAny
 }
 
-// narrowsAny reports whether t narrows Any, which every type does except those
-// that admit null and the empty union, which admits nothing at all.
+// narrowsAny reports whether t narrows Any (all types except null-admitting ones).
 func narrowsAny(t Type) bool {
 	if u, ok := t.(*UnionType); ok && len(u.Options) == 0 {
 		return false
@@ -268,8 +229,7 @@ func narrowsAny(t Type) bool {
 	return !acceptsNull(t)
 }
 
-// sameTypeName reports whether two named types carry the same name. Anonymous
-// types share the empty name without being the same type, so they never match.
+// sameTypeName reports whether two named types share the same non-empty name.
 func sameTypeName(a, b string) bool {
 	return a != "" && a == b
 }

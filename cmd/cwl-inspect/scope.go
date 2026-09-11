@@ -5,14 +5,7 @@ import (
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
-// scopeObject dumps the requirements and hints in effect for a process.
-//
-// This is a different question from what the process declares, and the
-// difference is the usual reason a document does not behave as written: a
-// requirement declared on a workflow reaches a step's tool unless the step
-// overrides it, unless the inheritance rules forbid that class reaching that
-// class of process. The typed dump shows the declarations; this shows the
-// answer, and where each part of it came from.
+// scopeObject dumps the resolved requirements and hints in effect for a process.
 func scopeObject(p cwlcore.Process) *cwlcli.Object {
 	o := cwlcli.NewObject()
 	o.Set("class", p.Class())
@@ -38,10 +31,7 @@ func addScopeFields(o *cwlcli.Object, scope *cwlcore.RequirementScope) {
 	o.Set("unrecognized", unrecognizedText(scope))
 }
 
-// scopeRequirementItems dumps the requirements in effect, each annotated with
-// whether it was declared as a requirement or as a hint. The distinction
-// decides whether the process must not run when it cannot be satisfied, so a
-// dump that omitted it would be answering a different question.
+// scopeRequirementItems dumps effective requirements with their origin.
 func scopeRequirementItems(scope *cwlcore.RequirementScope) []any {
 	effective := scope.EffectiveRequirements()
 	out := make([]any, 0, len(effective))
@@ -58,13 +48,7 @@ func scopeRequirementItems(scope *cwlcore.RequirementScope) []any {
 	return out
 }
 
-// stepScopeItems dumps the scope each of a workflow's steps resolves for,
-// following the chain the model prescribes: the workflow, then the step's own
-// declarations, then the embedded process's.
-//
-// A step whose run is a reference is reported without a process scope. What it
-// resolves to is not in this document, so there is nothing here to be right
-// about.
+// stepScopeItems dumps the resolved scope for each workflow step.
 func stepScopeItems(parent *cwlcore.RequirementScope, steps []cwlcore.WorkflowStep) []any {
 	out := make([]any, 0, len(steps))
 
@@ -84,12 +68,7 @@ func stepScopeItems(parent *cwlcore.RequirementScope, steps []cwlcore.WorkflowSt
 	return out
 }
 
-// runSummary names a step's run target without dumping it.
-//
-// The scope dump answers a question about requirements, and the process a step
-// runs is only relevant here for its class — which is what the inheritance
-// rules key on. Dumping the process itself would bury the answer inside a copy
-// of the document; the typed stage is where that belongs.
+// runSummary names a step's run target without dumping the full process.
 func runSummary(run cwlcore.StepRun) *cwlcli.Object {
 	o := cwlcli.NewObject()
 	if run.IsRef() {
@@ -103,9 +82,7 @@ func runSummary(run cwlcore.StepRun) *cwlcli.Object {
 	return o.Set("class", run.Process.Class()).SetString("id", run.Process.Base().ID)
 }
 
-// unrecognizedText reports what the specification's fail-closed gate makes of
-// the scope: the first requirement class this implementation could not honour,
-// or that there is none.
+// unrecognizedText reports the first unrecognized requirement class, or "none".
 func unrecognizedText(scope *cwlcore.RequirementScope) string {
 	err := scope.CheckKnown(nil)
 	if err == nil {

@@ -53,8 +53,7 @@ func gather(ctx context.Context, cfg *config) (*report, error) {
 	return newReport(cfg, statuses, paths.junit), nil
 }
 
-// recorded reads a badge directory a previous run left behind, instead of
-// producing one.
+// recorded reads a previous run's badge directory.
 func recorded(cfg *config) (*report, error) {
 	dir, err := filepath.Abs(cfg.badges)
 	if err != nil {
@@ -66,16 +65,10 @@ func recorded(cfg *config) (*report, error) {
 		return nil, err
 	}
 
-	// No JUnit XML: none was produced here, and naming the one a previous run
-	// wrote would put a path this command cannot vouch for into the report.
 	return newReport(cfg, statuses, ""), nil
 }
 
 // prepareOutputs creates the output directory and returns the paths inside it.
-//
-// The badge directory is removed rather than created: cwltest makes it itself
-// and refuses to start if it already exists, and removing it also guarantees a
-// tag that has disappeared upstream is not read again from a stale file.
 func prepareOutputs(outDir string) (*outputs, error) {
 	root, err := filepath.Abs(outDir)
 	if err != nil {
@@ -95,17 +88,8 @@ func prepareOutputs(outDir string) (*outputs, error) {
 	return paths, os.RemoveAll(paths.badges)
 }
 
-// runCWLTest execs the harness from the corpus root, which is what the relative
-// tool and job paths in the manifest are written against.
-//
-// A non-zero status means tests failed, which is this command's subject rather
-// than its error: only a harness that could not start is an error here, and an
-// [exec.ExitError] is exactly what distinguishes the two.
+// runCWLTest execs cwltest from the corpus root. A non-zero exit means tests failed, not an error.
 func runCWLTest(ctx context.Context, cfg *config, paths *outputs) error {
-	// The harness is looked up here, from a constant name, rather than carried
-	// on the config: a program path that has travelled through a struct field
-	// is one gosec cannot prove safe to execute, and there is no need for it to
-	// travel. Put the cwltest you want first on PATH.
 	harness, err := exec.LookPath(harnessName)
 	if err != nil {
 		return fmt.Errorf("%w: %s is not on PATH: %w", errSkipped, harnessName, err)
@@ -126,10 +110,7 @@ func runCWLTest(ctx context.Context, cfg *config, paths *outputs) error {
 	return nil
 }
 
-// cwltestArgs renders the harness command line. Every path is cleaned on the
-// way in, which is both what the harness wants to see in its own output and
-// what keeps a caller-supplied path from carrying traversal segments into a
-// subprocess.
+// cwltestArgs renders the harness command line.
 func cwltestArgs(cfg *config, paths *outputs) []string {
 	return []string{
 		"--test", manifestName,

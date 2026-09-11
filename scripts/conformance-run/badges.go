@@ -12,9 +12,7 @@ import (
 // status is one test's outcome, as cwltest counted it.
 type status string
 
-// The three outcomes the cwl-runner contract produces: a matching output
-// object, a mismatch or unexpected exit, and exit 33 for a feature the engine
-// does not implement.
+// Test outcomes.
 const (
 	statusPass status = "pass"
 	statusFail status = "fail"
@@ -27,11 +25,10 @@ const allTag = "all"
 // badgeExt is the per-tag listing this command reads.
 const badgeExt = ".md"
 
-// errNoBadges reports a badge directory cwltest left empty, which means the
-// harness never got as far as running a test.
+// errNoBadges reports an empty badge directory.
 var errNoBadges = errors.New("cwltest wrote no badge listings")
 
-// Section headings and entry shape of a cwltest badge listing.
+// Badge listing patterns.
 var (
 	sectionPattern = regexp.MustCompile(`(?m)^## List of (passed|failed|unsupported) tests\s*$`)
 	entryPattern   = regexp.MustCompile(`(?m)^- \[([^\]]+)\]`)
@@ -52,11 +49,7 @@ type tagResult struct {
 	skipped int
 }
 
-// total is how many tests carry the tag.
-//
-// A nil receiver counts zero, so a tag the run never observed reports as empty rather than
-// panicking. The check is written out rather than left implicit because a guard inside another
-// method is not visible to static analysis across the call.
+// total is how many tests carry the tag. Nil-safe.
 func (t *tagResult) total() int {
 	if t == nil {
 		return 0
@@ -74,12 +67,7 @@ func (t *tagResult) rate() float64 {
 	return 100 * float64(t.passed) / float64(t.total())
 }
 
-// readBadges turns cwltest's badge directory into one tagResult per tag.
-//
-// The badge listings are read rather than the JUnit XML because cwltest does
-// not record a failure element for a should_fail test that wrongly succeeded,
-// so the XML undercounts failures. The listings and cwltest's own printed
-// tally agree; the XML does not.
+// readBadges reads cwltest's badge directory into one tagResult per tag.
 func readBadges(dir string) (map[string]*tagResult, error) {
 	entries, err := filepath.Glob(filepath.Join(dir, "*"+badgeExt))
 	if err != nil {
@@ -125,9 +113,7 @@ func readBadge(path string) (*tagResult, error) {
 		case statusSkip:
 			result.skipped += len(ids)
 		default:
-			// A heading the pattern matched but sectionStatus does not know.
-			// Unreachable while the two agree; ignored rather than fatal so a
-			// new cwltest section cannot break the build.
+			// Unknown section heading; ignore.
 		}
 	}
 
@@ -136,8 +122,7 @@ func readBadge(path string) (*tagResult, error) {
 	return result, nil
 }
 
-// sections yields each "## List of ... tests" heading keyword and the body
-// beneath it.
+// sections yields each heading keyword and its body from a badge listing.
 func sections(doc string) map[string]string {
 	found := make(map[string]string)
 

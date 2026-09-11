@@ -13,76 +13,54 @@ const (
 	keywordVocab = "@vocab"
 )
 
-// TermDef is one jsonldPredicate entry: how a field's value maps into the
-// linked-data vocabulary.
-//
-// It is reachable from Field.JSONLDPred so that consumers can tell, per field,
-// whether a value is an identifier, a link, or a vocabulary term, which is what
-// drives identifier resolution, link resolution and vocabulary resolution.
+// TermDef is one jsonldPredicate entry describing how a field maps into the vocabulary.
 type TermDef struct {
 	// ID is the _id of the predicate: a vocabulary IRI, or a JSON-LD keyword
 	// such as "@id" or "@type".
 	ID string
 	// Type is the _type of the predicate, such as "@id" or "@vocab".
 	Type string
-	// Subscope, when non-empty, is appended to the identifier scope of objects
-	// assigned to this field, per identifier resolution rule 5.
+	// Subscope is appended to the identifier scope of objects assigned to this field.
 	Subscope string
 	// MapSubject is the field an identifier map's keys are assigned to.
 	MapSubject string
 	// MapPredicate is the field a non-object identifier map value is assigned to.
 	MapPredicate string
-	// RefScope is how many levels to strip from the containing identifier scope
-	// before starting the successive-parent-scope search. It is meaningful only
-	// when ScopedRef is true.
+	// RefScope is how many levels to strip before the parent-scope search.
 	RefScope int
-	// Identity reports whether the field is an identifier, meaning the absence of
-	// an object with that URI in the loaded document is not an error.
+	// Identity reports whether missing targets for this field are not errors.
 	Identity bool
 	// Noconvert suppresses vocabulary conversion of the field's value.
 	Noconvert bool
-	// NoLinkCheck reports that link validation traversal must stop at this field.
+	// NoLinkCheck suppresses link validation at this field.
 	NoLinkCheck bool
 	// TypeDSL reports that the field's value is expanded with the type DSL.
 	TypeDSL bool
-	// SecondaryFilesDSL reports that the field's value is expanded with the
-	// secondary files DSL.
+	// SecondaryFilesDSL enables secondary files DSL expansion on this field.
 	SecondaryFilesDSL bool
 	// ScopedRef reports whether a refScope was declared for this field.
 	ScopedRef bool
-	// IsIdentifier reports that the field carries the identifier of its object,
-	// which becomes the base URI for the object's children.
+	// IsIdentifier reports that the field carries the object's identifier.
 	IsIdentifier bool
 }
 
-// IsLink reports whether the field's value is a link, resolved with the link
-// resolution rules.
+// IsLink reports whether the field's value is a link.
 func (t *TermDef) IsLink() bool {
 	return t != nil && t.Type == keywordID
 }
 
-// IsVocabField reports whether the field's value is resolved with the
-// vocabulary resolution rules.
+// IsVocabField reports whether the field uses vocabulary resolution.
 func (t *TermDef) IsVocabField() bool {
 	return t != nil && t.Type == keywordVocab
 }
 
-// isURLField reports whether the field's value is any kind of reference, which
-// is the set of fields link validation inspects.
+// isURLField reports whether the field holds any kind of reference.
 func (t *TermDef) isURLField() bool {
 	return t.IsLink() || t.IsVocabField()
 }
 
-// Context maps between short names and fully-qualified IRIs and holds the
-// per-term jsonldPredicate definitions derived from a schema.
-//
-// It is schema-salad's own simplified context logic — a flat term table plus the
-// vocabulary bookkeeping the Python Loader carries — and deliberately not a
-// general JSON-LD processor. JSON-LD context generation and RDF triple output
-// are out of scope for this package.
-//
-// A nil *Context behaves as an empty one: every lookup misses and expansion
-// falls back to plain URI reference resolution.
+// Context maps short names to IRIs and holds jsonldPredicate definitions.
+// A nil *Context behaves as an empty one.
 type Context struct {
 	namespaces  map[string]string
 	vocab       map[string]string
@@ -104,15 +82,7 @@ func newContext() *Context {
 	}
 }
 
-// BuildContext derives a Context from a resolved schema document's type
-// definitions and its $namespaces metadata.
-//
-// The schema document is normally one that has already been through identifier
-// resolution, so that type and field names are absolute IRIs, but BuildContext
-// also accepts a raw document: names are reduced to their short form either way,
-// and namespace prefixes are expanded against metadata's $namespaces.
-//
-// It is the analogue of jsonld_context.salad_to_jsonld_context.
+// BuildContext derives a Context from a resolved schema document and its $namespaces.
 func BuildContext(schemaDoc Node, metadata *MapNode) (*Context, error) {
 	c := newContext()
 	c.addNamespaces(metadata)
@@ -128,10 +98,7 @@ func BuildContext(schemaDoc Node, metadata *MapNode) (*Context, error) {
 	return c, nil
 }
 
-// MergeContexts combines two already-finished contexts into one. The base
-// context's vocabulary entries take precedence on collision, matching the
-// first-writer-wins semantics of putVocab. Extension namespaces, terms, and
-// schemas are added on top.
+// MergeContexts combines two contexts; base vocabulary takes precedence on collision.
 func MergeContexts(base, ext *Context) *Context {
 	c := newContext()
 
@@ -174,9 +141,7 @@ func MergeContexts(base, ext *Context) *Context {
 	return c
 }
 
-// emptyTerm is what Term reports for a field the schema says nothing about. It
-// is shared and must never be mutated; term definitions are only ever written
-// while a Context is being built, onto values freshly allocated there.
+// emptyTerm is the zero-value TermDef returned for undefined fields. Must not be mutated.
 var emptyTerm = &TermDef{
 	ID:                "",
 	Type:              "",
@@ -193,10 +158,7 @@ var emptyTerm = &TermDef{
 	IsIdentifier:      false,
 }
 
-// Term returns the term definition for a resolved field name, and whether the
-// schema defines one. The returned pointer is never nil, so a caller that does
-// not care whether the field is known can use the result directly: an undefined
-// field behaves as one with no jsonldPredicate at all.
+// Term returns the term definition for a field. The pointer is never nil.
 func (c *Context) Term(field string) (*TermDef, bool) {
 	if c == nil {
 		return emptyTerm, false
@@ -210,11 +172,7 @@ func (c *Context) Term(field string) (*TermDef, bool) {
 	return t, true
 }
 
-// Vocab returns the full short-name to IRI vocabulary table. The validator uses
-// it to interpret vocabulary-typed values, and consumers use it to interpret
-// class-style fields. The result is a fresh map.
-//
-// It is the analogue of the Python Loader's vocab attribute.
+// Vocab returns a copy of the short-name to IRI vocabulary table.
 func (c *Context) Vocab() map[string]string {
 	out := make(map[string]string)
 	if c == nil {
@@ -226,8 +184,7 @@ func (c *Context) Vocab() map[string]string {
 	return out
 }
 
-// Namespaces returns the prefix to IRI table declared by $namespaces. The result
-// is a fresh map.
+// Namespaces returns a copy of the prefix-to-IRI $namespaces table.
 func (c *Context) Namespaces() map[string]string {
 	out := make(map[string]string)
 	if c == nil {
@@ -239,8 +196,7 @@ func (c *Context) Namespaces() map[string]string {
 	return out
 }
 
-// Schemas returns the $schemas URIs the context was built with. Salad only
-// surfaces them; interpreting the RDF they name is a consumer's concern.
+// Schemas returns the $schemas URIs the context was built with.
 func (c *Context) Schemas() []string {
 	out := make([]string, 0)
 	if c == nil {
@@ -250,19 +206,12 @@ func (c *Context) Schemas() []string {
 	return append(out, c.schemas...)
 }
 
-// Shortname returns the trailing short name of an identifier IRI: the last
-// "/"-separated segment of the fragment if there is one, otherwise the last
-// segment of the path. It is used pervasively for field and symbol lookup.
-//
-// It is the analogue of schema.shortname / validate.avro_shortname.
+// Shortname returns the trailing short name of an identifier IRI.
 func (c *Context) Shortname(id string) string {
 	return shortName(id)
 }
 
-// termOf returns the term definition for a field without reporting whether the
-// schema defines one. An undefined field yields emptyTerm, which behaves exactly
-// as a field declaring no jsonldPredicate, so callers that only need to ask what
-// the predicate says can use the result without a guard.
+// termOf returns the term definition for a field; never nil.
 func (c *Context) termOf(field string) *TermDef {
 	if c == nil {
 		return emptyTerm
@@ -275,8 +224,7 @@ func (c *Context) termOf(field string) *TermDef {
 	return emptyTerm
 }
 
-// identifierFields returns the field names whose value is the identifier of the
-// containing object, in sorted order so that resolution is deterministic.
+// identifierFields returns the identifier field names in sorted order.
 func (c *Context) identifierFields() []string {
 	if c == nil {
 		return nil
@@ -365,15 +313,6 @@ func (c *Context) finish() {
 }
 
 // putVocab records a vocabulary entry, keeping the first definition of a term.
-//
-// This is the lenient path: it is used to seed $namespaces prefixes into the
-// vocabulary in finish() (where iteration order over a Go map is not
-// deterministic, so a hard error here could not be reported deterministically),
-// by the hand-authored bootstrap vocabulary in bootstrap.go, and by
-// registerField for field predicates — a field's default predicate is
-// per-record-scoped, so two unrelated records sharing a plain field name is
-// ordinary and must not fail. Type names and enum symbols go through
-// putVocabTerm instead, which is where the real collision check lives.
 func (c *Context) putVocab(term, iri string) {
 	if term == "" || iri == "" || isKeyword(iri) {
 		return
@@ -384,17 +323,7 @@ func (c *Context) putVocab(term, iri string) {
 	}
 }
 
-// putVocabTerm records a vocabulary entry derived from a schema's own named
-// type declarations, rejecting a term whose short name already maps to a
-// different IRI.
-//
-// This is the analogue of schema-salad's
-// SchemaException("Predicate collision on %s, %r != %r"): two different
-// vocabulary IRIs — typically declared under different $bases in one $graph —
-// must not resolve to the same short name for a type name. Only type names go
-// through this path; enum symbols and field predicates keep their own
-// per-container-scoped default and stay on putVocab (see registerSymbols and
-// registerField).
+// putVocabTerm records a type-name vocabulary entry, rejecting collisions.
 func (c *Context) putVocabTerm(term, iri string, loc SourceLine) *Error {
 	if term == "" || iri == "" || isKeyword(iri) {
 		return nil
@@ -413,8 +342,7 @@ func (c *Context) putVocabTerm(term, iri string, loc SourceLine) *Error {
 	return nil
 }
 
-// expandPrefix applies rule 7 of identifier resolution: a declared namespace
-// prefix followed by a colon is replaced by the namespace IRI.
+// expandPrefix expands a namespace prefix (e.g. "sld:type") to its full IRI.
 func (c *Context) expandPrefix(name string) string {
 	if c == nil {
 		return name

@@ -9,8 +9,7 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// UUID field widths and the bit positions RFC 9562 reserves for the version and
-// variant, used to render a blank node identifier.
+// UUID field widths and bit positions for blank node identifiers (RFC 9562).
 const (
 	uuidBytes        = 16
 	uuidVersionIndex = 6
@@ -25,20 +24,7 @@ const (
 	uuidGroupD       = 20
 )
 
-// blankNodeID returns the identifier assigned to a process that declares none.
-//
-// The schema makes a process's id optional, but a process still has to be
-// referable — as a step's run target, as a key in DecodeAll's result — so
-// decoding assigns one, in the "_:<uuid>" blank node form the Schema Salad
-// identifier rules provide for.
-//
-// It is deterministic: the identifier is a version-5 UUID over the process
-// node's source location followed by a canonical rendering of the node itself.
-// Decoding the same document twice therefore produces the same identifiers, so
-// test diffs and error messages stay stable. Including the source location is
-// what keeps two structurally identical inline processes in one document apart;
-// when locations are unknown, as they are for a node built in memory, identical
-// processes do collapse onto one identifier.
+// blankNodeID returns a deterministic "_:<uuid>" identifier for a process that declares none.
 func blankNodeID(node salad.Node) string {
 	seed := append([]byte(nodeLoc(node).String()), 0)
 	sum := sha256.Sum256(appendCanonical(seed, node))
@@ -64,9 +50,7 @@ func formatUUID(raw []byte) string {
 	}, "-")
 }
 
-// appendCanonical appends a deterministic rendering of n to dst. Key order is
-// preserved, and every scalar is tagged with its kind, so that two nodes render
-// alike exactly when they hold the same values in the same order.
+// appendCanonical appends a deterministic rendering of n to dst.
 func appendCanonical(dst []byte, n salad.Node) []byte {
 	switch value := n.(type) {
 	case *salad.MapNode:

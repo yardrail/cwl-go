@@ -6,63 +6,27 @@ import (
 	"math"
 )
 
-// Conversion between the typed filesystem values and the object shape a CWL
-// expression reads.
-//
-// The two representations exist for different jobs and neither can replace the
-// other. Inside the engine a file is a *File: a struct with an OptInt size that
-// can tell "empty" from "not measured", a sealed FileOrDirectory union, and a
-// compiler that catches a misspelt field. Inside an expression a file is
-// whatever `$(inputs.f.basename)` can reach, and the specification defines that
-// as a plain object with a class discriminator — the same shape a document
-// writes and the same shape JSON.stringify produces.
-//
-// So the evaluator converts at its boundary rather than asking every caller to
-// hand it maps. That is also what keeps the specification's promise that a
-// parameter reference means the same thing whether it is resolved natively or
-// by the JavaScript engine: both paths read the object these functions build.
-//
-// Absence is the delicate part throughout. A field the runtime has not filled
-// in is left out of the object entirely, so it reads as undefined rather than
-// as a zero: an unmeasured size must not surface as 0 bytes, an unread
-// directory listing must not surface as an empty directory, and unloaded
-// contents must not surface as an empty file.
+// Conversion between typed *File/*Directory values and the map[string]any
+// shape CWL expressions read. Unset fields are omitted, not zeroed.
 
-// Field counts of the two filesystem objects, used only to size the maps. Per
-// the schema a File has twelve fields and a Directory five; the specification
-// gives Directory no size, checksum, format or secondaryFiles.
+// Map capacity hints for File (12 fields) and Directory (5 fields).
 const (
 	fileFieldCount      = 12
 	directoryFieldCount = 5
 )
 
-// maxSafeInteger is 2^53, past which a JavaScript number stops being an exact
-// integer. It bounds what FromExpressionValue will read back as one, because
-// beyond it the value an expression produced is already approximate.
+// maxSafeInteger is 2^53, the JavaScript safe integer limit.
 const maxSafeInteger = 1 << 53
 
-// ToExpressionValue renders value in the shape a CWL expression reads: a *File
-// or *Directory — at any depth, inside lists, records and secondaryFiles —
-// becomes a string-keyed object with a class field, and everything else is
-// returned unchanged.
-//
-// The evaluator applies this to whatever a parameter reference resolves to, so
-// callers rarely need it directly. It is exported for the ones that build a
-// parameter context by hand, or that want the object form for their own
-// reasons, so that there is one definition of what a File looks like to an
-// expression rather than one per package.
-//
-// A value containing no typed filesystem values is returned as it is, not
-// copied.
+// ToExpressionValue converts *File/*Directory values (at any depth) to map form.
+// Values without filesystem types pass through unchanged.
 func ToExpressionValue(value any) any {
 	converted, _ := toExpressionValue(value)
 
 	return converted
 }
 
-// toExpressionValue is ToExpressionValue reporting whether it changed
-// anything, which is what lets the collection cases skip allocating for the
-// overwhelmingly common input that holds no File at all.
+// toExpressionValue is ToExpressionValue reporting whether it changed anything.
 func toExpressionValue(value any) (any, bool) {
 	switch typed := value.(type) {
 	case FileOrDirectory:
@@ -82,8 +46,7 @@ func toExpressionValue(value any) (any, bool) {
 	}
 }
 
-// convertedList renders each element, keeping the original slice when none of
-// them needed it.
+// convertedList renders each element, reusing the original slice if unchanged.
 func convertedList(list []any) (any, bool) {
 	var converted []any
 
@@ -108,8 +71,7 @@ func convertedList(list []any) (any, bool) {
 	return converted, true
 }
 
-// convertedMap renders each field, keeping the original map when none of them
-// needed it.
+// convertedMap renders each field, reusing the original map if unchanged.
 func convertedMap(object map[string]any) (any, bool) {
 	var converted map[string]any
 
@@ -134,9 +96,7 @@ func convertedMap(object map[string]any) (any, bool) {
 	return converted, true
 }
 
-// filesystemObject renders one member of the FileOrDirectory union. A nil
-// pointer inside the interface renders as the null value rather than panicking:
-// a malformed job object must not take the process down.
+// filesystemObject renders a FileOrDirectory as a map. Nil renders as nil.
 func filesystemObject(object FileOrDirectory) any {
 	switch typed := object.(type) {
 	case *File:
@@ -166,15 +126,8 @@ func filesystemList(entries []FileOrDirectory) []any {
 	return list
 }
 
-// fileObject renders a File as the object an expression reads.
-//
-// Size and Contents are written only when set. They are an OptInt and an
-// OptString precisely because 0 and "" are ordinary values there — an empty
-// file, and an empty file literal — so emitting the zero for an absent field
-// would fabricate a measurement the runtime never made.
-//
-// The three name fields are the exception, and they travel as a group; see
-// [putNameFields].
+// fileObject renders a File as the map an expression reads.
+// Size and Contents are written only when set.
 func fileObject(file *File) map[string]any {
 	object := make(map[string]any, fileFieldCount)
 	object[keyClass] = ClassFile
@@ -201,11 +154,8 @@ func fileObject(file *File) map[string]any {
 	return object
 }
 
-// directoryObject renders a Directory as the object an expression reads.
-//
-// A nil Listing is omitted, an empty one is written as []. The distinction is
-// the specification's: absent means the runner has not fetched the listing
-// from Location yet, which is not the same as a directory that is empty.
+// directoryObject renders a Directory as the map an expression reads.
+// Nil Listing is omitted; empty Listing is written as [].
 func directoryObject(dir *Directory) map[string]any {
 	object := make(map[string]any, directoryFieldCount)
 	object[keyClass] = ClassDirectory
@@ -221,25 +171,8 @@ func directoryObject(dir *Directory) map[string]any {
 	return object
 }
 
-// putNameFields writes basename, nameroot and nameext together, or writes none
-// of them.
-//
-// nameext is the one string field of a File whose empty value means something:
-// it is the extension of a name that has none. Process.yml, nameroot: "The
-// basename root such that `nameroot + nameext == basename`, and `nameext` is
-// empty or begins with a period" — so for a file called README the identity
-// only holds if nameext is present and empty, and an expression writing
-// `$(self.nameroot).idx$(self.nameext)` needs it to substitute rather than
-// fail on a missing key.
-//
-// That is also what the reference implementation produces. cwltool's
-// normalizeFilesDirs (utils.py) does `nr, ne = os.path.splitext(d["basename"])`
-// and assigns both unconditionally; os.path.splitext("README") is
-// ("README", ""), and a Python dict stores the empty string as a present key.
-//
-// The group is gated on the basename because the other two are derived from it:
-// a File whose basename the runtime has not settled has no name to split, and
-// must not be given an empty one.
+// putNameFields writes basename, nameroot and nameext together, or none.
+// Gated on basename because the other two are derived from it.
 func putNameFields(object map[string]any, file *File) {
 	if file.Basename == "" {
 		return
@@ -250,20 +183,14 @@ func putNameFields(object map[string]any, file *File) {
 	object[keyNameext] = file.Nameext
 }
 
-// putNonEmpty records a field, omitting it when the runtime has not filled it
-// in. Every string field of a File and a Directory is an identifier or a
-// derived name, and none of them has a meaningful empty value, so empty and
-// absent are the same thing here.
+// putNonEmpty records a string field, omitting empty values.
 func putNonEmpty(object map[string]any, key, value string) {
 	if value != "" {
 		object[key] = value
 	}
 }
 
-// filesystemView returns the object view of a typed filesystem value. It is
-// what lets the evaluator resolve a segment against a *File without the caller
-// having converted anything: asMap consults it, which in turn gives the JSON
-// encoder and TypeName the same understanding for free.
+// filesystemView returns the map view of a *File or *Directory for asMap.
 func filesystemView(value any) (map[string]any, bool) {
 	switch typed := value.(type) {
 	case *File:
@@ -287,19 +214,8 @@ func filesystemView(value any) (map[string]any, bool) {
 	}
 }
 
-// FromExpressionValue is the inverse of ToExpressionValue: it converts the
-// objects an expression produced back into typed *File and *Directory values,
-// recursively, and returns everything else unchanged.
-//
-// An object is recognised as a filesystem value by its class field, exactly as
-// the specification says a document is read. An object with no class is an
-// ordinary record and is walked for nested filesystem values.
-//
-// It reports an error wrapping ErrExpressionEval when an object claims to be a
-// File or a Directory but does not hold up — a size that is not a whole
-// number, a listing that is not a list, an entry that declares no class. Those
-// are permanent failures: the expression ran, and produced something the engine
-// cannot use.
+// FromExpressionValue converts map-form File/Directory objects back to typed values.
+// Dispatches on the class field; errors wrap ErrExpressionEval.
 func FromExpressionValue(value any) (any, error) {
 	switch typed := value.(type) {
 	case []any:
@@ -400,10 +316,7 @@ func newDirectoryValue(object map[string]any) (any, error) {
 	return dir, nil
 }
 
-// fieldReader reads the fields of a filesystem object, remembering the first
-// one that was the wrong type. Accumulating rather than returning at each
-// field is what keeps the two constructors above readable as the field lists
-// they are.
+// fieldReader reads fields of a filesystem object, recording the first type error.
 type fieldReader struct {
 	object map[string]any
 	err    error
@@ -460,9 +373,7 @@ func (r *fieldReader) wholeNumber(key string) OptInt {
 	return NewOptInt(value)
 }
 
-// entries reads a secondaryFiles or listing field. An absent field stays nil
-// and an empty list stays empty, because for a listing the two mean different
-// things.
+// entries reads a secondaryFiles or listing field.
 func (r *fieldReader) entries(key string) []FileOrDirectory {
 	raw, present := r.present(key)
 	if !present {
@@ -492,8 +403,7 @@ func (r *fieldReader) entries(key string) []FileOrDirectory {
 	return entries
 }
 
-// present reports whether the object supplied the field at all. A null is
-// treated as absent, which is how an expression spells "I did not set this".
+// present reports whether the field exists and is non-null.
 func (r *fieldReader) present(key string) (any, bool) {
 	raw, ok := r.object[key]
 
@@ -512,8 +422,7 @@ func (r *fieldReader) record(err error) {
 	}
 }
 
-// fromFilesystemEntry converts one member of a secondaryFiles or listing list,
-// which may be either a File or a Directory and may nest further.
+// fromFilesystemEntry converts one File or Directory entry from a list.
 func fromFilesystemEntry(value any) (FileOrDirectory, error) {
 	object, ok := asMap(value)
 	if !ok {
@@ -546,11 +455,7 @@ func objectText(object map[string]any, key string) string {
 }
 
 // asWholeNumber reads a JSON number as an exact integer.
-//
-// A float is accepted when it has no fractional part and is small enough to be
-// exact, because JavaScript has one number type and an expression that
-// computed a size arrives holding a float. Beyond 2^53 it refuses: the value
-// is already approximate, and silently truncating it would invent a file size.
+// Accepts floats with no fractional part up to 2^53.
 func asWholeNumber(value any) (int64, bool) {
 	switch number := value.(type) {
 	case int:

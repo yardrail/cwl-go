@@ -6,13 +6,7 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// parameterObjects dumps a slice of parameters of any one concrete type.
-//
-// The seven concrete parameter types share ParameterBase but are separate Go
-// types, because the schema specializes them per process class. base is how a
-// caller hands over the shared part; the caller then adds whatever its own
-// type adds on top of the returned objects, which is why this returns them
-// typed rather than already flattened to a render-ready slice.
+// parameterObjects dumps a slice of parameters, extracting the shared base via base.
 func parameterObjects[T any](params []T, base func(*T) *cwlcore.ParameterBase) []*cwlcli.Object {
 	out := make([]*cwlcli.Object, 0, len(params))
 	for i := range params {
@@ -45,8 +39,7 @@ func parameterObject(p *cwlcore.ParameterBase) *cwlcli.Object {
 	return o
 }
 
-// commandInputItems dumps a CommandLineTool's inputs, adding the command-line
-// binding and default that only a tool input has.
+// commandInputItems dumps a CommandLineTool's inputs.
 func commandInputItems(params []cwlcore.CommandInputParameter) []any {
 	out := parameterObjects(params, func(p *cwlcore.CommandInputParameter) *cwlcore.ParameterBase {
 		return &p.ParameterBase
@@ -60,8 +53,7 @@ func commandInputItems(params []cwlcore.CommandInputParameter) []any {
 	return objectItems(out)
 }
 
-// commandOutputItems dumps a CommandLineTool's outputs, adding the output
-// binding that collects each one from the output directory.
+// commandOutputItems dumps a CommandLineTool's outputs.
 func commandOutputItems(params []cwlcore.CommandOutputParameter) []any {
 	out := parameterObjects(params, func(p *cwlcore.CommandOutputParameter) *cwlcore.ParameterBase {
 		return &p.ParameterBase
@@ -87,8 +79,7 @@ func workflowInputItems(params []cwlcore.WorkflowInputParameter) []any {
 	return objectItems(out)
 }
 
-// workflowOutputItems dumps a Workflow's outputs, adding the sources each one
-// draws its value from: the edges the scheduler resolves last.
+// workflowOutputItems dumps a Workflow's outputs with their sources.
 func workflowOutputItems(params []cwlcore.WorkflowOutputParameter) []any {
 	out := parameterObjects(params, func(p *cwlcore.WorkflowOutputParameter) *cwlcore.ParameterBase {
 		return &p.ParameterBase
@@ -103,16 +94,14 @@ func workflowOutputItems(params []cwlcore.WorkflowOutputParameter) []any {
 	return objectItems(out)
 }
 
-// expressionToolOutputItems dumps an ExpressionTool's outputs, which add
-// nothing to the shared base: their values come from the expression's result.
+// expressionToolOutputItems dumps an ExpressionTool's outputs.
 func expressionToolOutputItems(params []cwlcore.ExpressionToolOutputParameter) []any {
 	return objectItems(parameterObjects(params, func(p *cwlcore.ExpressionToolOutputParameter) *cwlcore.ParameterBase {
 		return &p.ParameterBase
 	}))
 }
 
-// operationInputItems dumps the generic input shape an Operation and a
-// RawProcess share.
+// operationInputItems dumps Operation/RawProcess inputs.
 func operationInputItems(params []cwlcore.OperationInputParameter) []any {
 	out := parameterObjects(params, func(p *cwlcore.OperationInputParameter) *cwlcore.ParameterBase {
 		return &p.ParameterBase
@@ -125,8 +114,7 @@ func operationInputItems(params []cwlcore.OperationInputParameter) []any {
 	return objectItems(out)
 }
 
-// operationOutputItems dumps the generic output shape an Operation and a
-// RawProcess share. It adds nothing to the shared base.
+// operationOutputItems dumps Operation/RawProcess outputs.
 func operationOutputItems(params []cwlcore.OperationOutputParameter) []any {
 	return objectItems(parameterObjects(params, func(p *cwlcore.OperationOutputParameter) *cwlcore.ParameterBase {
 		return &p.ParameterBase
@@ -143,10 +131,6 @@ func addBinding(o *cwlcli.Object, binding *cwlcore.CommandLineBinding) {
 }
 
 // bindingObject dumps a command-line binding.
-//
-// separate and shellQuote default to true rather than false, so they are shown
-// through Or(true) — the value that actually applies — rather than as the
-// tri-state the model carries them in.
 func bindingObject(binding *cwlcore.CommandLineBinding) *cwlcli.Object {
 	b := cwlcli.NewObject()
 
@@ -168,11 +152,6 @@ func bindingObject(binding *cwlcore.CommandLineBinding) *cwlcli.Object {
 }
 
 // argumentItems dumps a CommandLineTool's arguments in document order.
-//
-// An argument is a string, an expression, or a whole binding. The first two
-// render as themselves; the third is dumped structurally rather than through
-// CommandLineArgument.String, which renders a binding through fmt and produces
-// a Go struct literal.
 func argumentItems(args []cwlcore.CommandLineArgument) []any {
 	out := make([]any, 0, len(args))
 
@@ -209,9 +188,7 @@ func addOutputBinding(o *cwlcli.Object, binding *cwlcore.CommandOutputBinding) {
 	o.Set("outputBinding", b)
 }
 
-// addDefault adds a parameter's default value, materialized from the salad
-// node the model keeps it as. The node form is kept because a default may be
-// any CWL value at all, including one the typed model does not describe.
+// addDefault adds a parameter's default value, if set.
 func addDefault(o *cwlcli.Object, node salad.Node) {
 	if node == nil {
 		return

@@ -7,12 +7,10 @@ import (
 	"slices"
 )
 
-// requiredTag is the manifest tag marking a test that uses no optional feature.
-// It is the project's stated gate, so it is broken out of the tag table.
+// requiredTag marks tests using no optional feature.
 const requiredTag = "required"
 
-// minTagSize keeps the printed table to the tags worth watching; the long tail
-// of one- and two-test tags stays in the badge directory.
+// minTagSize filters small tags from the printed table.
 const minTagSize = 3
 
 // report is one conformance run, ready to print and evaluate.
@@ -24,9 +22,7 @@ type report struct {
 	corpus   string
 }
 
-// newReport assembles a run's numbers, defaulting a tag cwltest did not write
-// to an empty result so that neither printing nor comparison has to test for
-// its absence.
+// newReport assembles a run's numbers.
 func newReport(cfg *config, tags map[string]*tagResult, junit string) *report {
 	return &report{
 		tags:     tags,
@@ -60,11 +56,7 @@ func (r *report) write(out io.Writer) {
 	}
 }
 
-// writeRow prints one line of the table.
-//
-// An absent tag prints as a row of zeroes rather than panicking. The names come from the tag map
-// itself so a nil is not reachable today, but the table is also fed the two headline rows, and a
-// row that silently disappears from a conformance report is worse than one reading zero.
+// writeRow prints one line of the table. Nil-safe.
 func (r *report) writeRow(out io.Writer, name string, result *tagResult) {
 	row := result
 	if row == nil {
@@ -75,8 +67,7 @@ func (r *report) writeRow(out io.Writer, name string, result *tagResult) {
 		name, row.total(), row.passed, row.failed, row.skipped, row.rate())
 }
 
-// tagNames lists the feature tags worth printing, largest first, with the two
-// headline rows removed because they are printed above the table.
+// tagNames lists feature tags worth printing, largest first.
 func (r *report) tagNames() []string {
 	names := make([]string, 0, len(r.tags))
 

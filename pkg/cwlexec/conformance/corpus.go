@@ -10,9 +10,7 @@ import (
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
-// The environment variables the driver honours. They are the Stage 0 sweep's, so a
-// developer who has already pointed that at a checkout does not point this one at it a
-// second time. See the package doc comment.
+// Environment variables (shared with the Stage 0 sweep).
 const (
 	envEnable  = "CWL_CONFORMANCE"
 	envCorpus  = "CWL_CONFORMANCE_CORPUS"
@@ -20,7 +18,7 @@ const (
 	envHarness = "CWLTEST"
 )
 
-// Layout of the pinned corpus and of the cache the Stage 0 sweep unpacks it into.
+// Corpus layout constants.
 const (
 	manifestName = "conformance_tests.yaml"
 	corpusPrefix = "cwl-v1.2-"
@@ -28,24 +26,15 @@ const (
 	cacheSuite   = "conformance"
 )
 
-// errNoCorpus reports that no unpacked corpus could be found.
-//
-// It is a reason to skip rather than to fail. This package deliberately does not fetch the
-// corpus: the Stage 0 sweep already owns that code, downloading the same tarball from two
-// places would race, and a driver whose tests reach the network is one that cannot run on
-// a machine with none. "task test:conformance" puts it in the cache.
+// errNoCorpus reports that no unpacked corpus was found. Reason to skip, not fail.
 var errNoCorpus = errors.New("no unpacked cwl-v1.2 corpus")
 
-// findCorpus locates an already-unpacked corpus: an explicit CWL_CONFORMANCE_CORPUS
-// checkout, or the cache entry for the tag the vendored schema was cut from.
+// findCorpus locates an already-unpacked corpus.
 func findCorpus() (string, error) {
 	return findCorpusWith(cwlcore.SchemaVersion)
 }
 
-// findCorpusWith is [findCorpus], taking the schema-version lookup as a parameter so a test
-// can supply one that reports no version -- [cwlcore.SchemaVersion] itself always reads a
-// non-empty embedded schema/VERSION file, so the "no version to pin one to" branch below is
-// otherwise unreachable.
+// findCorpusWith is [findCorpus] with a pluggable schema-version lookup.
 func findCorpusWith(schemaVersion func() string) (string, error) {
 	explicit := strings.TrimSpace(os.Getenv(envCorpus))
 	if explicit != "" {
@@ -61,8 +50,7 @@ func findCorpusWith(schemaVersion func() string) (string, error) {
 		"run 'task test:conformance' to fetch it")
 }
 
-// checkedCorpus makes root absolute and confirms it holds a manifest, naming remedy in the
-// error when it does not.
+// checkedCorpus validates root holds a manifest and returns its absolute path.
 func checkedCorpus(root, remedy string) (string, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {

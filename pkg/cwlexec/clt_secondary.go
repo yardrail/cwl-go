@@ -11,50 +11,28 @@ import (
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
-// Secondary files and format, the last two operations of an output binding.
-//
-// CommandLineTool.yml puts secondaryFiles after outputEval in the order a binding is applied, so
-// both run against the *final* value: an outputEval that replaced the globbed files entirely still
-// gets its result decorated. The reference implementation applies format last of all, after
-// secondaryFiles, and so does this.
+// Secondary files and format resolution for output bindings.
 
-// Errors reported while resolving an output parameter's secondaryFiles.
 var (
 	// ErrSecondaryMissing reports a required secondary file that is not on disk.
-	//
-	// Process.yml: "An implementation may fail workflow execution if a required secondary file
-	// does not exist." It is a failure here, because the alternative is publishing a primary
-	// file whose declared companion is absent and letting the tool that consumes it fail
-	// instead, several steps away from the cause.
 	ErrSecondaryMissing = errors.New("required secondary file does not exist")
-
-	// ErrSecondaryValue reports a secondaryFiles expression that produced something other than a
-	// name, a File or Directory object, or an array of those.
+	// ErrSecondaryValue reports an invalid secondaryFiles expression result.
 	ErrSecondaryValue = errors.New("secondaryFiles expression did not produce a name or a File")
 )
 
-// outSecondaryPolicy says what to do about a secondary file that a pattern names but that is not on
-// disk.
-//
-// It is an enumeration rather than a bool because it travels through several calls, and "required"
-// read at the call site is worth more than a true nobody can interpret.
+// outSecondaryPolicy governs behavior when a secondary file is missing from disk.
 type outSecondaryPolicy uint8
 
 const (
-	// outSecondaryOptional drops a secondary file that does not exist.
+	// outSecondaryOptional silently skips a missing secondary file.
 	outSecondaryOptional outSecondaryPolicy = iota
 
-	// outSecondaryRequired reports a secondary file that does not exist.
+	// outSecondaryRequired errors on a missing secondary file.
 	outSecondaryRequired
 )
 
-// attachSecondaryFiles resolves a declaration's secondaryFiles patterns against every File in its
-// collected value. A record field's own patterns reach here on exactly the same terms as a
-// parameter's, because both arrive as the [outTarget] projection of the declaration.
-//
-// Directories are skipped. The vendored schema gives Directory no secondaryFiles field at all, so
-// there is nowhere on one to record a companion; the reference implementation attaches them to any
-// object it finds, which quietly invents a field.
+// attachSecondaryFiles resolves secondaryFiles patterns against every File in value.
+// Directories are skipped.
 func (c *outputCollector) attachSecondaryFiles(schemas []cwlcore.SecondaryFileSchema, value any) error {
 	if len(schemas) == 0 {
 		return nil
@@ -70,8 +48,7 @@ func (c *outputCollector) attachSecondaryFiles(schemas []cwlcore.SecondaryFileSc
 	return nil
 }
 
-// outPrimaryFiles returns the Files a collected value carries at the top level, which are the ones a
-// secondaryFiles or format declaration applies to.
+// outPrimaryFiles returns the top-level Files in value.
 func outPrimaryFiles(value any) []*cwlcore.File {
 	items, ok := value.([]any)
 	if !ok {
@@ -89,10 +66,7 @@ func outPrimaryFiles(value any) []*cwlcore.File {
 	return files
 }
 
-// attachToPrimary applies every declared pattern to one primary file.
-//
-// The field ends up set even when nothing resolved. An empty list records that the patterns were
-// applied and found nothing, which is a different statement from the nil that means nobody looked.
+// attachToPrimary applies all declared patterns to one primary file.
 func (c *outputCollector) attachToPrimary(
 	primary *cwlcore.File, schemas []cwlcore.SecondaryFileSchema,
 ) error {
@@ -135,17 +109,14 @@ func (c *outputCollector) resolveSecondary(
 	return c.secondaryValues(candidates, primary, policy)
 }
 
-// secondaryValues turns the candidates one pattern produced into values, dropping the ones that do
-// not exist unless the pattern declared them required.
+// secondaryValues resolves candidates to values, dropping missing optional files.
 func (c *outputCollector) secondaryValues(
 	candidates []any, primary *cwlcore.File, policy outSecondaryPolicy,
 ) ([]cwlcore.FileOrDirectory, error) {
 	found := make([]cwlcore.FileOrDirectory, 0, len(candidates))
 
 	for _, candidate := range candidates {
-		// Process.yml: "The expression may return 'null' in which case there is no
-		// secondaryFile from that expression." Not a missing file — no file was named at all,
-		// so a required pattern is not violated by one.
+		// null means no secondary file from this expression.
 		if candidate == nil {
 			continue
 		}
@@ -161,11 +132,7 @@ func (c *outputCollector) secondaryValues(
 	return found, nil
 }
 
-// appendSecondary resolves one candidate and appends the value it names to found, leaving found
-// untouched when the candidate names nothing that exists and the pattern did not require it.
-//
-// Appending here rather than in the caller is what keeps "this one is missing and that is fine"
-// from having to travel back as a nil value, which is indistinguishable from a bug.
+// appendSecondary resolves one candidate and appends it if it exists on disk.
 func (c *outputCollector) appendSecondary(
 	found []cwlcore.FileOrDirectory, candidate any, primary *cwlcore.File, policy outSecondaryPolicy,
 ) ([]cwlcore.FileOrDirectory, error) {
@@ -191,9 +158,7 @@ func (c *outputCollector) appendSecondary(
 	return append(found, value), nil
 }
 
-// outStat reports the file information for local, and whether there is anything there at all. The
-// reason for a boolean rather than an error is that "not there" is an ordinary answer for a
-// secondary file rather than a failure, and the caller is what decides which it is.
+// outStat returns file info and existence for the given path.
 func outStat(local string) (fs.FileInfo, bool) {
 	info, err := os.Stat(local)
 	if err != nil {
@@ -203,12 +168,7 @@ func outStat(local string) (fs.FileInfo, bool) {
 	return info, true
 }
 
-// secondaryPath resolves one candidate to the local path it names.
-//
-// A name is relative to the primary file's own directory, which is what Process.yml means by "a
-// filename relative to the path to the primary File". An object carries its own location, and an
-// expression is allowed to return one taken unchanged from the input object, so it may name
-// something well outside the output directory.
+// secondaryPath resolves a candidate to a local filesystem path.
 func (c *outputCollector) secondaryPath(candidate any, primary *cwlcore.File) (string, error) {
 	switch typed := candidate.(type) {
 	case string:
@@ -220,10 +180,7 @@ func (c *outputCollector) secondaryPath(candidate any, primary *cwlcore.File) (s
 	}
 }
 
-// secondaryValue builds the value for the secondary file at local, which is known to exist.
-//
-// When the pattern produced an object rather than a name, the value is built from that object, so
-// that a File taken unchanged from the input object keeps whatever it already carried.
+// secondaryValue builds the File or Directory value for a resolved secondary path.
 func (c *outputCollector) secondaryValue(
 	local string, info fs.FileInfo, candidate any,
 ) (cwlcore.FileOrDirectory, error) {
@@ -238,13 +195,7 @@ func (c *outputCollector) secondaryValue(
 	return outMeasureFile(local)
 }
 
-// secondaryCandidates expands one pattern into the candidates it names: a single derived filename
-// for a literal pattern, or whatever an expression produced.
-//
-// Process.yml: the expression "must return a filename string relative to the path to the primary
-// File, a File or Directory object with either `path` or `location` and `basename` fields set, or
-// an array consisting of strings or File or Directory objects. ... The expression may return 'null'
-// in which case there is no secondaryFile from that expression".
+// secondaryCandidates expands one pattern into candidate filenames or objects.
 func (c *outputCollector) secondaryCandidates(
 	pattern string, primary *cwlcore.File, self any,
 ) ([]any, error) {
@@ -264,11 +215,7 @@ func (c *outputCollector) secondaryCandidates(
 	return []any{value}, nil
 }
 
-// declaredPolicy evaluates a pattern's `required` field, which may itself be an expression with
-// self bound to the primary file.
-//
-// Process.yml: "When not explicitly specified, secondary files specified for `inputs` are required
-// and `outputs` are optional." These are outputs, so an undeclared field is optional.
+// declaredPolicy evaluates a pattern's `required` field. Default for outputs is optional.
 func (c *outputCollector) declaredPolicy(
 	schema *cwlcore.SecondaryFileSchema, self any,
 ) (outSecondaryPolicy, error) {
@@ -287,23 +234,14 @@ func (c *outputCollector) declaredPolicy(
 	}
 }
 
-// outPolicies is the policy each declared `required` boolean selects. It is a lookup rather than an
-// if, so that no boolean has to travel as a control-flow parameter.
+// outPolicies maps `required` booleans to policies.
 var outPolicies = map[bool]outSecondaryPolicy{
 	true:  outSecondaryRequired,
 	false: outSecondaryOptional,
 }
 
-// outTrimOptionalMarker applies the first of the specification's three pattern rules: "If string ends
-// with `?` character, remove the last `?` and mark the resulting secondary file as optional."
-//
-// Only the trimming has an effect here, and it is the half that matters: a `?` left on the pattern
-// would go into the filename rule below and look for "reads.bai?" on disk. The marking is already
-// the default an output gets, so the only way it could change anything is against an explicit
-// `required: true`, and an explicit declaration outranks a shorthand.
-//
-// The rule applies only to a literal pattern. A `?` at the end of an expression belongs to the
-// expression — a conditional operator, most likely — and is not a marker.
+// outTrimOptionalMarker strips a trailing `?` from a literal pattern.
+// Expressions are left alone since `?` may be part of the expression syntax.
 func outTrimOptionalMarker(pattern string) string {
 	if cwlcore.NeedsParsing(pattern) {
 		return pattern
@@ -312,17 +250,7 @@ func outTrimOptionalMarker(pattern string) string {
 	return strings.TrimSuffix(pattern, "?")
 }
 
-// outSubstitutePattern applies the other two of the specification's pattern rules to a primary file's
-// basename: "2. If string begins with one or more caret `^` characters, for each caret, remove the
-// last file extension from the path (the last period `.` and all following characters). If there
-// are no file extensions, the path is unchanged. 3. Append the remainder of the string to the end
-// of the file path."
-//
-// Note what rule 2 does when the carets run out of extensions to strip: the name is left as it is
-// and the unspent carets are dropped, so "^^.idx" gives "reads.idx" from both "reads.bam" and
-// "reads". Stripping is by the *last* period, so ".cshrc" with "^.bak" gives ".bak" — the leading
-// period is an extension boundary here, unlike in the nameroot/nameext split, because rule 2 says
-// "the last period" without the exception Process.yml makes for nameroot.
+// outSubstitutePattern applies caret-extension-stripping and suffix-appending to a basename.
 func outSubstitutePattern(basename, pattern string) string {
 	name, suffix := basename, pattern
 
@@ -339,17 +267,7 @@ func outSubstitutePattern(basename, pattern string) string {
 	return name + suffix
 }
 
-// applyFormat evaluates a declaration's format and records it on every File in its value.
-//
-// Process.yml, OutputFormat: an output's format is "one or more IRIs of concept nodes that
-// represents file formats" the parameter produces. It declares what came out rather than
-// constraining what may go in, so the evaluated IRI is written onto the value. Having written it,
-// the value goes through [cwlcore.CheckFormat], which is where every judgement about a format in
-// this project lives — and the check is not vacuous, because it is what rejects a format declared
-// on an output whose value turns out not to be a File at all.
-//
-// The schema types an output's format as `string | Expression`, so format holds at most one entry
-// whether it came from a parameter or from a record field.
+// applyFormat evaluates the format expression and records it on every File in value.
 func (c *outputCollector) applyFormat(format []cwlcore.Expression, value any) error {
 	if len(format) == 0 {
 		return nil
@@ -375,9 +293,7 @@ func (c *outputCollector) applyFormat(format []cwlcore.Expression, value any) er
 	return cwlcore.CheckFormat(cwlcore.ToExpressionValue(value), declared, nil)
 }
 
-// checkFormatless reports a format declared on an output whose value holds no File to carry it. A
-// null value — an optional output that collected nothing — is fine, and cwlcore.CheckFormat is what
-// says which of the two this is.
+// checkFormatless validates a format declaration when no File is present in the value.
 func (c *outputCollector) checkFormatless(format cwlcore.Expression, value any) error {
 	rendered := cwlcore.ToExpressionValue(value)
 

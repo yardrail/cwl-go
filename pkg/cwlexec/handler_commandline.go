@@ -300,10 +300,15 @@ func (i *invocation) acquireImage(ctx context.Context) error {
 // newMapper builds a host or container path map for this invocation.
 func (i *invocation) newMapper() *PathMap {
 	if i.box == nil {
-		return NewPathMap(i.outdir, i.tmpdir)
+		m := NewPathMap(i.outdir, i.tmpdir)
+		m.resolver = i.call.OutputResolver
+
+		return m
 	}
 
 	mapper := i.box.mapper()
+	mapper.resolver = i.call.OutputResolver
+
 	if i.absolute {
 		mapper.AllowAbsoluteTargets()
 	}
@@ -387,6 +392,10 @@ func (i *invocation) execute(ctx context.Context) (Result, error) {
 	outputs, err := i.collect(code)
 	if err != nil {
 		return PermanentFail(fmt.Errorf("%s: %w", describe(i.call), err))
+	}
+
+	if rw, ok := i.inv.(OutputRewriter); ok {
+		outputs = rw.RewriteOutputPaths(outputs)
 	}
 
 	return Success(outputs)

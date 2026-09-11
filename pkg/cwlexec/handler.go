@@ -70,6 +70,7 @@ type StepCall struct {
 	Requirements      *cwlcore.RequirementScope
 	Resources         Resources
 	ContainerExecutor ContainerExecutor
+	OutputResolver    OutputResolver
 	Containers        ContainerPolicy
 	// OutDir is runtime.outdir.
 	OutDir string

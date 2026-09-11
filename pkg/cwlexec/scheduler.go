@@ -42,6 +42,7 @@ type Config struct {
 	TmpDirPrefix        string
 	OnError             OnError
 	ContainerExecutor   ContainerExecutor // Nil means containers unsupported.
+	OutputResolver      OutputResolver    // Nil means local filesystem.
 	Containers          ContainerPolicy
 	Resources           ResourceBudget // Machine capacity ceiling for resource selection.
 	EvalTimeout         time.Duration  // Per-expression timeout; zero means default.
@@ -87,6 +88,7 @@ func NewRunner(ctx context.Context, process cwlcore.Process, registry *Registry,
 		TmpDirPrefix:        "",
 		OnError:             "",
 		ContainerExecutor:   nil,
+		OutputResolver:      nil,
 		Containers:          ContainerPolicy{Disabled: false, NoMatchUser: false, NoReadOnly: false, Keep: false},
 		Resources:           ResourceBudget{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
 		EvalTimeout:         0,

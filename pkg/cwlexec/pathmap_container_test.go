@@ -316,7 +316,7 @@ func pmWantMountPoint(t *testing.T, source string, want os.FileMode) {
 	dir := t.TempDir()
 	fsys := NewLocalDirFS(dir)
 
-	err := mountPointFS(source, fsys, "onto")
+	err := stgMapper().mountPointFS(source, fsys, "onto")
 	if err != nil {
 		t.Fatalf("mountPointFS: %v", err)
 	}
@@ -346,13 +346,13 @@ func TestMountPointRefusesWhatItCannotCreate(t *testing.T) {
 	source := outWriteFile(t, base, execSourceName, execGreeting)
 	fsys := NewLocalDirFS(base)
 
-	err := mountPointFS(source, fsys, "onto")
+	err := stgMapper().mountPointFS(source, fsys, "onto")
 	if err != nil {
 		t.Fatalf("mountPointFS: %v", err)
 	}
 
 	// A source that is not there has no kind to match, so there is nothing to create.
-	err = mountPointFS(filepath.Join(base, "absent"), fsys, "onto-absent")
+	err = stgMapper().mountPointFS(filepath.Join(base, "absent"), fsys, "onto-absent")
 	if err == nil {
 		t.Error("mountPointFS from a missing source succeeded, want an error")
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
@@ -318,6 +319,9 @@ type pendingValues struct {
 
 	// listingDefault is the process-level LoadListingRequirement fallback.
 	listingDefault cwlcore.LoadListingEnum
+
+	// resolver resolves file paths from prior step outputs. Nil means local filesystem.
+	resolver OutputResolver
 }
 
 // deferredValue is a materialized default value, deferring error reporting until use.
@@ -334,6 +338,7 @@ func (d deferredValue) get() (any, error) {
 // newProcessValues collects the run process's types, defaults, and load settings.
 func newProcessValues(
 	ctx context.Context, run cwlcore.Process, scope *cwlcore.RequirementScope, decls []portDecl,
+	resolver OutputResolver,
 ) *pendingValues {
 	base := documentDir(run)
 	listing, _ := loadListingDefault(scope)
@@ -348,6 +353,7 @@ func newProcessValues(
 		runBase:        base,
 		secondary:      nil,
 		listingDefault: listing,
+		resolver:       resolver,
 	}
 
 	for index := range decls {
@@ -368,8 +374,9 @@ func newProcessValues(
 // newPendingValues extends [newProcessValues] with step-level defaults and load requests.
 func newPendingValues(
 	ctx context.Context, sc cwlcore.StepContainer, step *plannedStep, decls []portDecl,
+	resolver OutputResolver,
 ) *pendingValues {
-	pending := newProcessValues(ctx, step.run, step.scope, decls)
+	pending := newProcessValues(ctx, step.run, step.scope, decls, resolver)
 	pending.stepBase = documentDir(sc)
 	pending.secondary = stepSecondaryDecls(step.run, step.scope)
 
@@ -488,9 +495,9 @@ func (p *pendingValues) loadOne(name string, value any) (any, error) {
 			return value, nil
 		}
 
-		return loadFileContents(typed)
+		return loadFileContents(typed, p.resolver)
 	case *cwlcore.Directory:
-		return loadDirectoryListing(typed, p.listingFor(name))
+		return loadDirectoryListing(typed, p.listingFor(name), p.resolver)
 	default:
 		return value, nil
 	}
@@ -503,12 +510,29 @@ func readsListing(mode cwlcore.LoadListingEnum) bool {
 
 // loadDirectoryListing reads a Directory's listing from disk at the requested depth.
 // Skips if listing is already set, mode is no_listing, or path is empty.
-func loadDirectoryListing(dir *cwlcore.Directory, mode cwlcore.LoadListingEnum) (any, error) {
+func loadDirectoryListing(dir *cwlcore.Directory, mode cwlcore.LoadListingEnum, resolver OutputResolver) (any, error) {
 	if !readsListing(mode) || dir.Listing != nil || dir.Path == "" {
 		return dir, nil
 	}
 
-	listed, err := outCollectDirectory(dir.Path, mode, NewLocalDirFS(dir.Path), dir.Path)
+	var fsys WriteFS
+
+	if resolver != nil {
+		resolved, _, resolveErr := resolver.ResolveOutputFS(dir.Path)
+		if resolveErr != nil {
+			return nil, fmt.Errorf("%w: %s: %w", ErrLoadListing, dir.Path, resolveErr)
+		}
+
+		if wfs, ok := resolved.(WriteFS); ok {
+			fsys = wfs
+		} else {
+			fsys = NewLocalDirFS(dir.Path)
+		}
+	} else {
+		fsys = NewLocalDirFS(dir.Path)
+	}
+
+	listed, err := outCollectDirectory(dir.Path, mode, fsys, dir.Path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %w", ErrLoadListing, dir.Path, err)
 	}
@@ -520,12 +544,32 @@ func loadDirectoryListing(dir *cwlcore.Directory, mode cwlcore.LoadListingEnum) 
 }
 
 // loadFileContents reads a File's contents from disk. Returns a copy to avoid mutating shared values.
-func loadFileContents(file *cwlcore.File) (any, error) {
+func loadFileContents(file *cwlcore.File, resolver OutputResolver) (any, error) {
 	if file.Contents.IsSet() || file.Path == "" {
 		return file, nil
 	}
 
-	stats, err := outDigest(file.Path)
+	var (
+		stats outFileStats
+		err   error
+	)
+
+	if resolver != nil {
+		var (
+			fsys fs.FS
+			name string
+		)
+
+		fsys, name, err = resolver.ResolveOutputFS(file.Path)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s: %w", ErrLoadContents, file.Path, err)
+		}
+
+		stats, err = outDigestFS(fsys, name)
+	} else {
+		stats, err = outDigest(file.Path)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %w", ErrLoadContents, file.Path, err)
 	}

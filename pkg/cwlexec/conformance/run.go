@@ -73,6 +73,7 @@ func execute(
 		TmpDirPrefix:      "",
 		OnError:           "",
 		ContainerExecutor: cwlexec.NewDockerCLIExecutor(),
+		OutputResolver:    nil,
 		Containers: cwlexec.ContainerPolicy{
 			Disabled:    false,
 			NoMatchUser: false,

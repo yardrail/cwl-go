@@ -71,6 +71,7 @@ type PathMap struct {
 	staging     string                             // staging directory (tool-side)
 	hostWorkdir string                             // host-side workdir
 	hostStaging string                             // host-side staging
+	resolver    OutputResolver                     // nil means local filesystem
 	inplace     bool                               // InplaceUpdateRequirement active
 	contained   bool                               // running in a container
 	absolute    bool                               // allow absolute entry targets
@@ -87,6 +88,7 @@ func NewPathMap(workdir, staging string) *PathMap {
 		staging:     staging,
 		hostWorkdir: workdir,
 		hostStaging: staging,
+		resolver:    nil,
 		inplace:     false,
 		contained:   false,
 		absolute:    false,

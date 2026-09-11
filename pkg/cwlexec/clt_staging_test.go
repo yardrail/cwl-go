@@ -503,7 +503,7 @@ func TestCopyToReportsAnUnwritableTarget(t *testing.T) {
 	locked := stgLockedDir(t, dir, "locked")
 	lockedFS := NewLocalDirFS(locked)
 
-	err := copyToFS(source, lockedFS, "copied")
+	err := stgMapper().copyToFS(source, lockedFS, "copied")
 	if err == nil {
 		t.Error("copyToFS succeeded into a read-only directory")
 	}
@@ -511,7 +511,7 @@ func TestCopyToReportsAnUnwritableTarget(t *testing.T) {
 	tree := filepath.Join(dir, stgTreeName)
 	outWriteFile(t, tree, "inner.txt", execGreeting)
 
-	err = copyToFS(tree, lockedFS, stgTreeName)
+	err = stgMapper().copyToFS(tree, lockedFS, stgTreeName)
 	if err == nil {
 		t.Error("copyToFS succeeded copying a tree into a read-only directory")
 	}
@@ -534,7 +534,7 @@ func TestCopyToReportsAnUnreadableSource(t *testing.T) {
 
 	t.Cleanup(func() { stgRestore(t, secret, 0o600) })
 
-	err = copyToFS(tree, dirFS, "copied")
+	err = stgMapper().copyToFS(tree, dirFS, "copied")
 	if err == nil {
 		t.Error("copyToFS succeeded over an unreadable file")
 	}
@@ -547,7 +547,7 @@ func TestCopyToReportsAnUnreadableSource(t *testing.T) {
 		t.Fatalf("making a directory unreadable: %v", err)
 	}
 
-	err = copyToFS(tree, dirFS, "copied-again")
+	err = stgMapper().copyToFS(tree, dirFS, "copied-again")
 	if err == nil {
 		t.Error("copyToFS succeeded over an unreadable directory")
 	}
@@ -572,11 +572,14 @@ func TestCopyToReportsADanglingLink(t *testing.T) {
 	// A link to nothing must not become a broken link in the staged copy.
 	dirFS := NewLocalDirFS(dir)
 
-	err = copyToFS(tree, dirFS, "copied")
+	err = stgMapper().copyToFS(tree, dirFS, "copied")
 	if err == nil {
 		t.Error("copyToFS succeeded over a link to nothing")
 	}
 }
+
+// stgMapper returns a PathMap with no resolver, exercising the local fallback path.
+func stgMapper() *PathMap { return NewPathMap("", "") }
 
 // stgRestore puts a mode back so that the temporary directory holding it can still be removed.
 func stgRestore(t *testing.T, path string, mode os.FileMode) {

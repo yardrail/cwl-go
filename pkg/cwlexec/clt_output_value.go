@@ -466,7 +466,7 @@ func (c *outputCollector) moveTo(source, target string) (string, error) {
 	inside := filepath.Join(c.outdir, filepath.Base(target))
 	relInside := c.relOutPath(inside)
 
-	return inside, outMoveError(copyToFS(source, c.outfs, relInside), source, inside)
+	return inside, outMoveError(copyLocalToFS(source, c.outfs, relInside), source, inside)
 }
 
 // outMoveError wraps a move error with source and target paths.

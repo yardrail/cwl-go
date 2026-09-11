@@ -149,6 +149,7 @@ func (c *config) execConfig(stderr io.Writer) (*cwlexec.Config, error) {
 		TmpDirPrefix:        "",
 		OnError:             "",
 		ContainerExecutor:   cwlexec.NewDockerCLIExecutor(),
+		OutputResolver:      nil,
 		Containers:          c.containerPolicy(),
 		Resources:           cwlexec.ResourceBudget{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
 		EvalTimeout:         0,

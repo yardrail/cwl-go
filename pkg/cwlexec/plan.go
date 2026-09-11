@@ -139,7 +139,7 @@ func bareProcessPlan(ctx context.Context, process cwlcore.Process, cfg *Config) 
 		outTypes:   declaredTypes(outs),
 		defaults:   declaredDefaults(ins),
 		declaredIn: declaredInputs(ins),
-		pending:    newProcessValues(ctx, process, scope, ins),
+		pending:    newProcessValues(ctx, process, scope, ins, cfg.OutputResolver),
 		id:         processStepID(process),
 		class:      Class(process.Class()),
 		when:       "",

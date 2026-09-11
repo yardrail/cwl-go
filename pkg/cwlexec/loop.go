@@ -494,6 +494,7 @@ func (l *runLoop) newCall(job *runJob, step *plannedStep) (*StepCall, error) {
 		Requirements:      step.scope,
 		Resources:         Resources{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
 		ContainerExecutor: l.runner.cfg.ContainerExecutor,
+		OutputResolver:    l.runner.cfg.OutputResolver,
 		Containers:        l.runner.cfg.Containers,
 		OutDir:            dirs.OutDir,
 		TmpDir:            dirs.TmpDir,

@@ -50,7 +50,7 @@ func planStep(
 	planned.outTypes = declaredTypes(outputDecls(run))
 	planned.declaredIn = declaredInputs(decls)
 	planned.defaults = declaredDefaults(decls)
-	planned.pending = newPendingValues(ctx, sc, planned, decls)
+	planned.pending = newPendingValues(ctx, sc, planned, decls, cfg.OutputResolver)
 
 	return planned, checkStepFeatures(planned, stepScope)
 }

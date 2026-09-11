@@ -345,19 +345,32 @@ func outGlobStringList(values []any) ([]string, error) {
 	return patterns, nil
 }
 
+// outRelSlash converts an absolute host path to a slash-separated path relative to outdir.
+func outRelSlash(outdir, local string) (string, error) {
+	rel, err := filepath.Rel(outdir, local)
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.ToSlash(rel), nil
+}
+
 // outCollectPath builds a File or Directory value for a matched path via the given FS.
 func outCollectPath(
 	local string, binding *cwlcore.CommandOutputBinding, fsys fs.FS, outdir string,
 ) (cwlcore.FileOrDirectory, error) {
-	rel, _ := filepath.Rel(outdir, local)
+	rel, err := outRelSlash(outdir, local)
+	if err != nil {
+		return nil, err
+	}
 
-	info, err := fs.Stat(fsys, filepath.ToSlash(rel))
+	info, err := fs.Stat(fsys, rel)
 	if err != nil {
 		return nil, err
 	}
 
 	if info.IsDir() {
-		return outCollectDirectory(local, info, binding.LoadListing, fsys, outdir)
+		return outCollectDirectory(local, binding.LoadListing, fsys, outdir)
 	}
 
 	return outCollectFile(local, binding, fsys, outdir)
@@ -367,9 +380,12 @@ func outCollectPath(
 func outCollectFile(
 	local string, binding *cwlcore.CommandOutputBinding, fsys fs.FS, outdir string,
 ) (*cwlcore.File, error) {
-	rel, _ := filepath.Rel(outdir, local)
+	rel, err := outRelSlash(outdir, local)
+	if err != nil {
+		return nil, err
+	}
 
-	stats, err := outDigestFS(fsys, filepath.ToSlash(rel))
+	stats, err := outDigestFS(fsys, rel)
 	if err != nil {
 		return nil, err
 	}
@@ -432,16 +448,19 @@ const (
 
 // outCollectDirectory builds a Directory value with listing depth per loadListing. nil listing means unread.
 func outCollectDirectory(
-	local string, info fs.FileInfo, mode cwlcore.LoadListingEnum, fsys fs.FS, outdir string,
+	local string, mode cwlcore.LoadListingEnum, fsys fs.FS, outdir string,
 ) (*cwlcore.Directory, error) {
-	rel, _ := filepath.Rel(outdir, local)
-
 	switch mode {
 	case cwlcore.LoadListingShallow:
 		return outListDirectory(local, outShallowWalk, nil, fsys, outdir)
 	case cwlcore.LoadListingDeep:
+		rel, err := outRelSlash(outdir, local)
+		if err != nil {
+			return nil, err
+		}
+
 		return outListDirectory(
-			local, outDeepWalk, []string{outResolveWalkKey(fsys, filepath.ToSlash(rel))}, fsys, outdir,
+			local, outDeepWalk, []string{outResolveWalkKey(fsys, rel)}, fsys, outdir,
 		)
 	default:
 		return outNewDirectory(local), nil
@@ -452,9 +471,12 @@ func outCollectDirectory(
 func outListDirectory(
 	local string, depth outListingDepth, walked []string, fsys fs.FS, outdir string,
 ) (*cwlcore.Directory, error) {
-	rel, _ := filepath.Rel(outdir, local)
+	rel, err := outRelSlash(outdir, local)
+	if err != nil {
+		return nil, err
+	}
 
-	entries, err := fs.ReadDir(fsys, filepath.ToSlash(rel))
+	entries, err := fs.ReadDir(fsys, rel)
 	if err != nil {
 		return nil, err
 	}
@@ -482,10 +504,12 @@ func outListDirectory(
 func outListingEntry(
 	local string, depth outListingDepth, walked []string, fsys fs.FS, outdir string,
 ) (cwlcore.FileOrDirectory, error) {
-	rel, _ := filepath.Rel(outdir, local)
-	relSlash := filepath.ToSlash(rel)
+	rel, err := outRelSlash(outdir, local)
+	if err != nil {
+		return nil, err
+	}
 
-	info, err := fs.Stat(fsys, relSlash)
+	info, err := fs.Stat(fsys, rel)
 	if err != nil {
 		return nil, err
 	}
@@ -501,9 +525,9 @@ func outListingEntry(
 	// For cycle detection, resolve symlinks when the FS supports it so that a symlink
 	// back to an ancestor is detected by its resolved path rather than the growing
 	// chain of link names.
-	walkKey := relSlash
+	walkKey := rel
 	if se, ok := fsys.(SymlinkEvaluator); ok {
-		resolved, evalErr := se.EvalSymlinks(relSlash)
+		resolved, evalErr := se.EvalSymlinks(rel)
 		if evalErr == nil {
 			walkKey = resolved
 		}
@@ -532,13 +556,7 @@ func outResolveWalkKey(fsys fs.FS, relSlash string) string {
 
 // outAlreadyWalked detects directory cycles by comparing relative paths.
 func outAlreadyWalked(rel string, walked []string) bool {
-	for _, seen := range walked {
-		if rel == seen {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(walked, rel)
 }
 
 // outNewFile builds a File value from a path with derived name fields.

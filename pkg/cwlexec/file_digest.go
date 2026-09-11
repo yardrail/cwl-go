@@ -41,7 +41,7 @@ func outDigest(local string) (outFileStats, error) {
 	return stats, nil
 }
 
-// outDigestFS reads the file from an fs.FS and returns its size, checksum and leading bytes.
+// outDigestFS reads the file from an [fs.FS] and returns its size, checksum and leading bytes.
 func outDigestFS(fsys fs.FS, name string) (outFileStats, error) {
 	file, err := fsys.Open(name)
 	if err != nil {

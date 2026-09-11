@@ -7,19 +7,21 @@ import (
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
+const testDataBin = "data.bin"
+
 func TestOutRemeasureFS(t *testing.T) {
 	t.Parallel()
 
 	content := []byte("measured via FS")
 	mfs := mapWriteFS{fstest.MapFS{
-		"data.bin": &fstest.MapFile{Data: content},
+		testDataBin: &fstest.MapFile{Data: content},
 	}}
 
 	file := &cwlcore.File{
 		Node:           nil,
 		Location:       "",
-		Path:           "/fake/out/data.bin",
-		Basename:       "data.bin",
+		Path:           fakeOutdir + "/" + testDataBin,
+		Basename:       testDataBin,
 		Dirname:        "",
 		Nameroot:       "",
 		Nameext:        "",
@@ -30,7 +32,7 @@ func TestOutRemeasureFS(t *testing.T) {
 		SecondaryFiles: nil,
 	}
 
-	outRemeasure(file, mfs, "/fake/out")
+	outRemeasure(file, mfs, fakeOutdir)
 
 	if !file.Size.IsSet() || file.Size.Int() != int64(len(content)) {
 		t.Errorf("size = %v, want %d", file.Size, len(content))
@@ -48,8 +50,8 @@ func TestOutRemeasureSkipsPathOutsideOutdir(t *testing.T) {
 	file := &cwlcore.File{
 		Node:           nil,
 		Location:       "",
-		Path:           "/somewhere/else/data.bin",
-		Basename:       "data.bin",
+		Path:           "/somewhere/else/" + testDataBin,
+		Basename:       testDataBin,
 		Dirname:        "",
 		Nameroot:       "",
 		Nameext:        "",
@@ -61,7 +63,7 @@ func TestOutRemeasureSkipsPathOutsideOutdir(t *testing.T) {
 	}
 
 	mfs := mapWriteFS{fstest.MapFS{}}
-	outRemeasure(file, mfs, "/fake/out")
+	outRemeasure(file, mfs, fakeOutdir)
 
 	if file.Size.IsSet() {
 		t.Error("should not measure a file outside outdir")

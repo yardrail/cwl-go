@@ -1,11 +1,16 @@
 package cwlexec
 
 import (
-	"path/filepath"
 	"testing"
 	"testing/fstest"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
+)
+
+const (
+	fakeOutdir     = "/fake/out"
+	testResultName = "result.txt"
+	testWalkDir1   = "sub/dir1"
 )
 
 func TestOutDigestFSMatchesHostDigest(t *testing.T) {
@@ -38,20 +43,20 @@ func TestOutCollectFileFS(t *testing.T) {
 
 	content := []byte("file content here")
 	mfs := mapWriteFS{fstest.MapFS{
-		"result.txt": &fstest.MapFile{Data: content},
+		testResultName: &fstest.MapFile{Data: content},
 	}}
 
 	binding := &cwlcore.CommandOutputBinding{
 		OutputEval: "", LoadListing: "", Glob: nil, LoadContents: false,
 	}
 
-	file, err := outCollectFile("/fake/out/result.txt", binding, mfs, "/fake/out")
+	file, err := outCollectFile(fakeOutdir+"/"+testResultName, binding, mfs, fakeOutdir)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if file.Basename != "result.txt" {
-		t.Errorf("basename = %q, want result.txt", file.Basename)
+	if file.Basename != testResultName {
+		t.Errorf("basename = %q, want %s", file.Basename, testResultName)
 	}
 
 	if file.Size.Int() != int64(len(content)) {
@@ -68,11 +73,11 @@ func TestOutListDirectoryFS(t *testing.T) {
 	t.Parallel()
 
 	mfs := mapWriteFS{fstest.MapFS{
-		"sub/a.txt": &fstest.MapFile{Data: []byte("aaa")},
-		"sub/b.txt": &fstest.MapFile{Data: []byte("bb")},
+		"sub/" + outNameA: &fstest.MapFile{Data: []byte("aaa")},
+		"sub/b.txt":       &fstest.MapFile{Data: []byte("bb")},
 	}}
 
-	dir, err := outListDirectory("/fake/out/sub", outShallowWalk, nil, mfs, "/fake/out")
+	dir, err := outListDirectory(fakeOutdir+"/sub", outShallowWalk, nil, mfs, fakeOutdir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,9 +90,9 @@ func TestOutListDirectoryFS(t *testing.T) {
 func TestOutAlreadyWalkedPathBased(t *testing.T) {
 	t.Parallel()
 
-	walked := []string{"sub/dir1", "sub/dir2"}
+	walked := []string{testWalkDir1, "sub/dir2"}
 
-	if !outAlreadyWalked("sub/dir1", walked) {
+	if !outAlreadyWalked(testWalkDir1, walked) {
 		t.Error("should detect already-walked path")
 	}
 
@@ -100,12 +105,12 @@ func TestGlobMatchesMapFS(t *testing.T) {
 	t.Parallel()
 
 	mfs := mapWriteFS{fstest.MapFS{
-		"a.txt":     &fstest.MapFile{Data: []byte("a")},
+		outNameA:    &fstest.MapFile{Data: []byte("a")},
 		"b.txt":     &fstest.MapFile{Data: []byte("b")},
 		"sub/c.txt": &fstest.MapFile{Data: []byte("c")},
 	}}
 
-	collector := newOutputCollector(outTestTool(), "/fake/out", mfs, nil)
+	collector := newOutputCollector(outTestTool(), fakeOutdir, mfs, nil)
 
 	matches, err := collector.globMatches("*.txt")
 	if err != nil {
@@ -116,8 +121,8 @@ func TestGlobMatchesMapFS(t *testing.T) {
 		t.Fatalf("got %d matches, want 2", len(matches))
 	}
 
-	wantA := filepath.Join("/fake/out", "a.txt")
-	wantB := filepath.Join("/fake/out", "b.txt")
+	wantA := fakeOutdir + "/" + outNameA
+	wantB := fakeOutdir + "/b.txt"
 
 	if matches[0] != wantA || matches[1] != wantB {
 		t.Errorf("matches = %v, want [%s %s]", matches, wantA, wantB)
@@ -128,12 +133,12 @@ func TestCheckRetrievableNoSymlinkEvaluator(t *testing.T) {
 	t.Parallel()
 
 	mfs := mapWriteFS{fstest.MapFS{
-		"result.txt": &fstest.MapFile{Data: []byte("ok")},
+		testResultName: &fstest.MapFile{Data: []byte("ok")},
 	}}
 
-	collector := newOutputCollector(outTestTool(), "/fake/out", mfs, nil)
+	collector := newOutputCollector(outTestTool(), fakeOutdir, mfs, nil)
 
-	err := collector.checkRetrievable("/fake/out/result.txt")
+	err := collector.checkRetrievable(fakeOutdir + "/" + testResultName)
 	if err != nil {
 		t.Errorf("path inside outdir should be retrievable: %v", err)
 	}
@@ -148,13 +153,13 @@ func TestOutFillListingsMapFS(t *testing.T) {
 
 	dir := &cwlcore.Directory{
 		Node:     nil,
-		Location: "file:///fake/out/sub",
-		Path:     "/fake/out/sub",
+		Location: "file://" + fakeOutdir + "/sub",
+		Path:     fakeOutdir + "/sub",
 		Basename: "sub",
 		Listing:  nil,
 	}
 
-	outFillListings(dir, mfs, "/fake/out")
+	outFillListings(dir, mfs, fakeOutdir)
 
 	if dir.Listing == nil {
 		t.Fatal("listing should have been filled")
@@ -171,13 +176,7 @@ func TestOutFillListingsLocalUsesHostFS(t *testing.T) {
 	tmpDir := t.TempDir()
 	outWriteFile(t, tmpDir, "hello.txt", "hi")
 
-	dir := &cwlcore.Directory{
-		Node:     nil,
-		Location: outFileURI(tmpDir),
-		Path:     tmpDir,
-		Basename: filepath.Base(tmpDir),
-		Listing:  nil,
-	}
+	dir := outNewDirectory(tmpDir)
 
 	outFillListingsLocal(dir)
 
@@ -196,12 +195,12 @@ func TestCollectOutputsMapFS(t *testing.T) {
 	content := []byte("hello from mapfs")
 
 	mfs := mapWriteFS{fstest.MapFS{
-		"result.txt": &fstest.MapFile{Data: content},
+		testResultName: &fstest.MapFile{Data: content},
 	}}
 
 	tool := outTestTool(outTestParam("out",
 		cwlcore.NewPrimitiveType(cwlcore.PrimitiveFile),
-		outGlobBinding("result.txt")))
+		outGlobBinding(testResultName)))
 
 	outputs, err := CollectOutputs(tool, "/virtual/out", mfs, 0, nil,
 		cwlcore.NewEvaluator(), cwlcore.RuntimeContext{
@@ -218,9 +217,9 @@ func TestCollectOutputsMapFS(t *testing.T) {
 	}
 
 	wantChecksum := outChecksumOf(content)
-	file := outWantFile(t, outputs, "out", "result.txt", wantChecksum, int64(len(content)))
+	file := outWantFile(t, outputs, "out", testResultName, wantChecksum, int64(len(content)))
 
-	if file.Path != "/virtual/out/result.txt" {
-		t.Errorf("path = %q, want /virtual/out/result.txt", file.Path)
+	if file.Path != "/virtual/out/"+testResultName {
+		t.Errorf("path = %q, want /virtual/out/%s", file.Path, testResultName)
 	}
 }

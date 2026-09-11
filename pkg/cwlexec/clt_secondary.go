@@ -132,7 +132,7 @@ func (c *outputCollector) secondaryValues(
 	return found, nil
 }
 
-// appendSecondary resolves one candidate and appends it if it exists on disk.
+// appendSecondary resolves one candidate and appends it if it exists.
 func (c *outputCollector) appendSecondary(
 	found []cwlcore.FileOrDirectory, candidate any, primary *cwlcore.File, policy outSecondaryPolicy,
 ) ([]cwlcore.FileOrDirectory, error) {
@@ -141,8 +141,10 @@ func (c *outputCollector) appendSecondary(
 		return nil, err
 	}
 
-	info, present := outStat(local)
-	if !present {
+	rel := c.relOutPath(local)
+
+	info, statErr := fs.Stat(c.outfs, rel)
+	if statErr != nil {
 		if policy == outSecondaryRequired {
 			return nil, fmt.Errorf("%w: %s", ErrSecondaryMissing, local)
 		}
@@ -192,7 +194,7 @@ func (c *outputCollector) secondaryValue(
 		return outNewDirectory(local), nil
 	}
 
-	return outMeasureFile(local)
+	return outMeasureFileFS(local, c.outfs, c.outdir)
 }
 
 // secondaryCandidates expands one pattern into candidate filenames or objects.

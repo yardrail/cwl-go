@@ -84,7 +84,7 @@ func (s *sink) value(lookup sourceLookup) (any, error) {
 	}
 
 	if !s.StepInput {
-		outFillListings(picked)
+		outFillListings(picked, nil, "")
 	}
 
 	return picked, s.checkType(picked)
@@ -514,7 +514,7 @@ func loadDirectoryListing(dir *cwlcore.Directory, mode cwlcore.LoadListingEnum) 
 		return nil, fmt.Errorf("%w: %s: %w", ErrLoadListing, dir.Path, err)
 	}
 
-	listed, err := outCollectDirectory(dir.Path, info, mode)
+	listed, err := outCollectDirectory(dir.Path, info, mode, NewLocalDirFS(dir.Path), dir.Path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %w", ErrLoadListing, dir.Path, err)
 	}

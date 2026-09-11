@@ -3,6 +3,7 @@ package cwlexec
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"path/filepath"
 	"strconv"
@@ -153,13 +154,15 @@ func (c *outputCollector) retypeFile(object map[string]any) (*cwlcore.File, erro
 	}
 
 	file.SecondaryFiles = secondary
-	outRemeasure(file)
+	outRemeasure(file, c.outfs, c.outdir)
 
 	return file, nil
 }
 
-// outRemeasure fills in missing size/checksum from disk or literal contents.
-func outRemeasure(file *cwlcore.File) {
+// outRemeasure fills in missing size/checksum from the output FS or literal contents.
+// When fsys is non-nil and the file is within outdir, reads through the FS; otherwise
+// falls back to the host filesystem.
+func outRemeasure(file *cwlcore.File, fsys fs.FS, outdir string) {
 	if file.Checksum != "" && file.Size.IsSet() {
 		return
 	}
@@ -170,7 +173,17 @@ func outRemeasure(file *cwlcore.File) {
 		return
 	}
 
-	stats, err := outDigest(file.Path)
+	var stats outFileStats
+
+	var err error
+
+	if fsys != nil && strings.HasPrefix(file.Path, outdir+string(filepath.Separator)) {
+		rel, _ := filepath.Rel(outdir, file.Path)
+		stats, err = outDigestFS(fsys, filepath.ToSlash(rel))
+	} else {
+		stats, err = outDigest(file.Path)
+	}
+
 	if err != nil {
 		return
 	}

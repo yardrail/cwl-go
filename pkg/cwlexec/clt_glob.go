@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -86,14 +85,24 @@ func (c *outputCollector) collectMatch(
 		return nil, err
 	}
 
-	return outCollectPath(local, binding)
+	return outCollectPath(local, binding, c.outfs, c.outdir)
 }
 
 // checkRetrievable rejects a matched path whose symlink chain leads outside the output and input directories.
 func (c *outputCollector) checkRetrievable(local string) error {
-	resolved, err := filepath.EvalSymlinks(local)
-	if err != nil {
-		return err
+	var resolved string
+
+	if se, ok := c.outfs.(SymlinkEvaluator); ok {
+		rel := c.relOutPath(local)
+
+		relResolved, err := se.EvalSymlinks(rel)
+		if err != nil {
+			return err
+		}
+
+		resolved = filepath.Join(c.outdir, filepath.FromSlash(relResolved))
+	} else {
+		resolved = local
 	}
 
 	if outWithinDir(c.outroot, resolved) || c.fromInput(local) || c.fromInput(resolved) {
@@ -224,16 +233,30 @@ func outInputRoot(object map[string]any) string {
 	return outTextField(object, outKeyPath)
 }
 
-// globMatches returns sorted paths matching one pattern.
+// globMatches returns sorted absolute paths matching one pattern via the output FS.
 func (c *outputCollector) globMatches(pattern string) ([]string, error) {
 	resolved, err := c.resolveGlob(pattern)
 	if err != nil {
 		return nil, err
 	}
 
-	matches, err := filepath.Glob(resolved)
+	relPattern := c.relOutPath(resolved)
+
+	var relMatches []string
+
+	if gfs, ok := c.outfs.(GlobFS); ok {
+		relMatches, err = gfs.Glob(relPattern)
+	} else {
+		relMatches, err = fs.Glob(c.outfs, relPattern)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("%w %q: %w", ErrGlobPattern, pattern, err)
+	}
+
+	matches := make([]string, 0, len(relMatches))
+	for _, rel := range relMatches {
+		matches = append(matches, filepath.Join(c.outdir, filepath.FromSlash(rel)))
 	}
 
 	slices.Sort(matches)
@@ -322,23 +345,31 @@ func outGlobStringList(values []any) ([]string, error) {
 	return patterns, nil
 }
 
-// outCollectPath builds a File or Directory value for a matched path, following symlinks for stat.
-func outCollectPath(local string, binding *cwlcore.CommandOutputBinding) (cwlcore.FileOrDirectory, error) {
-	info, err := os.Stat(local)
+// outCollectPath builds a File or Directory value for a matched path via the given FS.
+func outCollectPath(
+	local string, binding *cwlcore.CommandOutputBinding, fsys fs.FS, outdir string,
+) (cwlcore.FileOrDirectory, error) {
+	rel, _ := filepath.Rel(outdir, local)
+
+	info, err := fs.Stat(fsys, filepath.ToSlash(rel))
 	if err != nil {
 		return nil, err
 	}
 
 	if info.IsDir() {
-		return outCollectDirectory(local, info, binding.LoadListing)
+		return outCollectDirectory(local, info, binding.LoadListing, fsys, outdir)
 	}
 
-	return outCollectFile(local, binding)
+	return outCollectFile(local, binding, fsys, outdir)
 }
 
-// outCollectFile builds a File value with size, checksum, and optionally contents from disk.
-func outCollectFile(local string, binding *cwlcore.CommandOutputBinding) (*cwlcore.File, error) {
-	stats, err := outDigest(local)
+// outCollectFile builds a File value with size, checksum, and optionally contents via the given FS.
+func outCollectFile(
+	local string, binding *cwlcore.CommandOutputBinding, fsys fs.FS, outdir string,
+) (*cwlcore.File, error) {
+	rel, _ := filepath.Rel(outdir, local)
+
+	stats, err := outDigestFS(fsys, filepath.ToSlash(rel))
 	if err != nil {
 		return nil, err
 	}
@@ -354,11 +385,21 @@ func outCollectFile(local string, binding *cwlcore.CommandOutputBinding) (*cwlco
 	return outWithContents(file, &stats)
 }
 
-// outMeasureFile builds a File value with size and checksum but no contents.
+// outMeasureFile builds a File value with size and checksum but no contents, reading from the host FS.
 func outMeasureFile(local string) (*cwlcore.File, error) {
 	return outCollectFile(
 		local,
 		&cwlcore.CommandOutputBinding{OutputEval: "", LoadListing: "", Glob: nil, LoadContents: false},
+		NewLocalDirFS(filepath.Dir(local)), filepath.Dir(local),
+	)
+}
+
+// outMeasureFileFS builds a File value with size and checksum but no contents, reading from fsys.
+func outMeasureFileFS(local string, fsys fs.FS, outdir string) (*cwlcore.File, error) {
+	return outCollectFile(
+		local,
+		&cwlcore.CommandOutputBinding{OutputEval: "", LoadListing: "", Glob: nil, LoadContents: false},
+		fsys, outdir,
 	)
 }
 
@@ -391,21 +432,29 @@ const (
 
 // outCollectDirectory builds a Directory value with listing depth per loadListing. nil listing means unread.
 func outCollectDirectory(
-	local string, info fs.FileInfo, mode cwlcore.LoadListingEnum,
+	local string, info fs.FileInfo, mode cwlcore.LoadListingEnum, fsys fs.FS, outdir string,
 ) (*cwlcore.Directory, error) {
+	rel, _ := filepath.Rel(outdir, local)
+
 	switch mode {
 	case cwlcore.LoadListingShallow:
-		return outListDirectory(local, outShallowWalk, nil)
+		return outListDirectory(local, outShallowWalk, nil, fsys, outdir)
 	case cwlcore.LoadListingDeep:
-		return outListDirectory(local, outDeepWalk, []fs.FileInfo{info})
+		return outListDirectory(
+			local, outDeepWalk, []string{outResolveWalkKey(fsys, filepath.ToSlash(rel))}, fsys, outdir,
+		)
 	default:
 		return outNewDirectory(local), nil
 	}
 }
 
-// outListDirectory builds a Directory with its listing read from disk. walked prevents symlink cycles.
-func outListDirectory(local string, depth outListingDepth, walked []fs.FileInfo) (*cwlcore.Directory, error) {
-	entries, err := os.ReadDir(local)
+// outListDirectory builds a Directory with its listing read via fsys. walked prevents cycles.
+func outListDirectory(
+	local string, depth outListingDepth, walked []string, fsys fs.FS, outdir string,
+) (*cwlcore.Directory, error) {
+	rel, _ := filepath.Rel(outdir, local)
+
+	entries, err := fs.ReadDir(fsys, filepath.ToSlash(rel))
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +463,9 @@ func outListDirectory(local string, depth outListingDepth, walked []fs.FileInfo)
 	listing := make([]cwlcore.FileOrDirectory, 0, len(entries))
 
 	for _, entry := range entries {
-		value, err := outListingEntry(filepath.Join(local, entry.Name()), depth, walked)
+		value, err := outListingEntry(
+			filepath.Join(local, entry.Name()), depth, walked, fsys, outdir,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -429,28 +480,60 @@ func outListDirectory(local string, depth outListingDepth, walked []fs.FileInfo)
 
 // outListingEntry builds one directory listing entry. Deep-walked subdirs get their own listing.
 func outListingEntry(
-	local string, depth outListingDepth, walked []fs.FileInfo,
+	local string, depth outListingDepth, walked []string, fsys fs.FS, outdir string,
 ) (cwlcore.FileOrDirectory, error) {
-	info, err := os.Stat(local)
+	rel, _ := filepath.Rel(outdir, local)
+	relSlash := filepath.ToSlash(rel)
+
+	info, err := fs.Stat(fsys, relSlash)
 	if err != nil {
 		return nil, err
 	}
 
 	if !info.IsDir() {
-		return outMeasureFile(local)
+		return outMeasureFileFS(local, fsys, outdir)
 	}
 
-	if depth != outDeepWalk || outAlreadyWalked(info, walked) {
+	if depth != outDeepWalk {
 		return outNewDirectory(local), nil
 	}
 
-	return outListDirectory(local, outDeepWalk, append(walked, info))
+	// For cycle detection, resolve symlinks when the FS supports it so that a symlink
+	// back to an ancestor is detected by its resolved path rather than the growing
+	// chain of link names.
+	walkKey := relSlash
+	if se, ok := fsys.(SymlinkEvaluator); ok {
+		resolved, evalErr := se.EvalSymlinks(relSlash)
+		if evalErr == nil {
+			walkKey = resolved
+		}
+	}
+
+	if outAlreadyWalked(walkKey, walked) {
+		return outNewDirectory(local), nil
+	}
+
+	return outListDirectory(local, outDeepWalk, append(walked, walkKey), fsys, outdir)
 }
 
-// outAlreadyWalked detects symlink cycles using [os.SameFile].
-func outAlreadyWalked(info fs.FileInfo, walked []fs.FileInfo) bool {
+// outResolveWalkKey resolves a relative path through SymlinkEvaluator if available,
+// returning the original path if not. Used to seed the walked list with the resolved
+// path of the starting directory so that symlink loops are detected.
+func outResolveWalkKey(fsys fs.FS, relSlash string) string {
+	if se, ok := fsys.(SymlinkEvaluator); ok {
+		resolved, err := se.EvalSymlinks(relSlash)
+		if err == nil {
+			return resolved
+		}
+	}
+
+	return relSlash
+}
+
+// outAlreadyWalked detects directory cycles by comparing relative paths.
+func outAlreadyWalked(rel string, walked []string) bool {
 	for _, seen := range walked {
-		if os.SameFile(info, seen) {
+		if rel == seen {
 			return true
 		}
 	}
@@ -483,54 +566,73 @@ func outNewFile(local string) *cwlcore.File {
 // collection, so in-flight values reflect current disk state rather than frozen snapshots.
 
 // outFillListings ensures every Directory in value has a listing. Errors are silently ignored.
-func outFillListings(value any) {
+func outFillListings(value any, fsys fs.FS, outdir string) {
 	switch typed := value.(type) {
 	case *cwlcore.Directory:
 		if typed != nil {
-			outFillDirectory(typed)
+			outFillDirectory(typed, fsys, outdir)
 		}
 	case *cwlcore.File:
 		if typed != nil {
-			outFillEntries(typed.SecondaryFiles)
+			outFillEntries(typed.SecondaryFiles, fsys, outdir)
 		}
 	case []any:
 		for _, item := range typed {
-			outFillListings(item)
+			outFillListings(item, fsys, outdir)
 		}
 	case map[string]any:
 		for _, field := range typed {
-			outFillListings(field)
+			outFillListings(field, fsys, outdir)
 		}
 	default:
 	}
 }
 
 // outFillEntries completes listings for each entry.
-func outFillEntries(entries []cwlcore.FileOrDirectory) {
+func outFillEntries(entries []cwlcore.FileOrDirectory, fsys fs.FS, outdir string) {
 	for _, entry := range entries {
-		outFillListings(entry)
+		outFillListings(entry, fsys, outdir)
 	}
 }
 
 // outFillDirectory completes one Directory. Existing listings are kept and descended into.
-func outFillDirectory(dir *cwlcore.Directory) {
+// When fsys is nil, derives one from the directory's own path.
+func outFillDirectory(dir *cwlcore.Directory, fsys fs.FS, outdir string) {
 	if dir.Listing != nil {
-		outFillEntries(dir.Listing)
+		outFillEntries(dir.Listing, fsys, outdir)
 
 		return
 	}
 
-	dir.Listing = outReadListing(dir.Path)
+	if fsys == nil && dir.Path != "" {
+		fsys = NewLocalDirFS(dir.Path)
+		outdir = dir.Path
+	}
+
+	dir.Listing = outReadListing(dir.Path, fsys, outdir)
 }
 
 // outReadListing reads the full tree under local, returning nil on error.
-func outReadListing(local string) []cwlcore.FileOrDirectory {
-	info, err := os.Stat(local)
+func outReadListing(local string, fsys fs.FS, outdir string) []cwlcore.FileOrDirectory {
+	if fsys == nil {
+		return nil
+	}
+
+	rel, relErr := filepath.Rel(outdir, local)
+	if relErr != nil {
+		return nil
+	}
+
+	relSlash := filepath.ToSlash(rel)
+
+	info, err := fs.Stat(fsys, relSlash)
 	if err != nil || !info.IsDir() {
 		return nil
 	}
 
-	read, err := outListDirectory(local, outDeepWalk, []fs.FileInfo{info})
+	read, err := outListDirectory(
+		local, outDeepWalk, []string{outResolveWalkKey(fsys, relSlash)}, fsys, outdir,
+	)
 	if err != nil {
 		return nil
 	}

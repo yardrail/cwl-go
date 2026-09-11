@@ -42,17 +42,14 @@ func TestOutRemeasureFS(t *testing.T) {
 	}
 }
 
-func TestOutRemeasureFallsBackToHostForExternalPath(t *testing.T) {
+func TestOutRemeasureSkipsPathOutsideOutdir(t *testing.T) {
 	t.Parallel()
-
-	tmpDir := t.TempDir()
-	path := outWriteFile(t, tmpDir, "external.txt", "not in outdir")
 
 	file := &cwlcore.File{
 		Node:           nil,
 		Location:       "",
-		Path:           path,
-		Basename:       "external.txt",
+		Path:           "/somewhere/else/data.bin",
+		Basename:       "data.bin",
 		Dirname:        "",
 		Nameroot:       "",
 		Nameext:        "",
@@ -66,7 +63,11 @@ func TestOutRemeasureFallsBackToHostForExternalPath(t *testing.T) {
 	mfs := mapWriteFS{fstest.MapFS{}}
 	outRemeasure(file, mfs, "/fake/out")
 
-	if !file.Size.IsSet() {
-		t.Error("should have measured via host fallback")
+	if file.Size.IsSet() {
+		t.Error("should not measure a file outside outdir")
+	}
+
+	if file.Checksum != "" {
+		t.Error("should not set checksum for a file outside outdir")
 	}
 }

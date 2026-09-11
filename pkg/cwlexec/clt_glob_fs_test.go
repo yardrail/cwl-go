@@ -165,7 +165,7 @@ func TestOutFillListingsMapFS(t *testing.T) {
 	}
 }
 
-func TestOutFillListingsNilFSFallsBackToHost(t *testing.T) {
+func TestOutFillListingsLocalUsesHostFS(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -179,10 +179,14 @@ func TestOutFillListingsNilFSFallsBackToHost(t *testing.T) {
 		Listing:  nil,
 	}
 
-	outFillListings(dir, nil, "")
+	outFillListingsLocal(dir)
 
 	if dir.Listing == nil {
-		t.Fatal("listing should have been filled via host fallback")
+		t.Fatal("listing should have been filled via host FS")
+	}
+
+	if len(dir.Listing) != 1 {
+		t.Fatalf("listing has %d entries, want 1", len(dir.Listing))
 	}
 }
 

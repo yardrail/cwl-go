@@ -289,7 +289,7 @@ func TestCollectOutputsSecondaryFilesExpressionReturningADirectory(t *testing.T)
 
 	// A Directory hanging off a File is published like any other, so the completion pass has to
 	// reach it too.
-	outFillListings(primary, nil, "")
+	outFillListingsLocal(primary)
 	assertDeepEqual(t, "listing", outEntryNames(t, aux.Listing), []string{outNameX})
 }
 

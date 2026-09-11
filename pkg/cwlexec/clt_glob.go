@@ -588,6 +588,53 @@ func outFillListings(value any, fsys fs.FS, outdir string) {
 	}
 }
 
+// outFillListingsLocal is the host-filesystem variant of [outFillListings]. Each Directory
+// is read through a [LocalDirFS] rooted at its own path — the explicit choice for code
+// that knows its values live on the host, such as workflow-level output assembly.
+func outFillListingsLocal(value any) {
+	switch typed := value.(type) {
+	case *cwlcore.Directory:
+		if typed != nil {
+			outFillDirectoryLocal(typed)
+		}
+	case *cwlcore.File:
+		if typed != nil {
+			outFillEntriesLocal(typed.SecondaryFiles)
+		}
+	case []any:
+		for _, item := range typed {
+			outFillListingsLocal(item)
+		}
+	case map[string]any:
+		for _, field := range typed {
+			outFillListingsLocal(field)
+		}
+	default:
+	}
+}
+
+// outFillEntriesLocal is the host-filesystem variant of [outFillEntries].
+func outFillEntriesLocal(entries []cwlcore.FileOrDirectory) {
+	for _, entry := range entries {
+		outFillListingsLocal(entry)
+	}
+}
+
+// outFillDirectoryLocal completes one Directory using the host filesystem.
+func outFillDirectoryLocal(dir *cwlcore.Directory) {
+	if dir.Listing != nil {
+		outFillEntriesLocal(dir.Listing)
+
+		return
+	}
+
+	if dir.Path == "" {
+		return
+	}
+
+	dir.Listing = outReadListing(dir.Path, NewLocalDirFS(dir.Path), dir.Path)
+}
+
 // outFillEntries completes listings for each entry.
 func outFillEntries(entries []cwlcore.FileOrDirectory, fsys fs.FS, outdir string) {
 	for _, entry := range entries {
@@ -596,7 +643,6 @@ func outFillEntries(entries []cwlcore.FileOrDirectory, fsys fs.FS, outdir string
 }
 
 // outFillDirectory completes one Directory. Existing listings are kept and descended into.
-// When fsys is nil, derives one from the directory's own path.
 func outFillDirectory(dir *cwlcore.Directory, fsys fs.FS, outdir string) {
 	if dir.Listing != nil {
 		outFillEntries(dir.Listing, fsys, outdir)
@@ -604,20 +650,11 @@ func outFillDirectory(dir *cwlcore.Directory, fsys fs.FS, outdir string) {
 		return
 	}
 
-	if fsys == nil && dir.Path != "" {
-		fsys = NewLocalDirFS(dir.Path)
-		outdir = dir.Path
-	}
-
 	dir.Listing = outReadListing(dir.Path, fsys, outdir)
 }
 
 // outReadListing reads the full tree under local, returning nil on error.
 func outReadListing(local string, fsys fs.FS, outdir string) []cwlcore.FileOrDirectory {
-	if fsys == nil {
-		return nil
-	}
-
 	rel, relErr := filepath.Rel(outdir, local)
 	if relErr != nil {
 		return nil

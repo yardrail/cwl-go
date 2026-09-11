@@ -30,11 +30,16 @@ const (
 // Config holds runtime settings not expressed in the CWL document.
 // The zero value is usable: unbounded parallelism, no resource ceiling, OnErrorStop.
 type Config struct {
-	Logger              *slog.Logger                                                           // Nil means [slog.Default].
-	SelectResources     func(request ResourceRequest, budget ResourceBudget) (Resources, error) // Nil means [DefaultSelectResources].
-	AllowRequirements   map[string]bool                                                        // Extension requirement classes to allow.
-	OutDir              string                                                                 // Base for invocation output directories.
-	TmpDirPrefix        string                                                                 // Base for invocation scratch directories.
+	// Logger receives execution diagnostics. Nil means [slog.Default].
+	Logger *slog.Logger
+	// SelectResources resolves resource requests. Nil means [DefaultSelectResources].
+	SelectResources func(request ResourceRequest, budget ResourceBudget) (Resources, error)
+	// AllowRequirements names extension requirement classes to allow.
+	AllowRequirements map[string]bool
+	// OutDir is the base for invocation output directories.
+	OutDir string
+	// TmpDirPrefix is the base for invocation scratch directories.
+	TmpDirPrefix        string
 	OnError             OnError
 	ContainerExecutor   ContainerExecutor // Nil means containers unsupported.
 	Containers          ContainerPolicy

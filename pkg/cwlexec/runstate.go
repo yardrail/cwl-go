@@ -47,8 +47,8 @@ type jobState struct {
 	Outputs    map[string]any  `json:"outputs,omitempty"`
 	Suspension *suspensionJSON `json:"suspension,omitempty"`
 	Status     Status          `json:"status,omitempty"`
-	Error      string          `json:"error,omitempty"`   // Text since errors don't survive JSON.
-	Index      []int           `json:"index,omitempty"`   // Scatter coordinates; empty if unscattered.
+	Error      string          `json:"error,omitempty"` // Text since errors don't survive JSON.
+	Index      []int           `json:"index,omitempty"` // Scatter coordinates; empty if unscattered.
 }
 
 // terminal reports whether this invocation has a final outcome (not suspended).

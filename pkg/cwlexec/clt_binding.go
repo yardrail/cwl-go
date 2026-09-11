@@ -32,21 +32,21 @@ type boundArg struct {
 
 // bindTarget is one level of the schema-and-value walk.
 type bindTarget struct {
-	typ     cwlcore.TypeRef              // declared type, used to find nested bindings
-	binding *cwlcore.CommandLineBinding  // inputBinding at this level, or nil
-	value   any                          // input value at this level
-	origin  string                       // enclosing parameter name, for diagnostics
-	key     sortKey                      // sort key of enclosing levels
-	tie     keyElem                      // tie-break: field/param name or array index
+	typ     cwlcore.TypeRef             // declared type, used to find nested bindings
+	binding *cwlcore.CommandLineBinding // inputBinding at this level, or nil
+	value   any                         // input value at this level
+	origin  string                      // enclosing parameter name, for diagnostics
+	key     sortKey                     // sort key of enclosing levels
+	tie     keyElem                     // tie-break: field/param name or array index
 }
 
 // cmdBuilder accumulates the leaf bindings of one command line.
 type cmdBuilder struct {
-	eval    *cwlcore.Evaluator         // evaluates position and valueFrom expressions
-	inputs  map[string]any             // resolved inputs, keyed by short name
-	bound   []boundArg                 // collected leaves, in collection order
-	scope   *cwlcore.RequirementScope  // for resolving SchemaDefRequirement types
-	runtime cwlcore.RuntimeContext     // runtime.* context for expressions
+	eval    *cwlcore.Evaluator        // evaluates position and valueFrom expressions
+	inputs  map[string]any            // resolved inputs, keyed by short name
+	bound   []boundArg                // collected leaves, in collection order
+	scope   *cwlcore.RequirementScope // for resolving SchemaDefRequirement types
+	runtime cwlcore.RuntimeContext    // runtime.* context for expressions
 }
 
 // collect walks the tool's inputs and arguments, filling in b.bound.

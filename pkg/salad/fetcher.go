@@ -198,7 +198,7 @@ func normalizeURL(base, ref string) (string, error) {
 	return normalizeURLAbs(filepath.Abs, base, ref)
 }
 
-// normalizeURLAbs is normalizeURL with an injectable filepath.Abs for testing.
+// normalizeURLAbs is normalizeURL with an injectable [filepath.Abs] for testing.
 func normalizeURLAbs(abs func(string) (string, error), base, ref string) (string, error) {
 	if ref == "" {
 		return "", errEmptyReference

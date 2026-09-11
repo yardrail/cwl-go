@@ -19,7 +19,7 @@ func joDiscoverSecondaryFiles(ctx context.Context, inputs map[string]any, p cwlc
 	scope := cwlcore.NewScope(p)
 
 	pass := &joSecondaryPass{
-		eval: EvaluatorFor(scope),
+		eval:   EvaluatorFor(scope),
 		inputs: outExpressionObject(inputs),
 	}
 

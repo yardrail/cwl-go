@@ -141,7 +141,7 @@ func (p *rdfParser) eachChild(fn func(xml.StartElement) error) error {
 		case xml.EndElement:
 			return nil
 		default:
-			}
+		}
 	}
 }
 

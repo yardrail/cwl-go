@@ -65,7 +65,7 @@ func schemaFor(version string) (*salad.LoadedSchema, error) {
 	}
 }
 
-// loadEmbeddedSchema loads and flattens one vendored schema from its embed.FS.
+// loadEmbeddedSchema loads and flattens one vendored schema from its [embed.FS].
 func loadEmbeddedSchema(set schemaSet) (*salad.LoadedSchema, error) {
 	return salad.LoadSchema(
 		set.sourceURL(),

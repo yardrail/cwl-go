@@ -96,7 +96,7 @@ func inplaceUpdate(scope *cwlcore.RequirementScope) bool {
 type workDirStager struct {
 	mapper *PathMap
 	eval   *cwlcore.Evaluator
-	types  *outputCollector    // Retypes expression results as cwlcore values.
+	types  *outputCollector // Retypes expression results as cwlcore values.
 	ctx    *cwlcore.EvalContext
 }
 

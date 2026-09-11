@@ -12,6 +12,7 @@ import (
 type TypeKind uint8
 
 const (
+	// TypeKindUnset is the zero value: no type set.
 	TypeKindUnset     TypeKind = iota
 	TypeKindPrimitive          // CWLType symbol
 	TypeKindRecord             // inline record schema

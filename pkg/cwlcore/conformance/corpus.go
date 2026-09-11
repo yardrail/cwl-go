@@ -331,7 +331,7 @@ func safeJoin(root, rel string) (string, bool) {
 	return target, true
 }
 
-// defaultCacheDir returns the corpus cache directory, falling back to os.TempDir.
+// defaultCacheDir returns the corpus cache directory, falling back to [os.TempDir].
 func defaultCacheDir() string {
 	override := strings.TrimSpace(os.Getenv(envCache))
 	if override != "" {

@@ -73,9 +73,14 @@ func (*Workflow) Class() string {
 	return ClassWorkflow
 }
 
-func (w *Workflow) WorkflowSteps() []WorkflowStep                { return w.Steps }
-func (w *Workflow) WorkflowInputs() []WorkflowInputParameter     { return w.Inputs }
-func (w *Workflow) WorkflowOutputs() []WorkflowOutputParameter   { return w.Outputs }
+// WorkflowSteps returns the workflow's steps.
+func (w *Workflow) WorkflowSteps() []WorkflowStep { return w.Steps }
+
+// WorkflowInputs returns the workflow's input parameters.
+func (w *Workflow) WorkflowInputs() []WorkflowInputParameter { return w.Inputs }
+
+// WorkflowOutputs returns the workflow's output parameters.
+func (w *Workflow) WorkflowOutputs() []WorkflowOutputParameter { return w.Outputs }
 
 // ExpressionTool computes outputs from a single CWL expression.
 type ExpressionTool struct {
@@ -135,6 +140,11 @@ type ExtensionWorkflow struct {
 // Class returns the extension class IRI.
 func (ew *ExtensionWorkflow) Class() string { return ew.ClassIRI }
 
-func (ew *ExtensionWorkflow) WorkflowSteps() []WorkflowStep              { return ew.Steps }
-func (ew *ExtensionWorkflow) WorkflowInputs() []WorkflowInputParameter   { return ew.Inputs }
+// WorkflowSteps returns the extension workflow's steps.
+func (ew *ExtensionWorkflow) WorkflowSteps() []WorkflowStep { return ew.Steps }
+
+// WorkflowInputs returns the extension workflow's input parameters.
+func (ew *ExtensionWorkflow) WorkflowInputs() []WorkflowInputParameter { return ew.Inputs }
+
+// WorkflowOutputs returns the extension workflow's output parameters.
 func (ew *ExtensionWorkflow) WorkflowOutputs() []WorkflowOutputParameter { return ew.Outputs }

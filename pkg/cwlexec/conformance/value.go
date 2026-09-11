@@ -24,7 +24,7 @@ func normalize(value any) (any, error) {
 	return out, nil
 }
 
-// measured renders a filesystem-measured number as a json.Number.
+// measured renders a filesystem-measured number as a [json.Number].
 func measured(value int64) json.Number {
 	return json.Number(strconv.FormatInt(value, decimalBase))
 }

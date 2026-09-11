@@ -27,7 +27,7 @@ type Invocation interface {
 
 // ContainerSpec describes one container invocation.
 type ContainerSpec struct {
-	Image         string
+	Image string
 	// Mounts are bind mounts. Order matters: whole-directory mounts come first.
 	Mounts        []Mount
 	WorkDir       string
@@ -36,7 +36,7 @@ type ContainerSpec struct {
 	MatchUser     bool
 	Remove        bool
 	// Stdout is the host capture path, or "" if uncaptured.
-	Stdout        string
+	Stdout string
 }
 
 // Mount is one bind mount from host to container.

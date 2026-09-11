@@ -15,8 +15,8 @@ type CommandLineBinding struct {
 	ItemSeparator string
 	ValueFrom     Expression
 	Position      ExprLong
-	Separate      OptBool   // schema default: true
-	ShellQuote    OptBool   // schema default: true
+	Separate      OptBool // schema default: true
+	ShellQuote    OptBool // schema default: true
 	LoadContents  bool
 }
 

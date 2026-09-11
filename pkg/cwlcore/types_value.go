@@ -12,6 +12,7 @@ import (
 type ValueKind uint8
 
 const (
+	// ValueUnset is the zero value: no value set.
 	ValueUnset      ValueKind = iota
 	ValueNull                 // explicit null
 	ValueBool                 // boolean literal

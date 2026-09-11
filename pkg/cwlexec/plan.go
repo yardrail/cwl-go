@@ -32,12 +32,12 @@ const implicitStepID = "main"
 
 // portDecl is a declared input or output parameter.
 type portDecl struct {
-	Default     any                     // materialized default value, or nil
-	DefaultNode salad.Node              // raw salad node of the default, or nil
-	Name        string                  // short name
-	Type        cwlcore.TypeRef         // declared type
-	LoadListing cwlcore.LoadListingEnum // directory listing depth (inputs only)
-	LoadContents bool                   // read file contents (inputs only)
+	Default      any                     // materialized default value, or nil
+	DefaultNode  salad.Node              // raw salad node of the default, or nil
+	Name         string                  // short name
+	Type         cwlcore.TypeRef         // declared type
+	LoadListing  cwlcore.LoadListingEnum // directory listing depth (inputs only)
+	LoadContents bool                    // read file contents (inputs only)
 }
 
 // sourceRef identifies a value source: a step output port, or a run input (Step == "").

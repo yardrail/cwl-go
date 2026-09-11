@@ -65,9 +65,12 @@ type Expression string
 type ScatterMethod string
 
 const (
-	ScatterDotProduct         ScatterMethod = "dotproduct"
+	// ScatterDotProduct pairs scattered arrays element-wise.
+	ScatterDotProduct ScatterMethod = "dotproduct"
+	// ScatterNestedCrossProduct produces a nested array over the full grid.
 	ScatterNestedCrossProduct ScatterMethod = "nested_crossproduct"
-	ScatterFlatCrossProduct   ScatterMethod = "flat_crossproduct"
+	// ScatterFlatCrossProduct produces a flat array over the full grid.
+	ScatterFlatCrossProduct ScatterMethod = "flat_crossproduct"
 )
 
 // LinkMergeMethod selects how multiple sources feeding one sink are combined.
@@ -85,16 +88,22 @@ const (
 type PickValueMethod string
 
 const (
-	PickFirstNonNull   PickValueMethod = "first_non_null"
+	// PickFirstNonNull selects the first non-null value.
+	PickFirstNonNull PickValueMethod = "first_non_null"
+	// PickTheOnlyNonNull requires exactly one non-null value.
 	PickTheOnlyNonNull PickValueMethod = "the_only_non_null"
-	PickAllNonNull     PickValueMethod = "all_non_null"
+	// PickAllNonNull keeps all non-null values.
+	PickAllNonNull PickValueMethod = "all_non_null"
 )
 
 // LoadListingEnum selects how deeply a Directory's listing is populated.
 type LoadListingEnum string
 
 const (
-	LoadListingNone    LoadListingEnum = "no_listing"
+	// LoadListingNone omits the directory listing.
+	LoadListingNone LoadListingEnum = "no_listing"
+	// LoadListingShallow populates one level of entries.
 	LoadListingShallow LoadListingEnum = "shallow_listing"
-	LoadListingDeep    LoadListingEnum = "deep_listing"
+	// LoadListingDeep recursively populates the full tree.
+	LoadListingDeep LoadListingEnum = "deep_listing"
 )

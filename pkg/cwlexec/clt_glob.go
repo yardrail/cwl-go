@@ -31,7 +31,8 @@ var (
 	ErrContentsNotText = errors.New("loadContents: file is not UTF-8 text")
 )
 
-// globValues matches patterns against the output directory and builds File/Directory values, sorted within each pattern.
+// globValues matches patterns against the output directory and builds
+// File/Directory values, sorted within each pattern.
 func (c *outputCollector) globValues(
 	patterns []string, binding *cwlcore.CommandOutputBinding,
 ) ([]cwlcore.FileOrDirectory, error) {

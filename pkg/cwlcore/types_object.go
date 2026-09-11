@@ -11,7 +11,9 @@ var (
 )
 
 const (
-	ClassFile      = PrimitiveFile
+	// ClassFile is the class string for File values.
+	ClassFile = PrimitiveFile
+	// ClassDirectory is the class string for Directory values.
 	ClassDirectory = PrimitiveDirectory
 )
 

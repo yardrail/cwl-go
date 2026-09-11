@@ -28,7 +28,9 @@ var (
 type Stream string
 
 const (
+	// StreamStdout captures the tool's standard output.
 	StreamStdout Stream = "stdout"
+	// StreamStderr captures the tool's standard error.
 	StreamStderr Stream = "stderr"
 )
 
@@ -129,13 +131,13 @@ type outputCollector struct {
 	tool     *cwlcore.CommandLineTool
 	eval     *cwlcore.Evaluator
 	scope    *cwlcore.RequirementScope
-	inputs   map[string]any          // expression-ready input object
-	roots    []string                // allowed paths for containment checks
-	runtime  cwlcore.RuntimeContext  // runtime.* context (exitCode undefined here)
-	outdir   string                  // cleaned absolute output directory
-	outfs    WriteFS                 // filesystem backing outdir
-	outroot  string                  // symlink-resolved outdir
-	exitCode int                     // process exit code, for outputEval only
+	inputs   map[string]any         // expression-ready input object
+	roots    []string               // allowed paths for containment checks
+	runtime  cwlcore.RuntimeContext // runtime.* context (exitCode undefined here)
+	outdir   string                 // cleaned absolute output directory
+	outfs    WriteFS                // filesystem backing outdir
+	outroot  string                 // symlink-resolved outdir
+	exitCode int                    // process exit code, for outputEval only
 }
 
 // newOutputCollector builds the shared context for output collection.

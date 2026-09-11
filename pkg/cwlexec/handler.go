@@ -34,7 +34,9 @@ type Class string
 type Status string
 
 const (
-	StatusSuccess       Status = "success"
+	// StatusSuccess reports a step that ran and produced outputs.
+	StatusSuccess Status = "success"
+	// StatusPermanentFail reports an unrecoverable step failure.
 	StatusPermanentFail Status = "permanentFail"
 	// StatusTemporaryFail signals a retryable failure. cwlexec never retries; retry is caller policy.
 	StatusTemporaryFail Status = "temporaryFail"
@@ -57,26 +59,26 @@ type Resources struct {
 // StepCall is the fully-resolved unit of work handed to a [StepHandler].
 // One per invocation; treat as read-only.
 type StepCall struct {
-	StepID            string
-	Process           cwlcore.Process
-	Class             Class
+	StepID  string
+	Process cwlcore.Process
+	Class   Class
 	// Inputs keys are parameter short names; see [ShortName].
-	Inputs            map[string]any
+	Inputs map[string]any
 	// ScatterIndex is empty for unscattered steps.
-	ScatterIndex      []int
+	ScatterIndex []int
 	// Requirements may be nil (reads as empty scope).
 	Requirements      *cwlcore.RequirementScope
 	Resources         Resources
 	ContainerExecutor ContainerExecutor
 	Containers        ContainerPolicy
 	// OutDir is runtime.outdir.
-	OutDir            string
+	OutDir string
 	// TmpDir is runtime.tmpdir; not preserved after the step finishes.
-	TmpDir            string
+	TmpDir string
 	// Eval may be nil; [StepCall.Evaluator] derives one from Requirements if so.
-	Eval              *cwlcore.Evaluator
+	Eval *cwlcore.Evaluator
 	// Logger may be nil; use [StepCall.Log] for a nil-safe accessor.
-	Logger            *slog.Logger
+	Logger *slog.Logger
 }
 
 // StepHandler executes one invocation of a process class. Must be safe for concurrent use.
@@ -96,9 +98,9 @@ func (f HandlerFunc) Execute(ctx context.Context, call *StepCall) (Result, error
 
 // Result is a handler's outcome. [Outcome] enforces invariants at the scheduler boundary.
 type Result struct {
-	Status     Status
+	Status Status
 	// Outputs is keyed by output parameter short name; see [ShortName].
-	Outputs    map[string]any
+	Outputs map[string]any
 	// Suspension is set iff Status is StatusSuspended.
 	Suspension *Suspension
 }

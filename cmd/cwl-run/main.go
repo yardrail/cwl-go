@@ -32,7 +32,12 @@ const maxPositional = 2
 var errUsage = errors.New("invalid command line")
 
 func main() {
-	err := run(os.Args[1:], os.Stdout, os.Stderr)
+	args := os.Args
+	if len(args) > 0 {
+		args = args[1:]
+	}
+
+	err := run(args, os.Stdout, os.Stderr)
 	if err == nil {
 		return
 	}

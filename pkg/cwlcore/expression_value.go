@@ -129,6 +129,10 @@ func filesystemList(entries []FileOrDirectory) []any {
 // fileObject renders a File as the map an expression reads.
 // Size and Contents are written only when set.
 func fileObject(file *File) map[string]any {
+	if file == nil {
+		return nil
+	}
+
 	object := make(map[string]any, fileFieldCount)
 	object[keyClass] = ClassFile
 
@@ -157,6 +161,10 @@ func fileObject(file *File) map[string]any {
 // directoryObject renders a Directory as the map an expression reads.
 // Nil Listing is omitted; empty Listing is written as [].
 func directoryObject(dir *Directory) map[string]any {
+	if dir == nil {
+		return nil
+	}
+
 	object := make(map[string]any, directoryFieldCount)
 	object[keyClass] = ClassDirectory
 

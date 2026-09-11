@@ -136,33 +136,35 @@ func (c *outputCollector) secondaryValues(
 func (c *outputCollector) appendSecondary(
 	found []cwlcore.FileOrDirectory, candidate any, primary *cwlcore.File, policy outSecondaryPolicy,
 ) ([]cwlcore.FileOrDirectory, error) {
+	// Object candidates (map[string]any) are already-resolved File/Directory references
+	// from expression evaluation — they may reference files outside the output directory
+	// (e.g. inputs.secondfile). Handle them directly via retypeEntry.
+	if object, isObject := candidate.(map[string]any); isObject {
+		value, err := c.retypeEntry(object)
+		if err != nil {
+			return nil, err
+		}
+
+		return append(found, value), nil
+	}
+
 	local, err := c.secondaryPath(candidate, primary)
 	if err != nil {
 		return nil, err
 	}
 
-	// Object candidates (map[string]any) are already-resolved File/Directory references
-	// from expression evaluation — they may reference files outside the output directory
-	// (e.g. inputs.secondfile). secondaryValue handles them via retypeEntry without
-	// needing stat info, so skip the outfs existence check.
-	var info fs.FileInfo
+	rel := c.relOutPath(local)
 
-	if _, isObject := candidate.(map[string]any); !isObject {
-		rel := c.relOutPath(local)
-
-		var statErr error
-
-		info, statErr = fs.Stat(c.outfs, rel)
-		if statErr != nil {
-			if policy == outSecondaryRequired {
-				return nil, fmt.Errorf("%w: %s", ErrSecondaryMissing, local)
-			}
-
-			return found, nil
+	info, statErr := fs.Stat(c.outfs, rel)
+	if statErr != nil {
+		if policy == outSecondaryRequired {
+			return nil, fmt.Errorf("%w: %s", ErrSecondaryMissing, local)
 		}
+
+		return found, nil
 	}
 
-	value, err := c.secondaryValue(local, info, candidate)
+	value, err := c.secondaryValue(local, info)
 	if err != nil {
 		return nil, err
 	}
@@ -194,12 +196,8 @@ func (c *outputCollector) secondaryPath(candidate any, primary *cwlcore.File) (s
 
 // secondaryValue builds the File or Directory value for a resolved secondary path.
 func (c *outputCollector) secondaryValue(
-	local string, info fs.FileInfo, candidate any,
+	local string, info fs.FileInfo,
 ) (cwlcore.FileOrDirectory, error) {
-	if object, ok := candidate.(map[string]any); ok {
-		return c.retypeEntry(object)
-	}
-
 	if info.IsDir() {
 		return outNewDirectory(local), nil
 	}

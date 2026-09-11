@@ -100,7 +100,7 @@ func (c *outputCollector) checkRetrievable(local string) error {
 			return err
 		}
 
-		resolved = filepath.Join(c.outdir, filepath.FromSlash(relResolved))
+		resolved = filepath.Join(c.outroot, filepath.FromSlash(relResolved))
 	} else {
 		resolved = local
 	}

@@ -157,7 +157,12 @@ func (d *LocalDirFS) EvalSymlinks(name string) (string, error) {
 		return "", err
 	}
 
-	r, err := filepath.Rel(d.root, resolved)
+	root, err := filepath.EvalSymlinks(d.root)
+	if err != nil {
+		return "", err
+	}
+
+	r, err := filepath.Rel(root, resolved)
 	if err != nil {
 		return "", err
 	}

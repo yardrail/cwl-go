@@ -141,15 +141,25 @@ func (c *outputCollector) appendSecondary(
 		return nil, err
 	}
 
-	rel := c.relOutPath(local)
+	// Object candidates (map[string]any) are already-resolved File/Directory references
+	// from expression evaluation — they may reference files outside the output directory
+	// (e.g. inputs.secondfile). secondaryValue handles them via retypeEntry without
+	// needing stat info, so skip the outfs existence check.
+	var info fs.FileInfo
 
-	info, statErr := fs.Stat(c.outfs, rel)
-	if statErr != nil {
-		if policy == outSecondaryRequired {
-			return nil, fmt.Errorf("%w: %s", ErrSecondaryMissing, local)
+	if _, isObject := candidate.(map[string]any); !isObject {
+		rel := c.relOutPath(local)
+
+		var statErr error
+
+		info, statErr = fs.Stat(c.outfs, rel)
+		if statErr != nil {
+			if policy == outSecondaryRequired {
+				return nil, fmt.Errorf("%w: %s", ErrSecondaryMissing, local)
+			}
+
+			return found, nil
 		}
-
-		return found, nil
 	}
 
 	value, err := c.secondaryValue(local, info, candidate)

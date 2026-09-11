@@ -214,7 +214,7 @@ func dockerLocalArchive(source string) (string, error) {
 
 	if scheme != joSchemeFile {
 		return "", fmt.Errorf("%w: dockerLoad from %s (downloading an image archive is not implemented)",
-			ErrUnsupportedFeature, source)
+			ErrUnsupportedImageSource, source)
 	}
 
 	return filepath.Clean("/" + strings.TrimLeft(rest, "/")), nil

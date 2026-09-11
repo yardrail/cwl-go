@@ -14,7 +14,16 @@ import (
 )
 
 // ErrUnsupportedFeature reports a recognized but unimplemented CWL feature.
+// More specific sentinels wrap it: [ErrUnsupportedLocationScheme] and [ErrUnsupportedImageSource].
 var ErrUnsupportedFeature = errors.New("unsupported CWL feature")
+
+// ErrUnsupportedLocationScheme reports a File or Directory whose location names a URI scheme
+// this engine cannot read from (e.g. s3://, http://). Wraps [ErrUnsupportedFeature].
+var ErrUnsupportedLocationScheme = fmt.Errorf("%w: unsupported location scheme", ErrUnsupportedFeature)
+
+// ErrUnsupportedImageSource reports a container image acquisition method this executor has not
+// implemented (remote dockerLoad, dockerImport, Dockerfile builds). Wraps [ErrUnsupportedFeature].
+var ErrUnsupportedImageSource = fmt.Errorf("%w: unsupported image source", ErrUnsupportedFeature)
 
 // ErrToolExit reports a tool that exited with a failure code.
 var ErrToolExit = errors.New("tool exited with a failure code")

@@ -21,8 +21,7 @@ const (
 	cacheMetaSuffix = ".meta"
 	cacheDirPerm    = 0o755
 	cacheFilePerm   = 0o600
-	// defaultFreshness is how long a response with no explicit Cache-Control
-	// lifetime is served from the cache before being revalidated.
+	// defaultFreshness is the cache lifetime when no Cache-Control is present.
 	defaultFreshness = time.Hour
 )
 
@@ -43,8 +42,7 @@ func (e cacheEntry) fresh(now time.Time) bool {
 	return e.Expires > now.Unix()
 }
 
-// httpResult is what one HTTP exchange yields once the response body has been
-// read and closed.
+// httpResult is the result of one HTTP exchange.
 type httpResult struct {
 	header http.Header
 	status string
@@ -52,9 +50,7 @@ type httpResult struct {
 	code   int
 }
 
-// fetchHTTP retrieves a document over HTTP, serving it from the disk cache while
-// it is fresh and revalidating with If-None-Match / If-Modified-Since once it is
-// not.
+// fetchHTTP retrieves a document over HTTP, using the disk cache when fresh.
 func (f *DefaultFetcher) fetchHTTP(u string) ([]byte, error) {
 	entry, body, cached := f.readCache(u)
 	if cached && entry.fresh(time.Now()) {
@@ -107,10 +103,7 @@ func (f *DefaultFetcher) do(req *http.Request) (httpResult, error) {
 	}
 
 	if resp == nil || resp.Body == nil {
-		// Defensive: net/http's own *http.Client already rejects a
-		// RoundTripper that returns a nil *Response with a nil error before
-		// Do ever returns it here, so this cannot be driven through any real
-		// http.Client, misbehaving transport included.
+		// Defensive: should not happen with a real http.Client.
 		return httpResult{}, Errorf(
 			SourceLine{
 				File:  req.URL.String(),
@@ -181,8 +174,7 @@ func (f *DefaultFetcher) readCache(u string) (cacheEntry, []byte, bool) {
 	return entry, body, true
 }
 
-// writeCache stores a response body and its freshness metadata. Cache failures
-// are not reported: an unwritable cache must not fail a fetch that succeeded.
+// writeCache stores a response body and freshness metadata. Write failures are ignored.
 func (f *DefaultFetcher) writeCache(u string, header http.Header, body []byte) {
 	base := f.cachePath(u)
 	if base == "" || noStore(header) {
@@ -222,9 +214,7 @@ func noStore(header http.Header) bool {
 	return directives["no-store"] || directives["private"]
 }
 
-// maxAge reports how long a response stays fresh: the Cache-Control max-age when
-// there is one, nothing when the response must be revalidated, and a short
-// default otherwise.
+// maxAge returns the response freshness duration from Cache-Control headers.
 func maxAge(header http.Header) time.Duration {
 	directives := cacheControl(header)
 	if directives["no-cache"] || directives["must-revalidate"] {

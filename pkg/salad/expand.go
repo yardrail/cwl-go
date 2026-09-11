@@ -20,41 +20,22 @@ const (
 	modeVocab
 )
 
-// ExpandURL resolves a short name or prefixed name to a full IRI, relative to
-// base, following the specification's link resolution rules.
-//
-// It is the analogue of ref_resolver.Loader.expand_url with vocab_term and
-// scoped_id both false. The vocabTerm flag the frozen signature carried was
-// split out into ExpandVocabTerm, because the two rule sets return different
-// kinds of value: a link resolves to an IRI, a vocabulary reference may resolve
-// back to a short term.
+// ExpandURL resolves a name to a full IRI using link resolution rules.
 func (c *Context) ExpandURL(name, base string) string {
 	return c.expand(name, base, modeLink, false)
 }
 
-// ExpandIdentifier resolves an identifier relative to base, following the
-// specification's identifier resolution rules: a name that carries no fragment
-// becomes a parent-relative fragment of the base URI.
-//
-// It is the analogue of ref_resolver.Loader.expand_url with scoped_id true.
+// ExpandIdentifier resolves an identifier relative to base using identifier resolution rules.
 func (c *Context) ExpandIdentifier(name, base string) string {
 	return c.expand(name, base, modeIdentifier, false)
 }
 
-// ExpandVocabTerm resolves a vocabulary reference relative to base: the link
-// resolution rules are applied first, and if the result is an IRI the vocabulary
-// maps to a term, the term is returned instead.
-//
-// It is the analogue of ref_resolver.Loader.expand_url with vocab_term true.
+// ExpandVocabTerm resolves a vocabulary reference, returning the short term if known.
 func (c *Context) ExpandVocabTerm(name, base string) string {
 	return c.expand(name, base, modeVocab, false)
 }
 
 // expand applies one of the three reference-resolution rule sets.
-//
-// scopedRef suppresses resolution of a fragment-less reference: a field with a
-// refScope is resolved later by searching successive parent scopes, which cannot
-// be done until every identifier in the document is known.
 func (c *Context) expand(name, base string, mode expandMode, scopedRef bool) string {
 	if name == "" || isKeyword(name) || isTemplate(name) {
 		return name
@@ -81,9 +62,7 @@ func placeReference(iri, base string, mode expandMode, scopedRef bool) string {
 
 	switch {
 	case hasScheme(iri):
-		// Rule 8 of identifier resolution and rule 4 of link resolution: an
-		// absolute URI is left alone. schema-salad narrows this to http, https
-		// and file; the specification does not, so neither do we.
+		// Absolute URI: leave as-is.
 		return iri
 	case mode == modeIdentifier && !hasFragment:
 		return scopeFragment(base, iri)
@@ -94,10 +73,7 @@ func placeReference(iri, base string, mode expandMode, scopedRef bool) string {
 	}
 }
 
-// resolveFieldName applies the specification's field name resolution rules: a
-// declared namespace prefix is expanded, and a resolved field whose IRI is in
-// the vocabulary is replaced by its vocabulary term. Anything else is left as it
-// is, including names that are neither absolute nor part of the vocabulary.
+// resolveFieldName resolves a field name via prefix expansion and vocabulary lookup.
 func (c *Context) resolveFieldName(name string) string {
 	if name == "" || isKeyword(name) || isDirective(name) || c.hasVocabTerm(name) {
 		return name
@@ -111,9 +87,7 @@ func (c *Context) resolveFieldName(name string) string {
 	return iri
 }
 
-// scopeFragment implements identifier resolution rules 3, 4 and 6: a parent
-// relative fragment identifier extends the base URI's fragment, or becomes it
-// when the base URI has none.
+// scopeFragment appends name as a fragment segment of the base URI.
 func scopeFragment(base, name string) string {
 	if base == "" {
 		return name
@@ -139,13 +113,7 @@ func scopeFragment(base, name string) string {
 	return b.String()
 }
 
-// scopeSubscope implements identifier resolution rule 5: the subscope declared
-// on the parent field is appended to the identifier scope before the child
-// object's own identifier is resolved.
-//
-// schema-salad concatenates the subscope onto the base URI as plain text, which
-// appends to the path when the base has no fragment. The specification says the
-// subscope is appended to the fragment, so a base URI with no fragment gets one.
+// scopeSubscope appends a subscope to the base URI's fragment.
 func scopeSubscope(base, subscope string) string {
 	if subscope == "" {
 		return base
@@ -201,10 +169,7 @@ func isSchemeByte(b byte, pos int) bool {
 	}
 }
 
-// isTemplate reports whether s is a template expression of the host vocabulary
-// rather than a URI reference. Salad itself defines no expression syntax, but a
-// value that opens with "$(" or "${" is by convention interpolated later and
-// must survive preprocessing untouched.
+// isTemplate reports whether s is a $(...) or ${...} expression template.
 func isTemplate(s string) bool {
 	return strings.HasPrefix(s, "$(") || strings.HasPrefix(s, "${")
 }

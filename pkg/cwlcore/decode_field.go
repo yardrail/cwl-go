@@ -6,22 +6,10 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// The field-reading layer every decode_*.go file is built from.
-//
-// Decoding runs over a tree pkg/salad has already validated against the CWL
-// schema, so the shapes here are expected rather than hoped for. The accessors
-// are written accordingly: an absent field yields the Go zero value silently,
-// and only a value of the wrong shape records an error. That keeps the per-record
-// decoders to one straight-line struct literal each, which is what holds them
-// under revive's complexity limits.
-//
-// Every accessor tolerates a nil *salad.MapNode, so a decoder that has already
-// reported "this is not a mapping" can carry on and collect the rest of the
-// document's problems rather than stopping at the first one.
+// Field-reading layer for all decode_*.go files.
+// Absent fields yield zero values; wrong-shape values record errors.
 
-// Document keys read while decoding. They are constants because the same key is
-// read from several records — "id", "type" and "class" from almost all of them —
-// and a typo in one copy would silently decode that record's field as absent.
+// Document keys read while decoding.
 const (
 	keyClass          = "class"
 	keyID             = "id"
@@ -66,10 +54,7 @@ func nodeLoc(n salad.Node) salad.SourceLine {
 	return n.Loc()
 }
 
-// fieldNode returns the value bound to key, or nil when the key is absent or
-// explicitly null. The two are deliberately not distinguished: every CWL field
-// that this package models treats an explicit null exactly as it treats an
-// absent field.
+// fieldNode returns the value bound to key, or nil when absent or null.
 func fieldNode(m *salad.MapNode, key string) salad.Node {
 	value, ok := m.Get(key)
 	if !ok || salad.IsNull(value) {
@@ -79,12 +64,7 @@ func fieldNode(m *salad.MapNode, key string) salad.Node {
 	return value
 }
 
-// decoder collects the errors raised while turning one validated salad tree
-// into typed values.
-//
-// Errors accumulate rather than short-circuit, so a single decode reports every
-// malformed field it finds instead of only the first. Each decode entry point
-// builds its own decoder; a decoder is not safe for concurrent use.
+// decoder accumulates errors while decoding a salad tree into typed values. Not concurrent-safe.
 type decoder struct {
 	errs   []*salad.Error
 	loaded *salad.LoadedSchema
@@ -111,9 +91,7 @@ func (d *decoder) failf(loc salad.SourceLine, format string, a ...any) {
 	d.errs = append(d.errs, salad.Errorf(loc, format, a...))
 }
 
-// err returns the accumulated errors as one value, or nil when the run was
-// clean. A single error is returned unwrapped so that the common case reads as
-// one line; several are grouped under a *salad.Error tree.
+// err returns the accumulated errors as one value, or nil.
 func (d *decoder) err() error {
 	switch len(d.errs) {
 	case 0:
@@ -132,13 +110,7 @@ func (d *decoder) err() error {
 	}
 }
 
-// errOr returns the accumulated errors, or a fresh one at loc when the run
-// recorded none.
-//
-// It is how an entry point that must return either a value or an error keeps
-// that promise: a decoder that produced nothing has always said why, and this
-// says it on the decoder's behalf if it somehow did not, so that a nil error can
-// never accompany a nil result.
+// errOr returns accumulated errors, or a fallback error at loc if none were recorded.
 func (d *decoder) errOr(loc salad.SourceLine, msg string) error {
 	err := d.err()
 	if err != nil {
@@ -148,9 +120,7 @@ func (d *decoder) errOr(loc salad.SourceLine, msg string) error {
 	return salad.Errorf(loc, "%s", msg)
 }
 
-// mapping returns n as a mapping, recording an error naming what was expected
-// when it is anything else. The result may be nil, which every accessor in this
-// file tolerates.
+// mapping returns n as a mapping, recording an error if it is not one.
 func (d *decoder) mapping(n salad.Node, what string) *salad.MapNode {
 	if n == nil {
 		d.failf(
@@ -177,11 +147,6 @@ func (d *decoder) mapping(n salad.Node, what string) *salad.MapNode {
 }
 
 // missingField records a required field that the document did not supply.
-//
-// It stays silent when the enclosing mapping is nil, because that only happens
-// after the mapping itself has already been reported as malformed, and a second
-// error about a field of a thing that is not a mapping would have nowhere to
-// point.
 func (d *decoder) missingField(m *salad.MapNode, key, what string) {
 	if m == nil {
 		return
@@ -207,24 +172,19 @@ func (d *decoder) text(m *salad.MapNode, key string) string {
 	return text
 }
 
-// lenientText reads a string field without recording an error when the value is
-// something else. It is for fields the schema types as Any, where a value this
-// package cannot use is expected rather than exceptional.
+// lenientText reads a string field, returning "" without error if the value is not a string.
 func lenientText(m *salad.MapNode, key string) string {
 	text, _ := salad.AsString(fieldNode(m, key))
 
 	return text
 }
 
-// expression reads a field whose schema type is `string | Expression`. The two
-// members are indistinguishable at this layer — the schema models an expression
-// as a placeholder enum over strings — so both land on Expression.
+// expression reads a string-or-Expression field.
 func (d *decoder) expression(m *salad.MapNode, key string) Expression {
 	return Expression(d.text(m, key))
 }
 
-// flag reads an optional boolean whose schema default is false, so that the Go
-// zero value already carries the right meaning for an absent field.
+// flag reads an optional boolean field, defaulting to false.
 func (d *decoder) flag(m *salad.MapNode, key string) bool {
 	value := fieldNode(m, key)
 	if value == nil {
@@ -241,8 +201,7 @@ func (d *decoder) flag(m *salad.MapNode, key string) bool {
 	return scalar.AsBool()
 }
 
-// optBool reads a boolean field whose schema default is true, so that absent and
-// present-and-false must stay distinguishable.
+// optBool reads an optional boolean field where absent differs from false.
 func (d *decoder) optBool(m *salad.MapNode, key string) OptBool {
 	value := fieldNode(m, key)
 	if value == nil {
@@ -259,8 +218,7 @@ func (d *decoder) optBool(m *salad.MapNode, key string) OptBool {
 	return NewOptBool(scalar.AsBool())
 }
 
-// optInt reads an integer field whose zero is a legal document value, so that
-// absent and present-and-zero must stay distinguishable.
+// optInt reads an optional integer field where absent differs from zero.
 func (d *decoder) optInt(m *salad.MapNode, key string) OptInt {
 	value := fieldNode(m, key)
 	if value == nil {
@@ -277,8 +235,7 @@ func (d *decoder) optInt(m *salad.MapNode, key string) OptInt {
 	return NewOptInt(number)
 }
 
-// optText reads a string field whose empty value is a legal document value, so
-// that absent and present-and-empty must stay distinguishable.
+// optText reads an optional string field where absent differs from empty.
 func (d *decoder) optText(m *salad.MapNode, key string) OptString {
 	value := fieldNode(m, key)
 	if value == nil {
@@ -305,9 +262,7 @@ func integerOf(n salad.Node) (int64, bool) {
 	return scalar.AsInt()
 }
 
-// textList reads a field whose schema type is `T | T[]`, normalizing both forms
-// into the slice the model declares. It returns nil when the field is absent, so
-// that an absent list stays distinguishable from an empty one.
+// textList reads a string-or-string-array field, normalizing to a slice.
 func (d *decoder) textList(m *salad.MapNode, key string) []string {
 	items := d.oneOrMany(m, key)
 	if items == nil {
@@ -368,9 +323,7 @@ func (d *decoder) intList(m *salad.MapNode, key string) []int {
 	return out
 }
 
-// oneOrMany returns the items of a field the schema types as `T | T[]`: a
-// sequence yields its items, and any other value is a one-element list. It
-// returns nil when the field is absent.
+// oneOrMany normalizes a `T | T[]` field into a node slice. Nil if absent.
 func (d *decoder) oneOrMany(m *salad.MapNode, key string) []salad.Node {
 	value := fieldNode(m, key)
 	if value == nil {
@@ -384,14 +337,7 @@ func (d *decoder) oneOrMany(m *salad.MapNode, key string) []salad.Node {
 	return []salad.Node{value}
 }
 
-// listItems returns the items of a field the schema types as an array.
-//
-// The specification lets any array field carrying a jsonldPredicate mapSubject
-// be written as a mapping keyed by that subject, and pkg/salad expands the form
-// while resolving a document. Doing it again here is not redundant: Decode is a
-// public entry point that a caller may reach with a tree it resolved itself, and
-// an unexpanded mapping would otherwise decode as nothing at all. Pass an empty
-// subject for the array fields the schema gives no mapSubject.
+// listItems returns items of an array field, expanding identifier-map form if needed.
 func (d *decoder) listItems(m *salad.MapNode, key, subject, predicate string) []salad.Node {
 	value := fieldNode(m, key)
 	if value == nil {
@@ -412,10 +358,7 @@ func (d *decoder) listItems(m *salad.MapNode, key, subject, predicate string) []
 	return d.identifierMap(key, subject, predicate, nested)
 }
 
-// identifierMap expands the identifier-map form of an array field into the
-// sequence of objects the specification defines. Keys are visited in sorted
-// order, matching pkg/salad, because the result is a set of named objects whose
-// written order carries no meaning.
+// identifierMap expands a map-form array into a sequence of objects, sorted by key.
 func (d *decoder) identifierMap(key, subject, predicate string, m *salad.MapNode) []salad.Node {
 	keys := m.Keys()
 	slices.Sort(keys)
@@ -431,8 +374,7 @@ func (d *decoder) identifierMap(key, subject, predicate string, m *salad.MapNode
 	return out
 }
 
-// identifierEntry builds one item of an expanded identifier map, moving the map
-// key into the field named by the subject.
+// identifierEntry builds one item of an expanded identifier map.
 func (d *decoder) identifierEntry(key, subject, predicate, name string, value salad.Node) salad.Node {
 	loc := nodeLoc(value)
 
@@ -455,8 +397,7 @@ func (d *decoder) identifierEntry(key, subject, predicate, name string, value sa
 	return object.With(salad.MapEntry{Key: subject, Value: salad.NewStringNode(loc, name)})
 }
 
-// decodeEach maps the items of a decoded list through fn, preserving the
-// distinction between an absent list (nil) and an empty one.
+// decodeEach maps items through fn, preserving nil vs empty distinction.
 func decodeEach[T any](items []salad.Node, fn func(salad.Node) T) []T {
 	if items == nil {
 		return nil

@@ -6,20 +6,12 @@ import (
 	"io"
 )
 
-// Format is an output encoding for a rendered value.
-//
-// It implements [flag.Value], so a tool declares its format flag with
-// [flag.Var] and gets validation and the error message for free rather than
-// re-checking a string after parsing.
+// Format is an output encoding. Implements [flag.Value].
 type Format string
 
 // The output encodings every cwl-go tool understands.
 const (
-	// FormatJSON is indented JSON. It is the default everywhere: it is
-	// deterministic, machine-readable, and every YAML tool accepts it.
 	FormatJSON Format = "json"
-	// FormatText is an indented plain-text outline of the same value,
-	// for reading rather than parsing.
 	FormatText Format = "text"
 )
 
@@ -35,9 +27,7 @@ func (f *Format) String() string {
 	return string(*f)
 }
 
-// Set parses the format's flag spelling, satisfying [flag.Value]. An
-// unrecognized value is rejected rather than silently defaulted, because a
-// mistyped format on a dump would otherwise look like a change in the dump.
+// Set parses the format's flag spelling, satisfying [flag.Value].
 func (f *Format) Set(s string) error {
 	switch Format(s) {
 	case FormatJSON, FormatText:

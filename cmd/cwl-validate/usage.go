@@ -2,11 +2,7 @@ package main
 
 import "github.com/yardrail/cwl-go/cmd/internal/cwlcli"
 
-// usageText returns the whole usage message.
-//
-// It is written out rather than assembled from [flag.PrintDefaults] because
-// the exit statuses are this tool's real interface, and PrintDefaults has
-// nowhere to put them.
+// usageText returns the usage message.
 func usageText() string {
 	return `cwl-validate validates CWL documents against the embedded CWL schema for the
 version each one declares -- v1.0, v1.1 or v1.2.

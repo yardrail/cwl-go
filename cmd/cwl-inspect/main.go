@@ -15,9 +15,7 @@ import (
 // toolName is how the tool names itself in its usage and version output.
 const toolName = "cwl-inspect"
 
-// The exit statuses. Anything that stops a dump being produced is a failure;
-// only the command line is distinguished, because that is the user's mistake
-// rather than the document's.
+// Exit statuses.
 const (
 	exitFailure = 1
 	exitUsage   = 2
@@ -39,9 +37,7 @@ func main() {
 	os.Exit(exitFailure)
 }
 
-// run dumps one document's intermediate representation. It writes the dump to
-// stdout and any diagnostic to stderr, so a dump can be piped without the
-// diagnostics contaminating it.
+// run dumps one document's intermediate representation to stdout.
 func run(args []string, stdout, stderr io.Writer) error {
 	cfg, err := parseFlags(args, stderr)
 	if err != nil {
@@ -88,9 +84,7 @@ type config struct {
 	help bool
 }
 
-// parseFlags reads args into a config, rejecting a second positional argument
-// rather than silently ignoring it: a dump is of one document, and quietly
-// dropping the rest would make a mistyped flag look like a working command.
+// parseFlags reads args into a config.
 func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	cfg := &config{stage: StageTyped, format: cwlcli.FormatJSON, document: "", version: false, help: false}
 

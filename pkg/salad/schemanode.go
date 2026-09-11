@@ -1,8 +1,6 @@
 package salad
 
-// Keys of a schema definition that the flattener and the type builder read
-// directly. The keys a schema document uses to describe its types are declared in
-// context_types.go; these are the ones only this stage needs.
+// Schema definition keys used by the flattener and type builder.
 const (
 	keyExtends        = "extends"
 	keySpecialize     = "specialize"
@@ -15,16 +13,11 @@ const (
 	keyValues         = "values"
 	keyNames          = "names"
 
-	// keyInheritedFrom records, on a field the flattener copied down from a base
-	// record, which base it came from. It is written onto the flattened
-	// definitions this package builds internally, never onto a user document, and
-	// is spelled the way schema-salad spells it.
+	// keyInheritedFrom records which base record a flattened field was inherited from.
 	keyInheritedFrom = "inherited_from"
 )
 
-// definitionKind returns the kind of type a definition declares — "record",
-// "enum", "documentation" and so on — reduced to its short name, since a schema
-// may spell it either as a vocabulary term or as a full IRI.
+// definitionKind returns the type kind (e.g. "record", "enum") as a short name.
 func definitionKind(m *MapNode) string {
 	kind, ok := AsString(nodeOrNil(m, keyType))
 	if !ok {
@@ -41,18 +34,12 @@ func definitionName(m *MapNode) string {
 	return name
 }
 
-// fieldShortName returns the short name a field definition is known by, which is
-// how documents spell it and how an extending record refers to it.
+// fieldShortName returns the short name of a field definition.
 func fieldShortName(m *MapNode) string {
 	return shortName(definitionName(m))
 }
 
-// fieldDefinitions returns a record definition's field definitions in
-// declaration order.
-//
-// The fields entry must already be a sequence: an identifier map is expanded by
-// the loader, well before flattening, so a mapping here means the definition was
-// never resolved.
+// fieldDefinitions returns a record's field definitions in declaration order.
 func fieldDefinitions(m *MapNode) ([]*MapNode, *Error) {
 	val, ok := m.Get(keyFields)
 	if !ok || IsNull(val) {
@@ -80,8 +67,7 @@ func fieldDefinitions(m *MapNode) ([]*MapNode, *Error) {
 	return out, nil
 }
 
-// stringList reads a value that a schema may spell either as one string or as a
-// list of them, such as extends or doc.
+// stringList reads a value as one string or a list of strings.
 func stringList(n Node) []string {
 	out := make([]string, 0, 1)
 
@@ -103,16 +89,14 @@ func stringList(n Node) []string {
 	return out
 }
 
-// flagAt reports whether a definition sets a boolean flag such as abstract or
-// documentRoot.
+// flagAt reports whether a definition sets a boolean flag.
 func flagAt(m *MapNode, key string) bool {
 	s, ok := AsScalar(nodeOrNil(m, key))
 
 	return ok && s.IsBool() && s.AsBool()
 }
 
-// specializeMap reads a record's specialize declaration into the from-to table a
-// substitution is built from.
+// specializeMap reads a record's specialize declaration into a from-to map.
 func specializeMap(m *MapNode) map[string]string {
 	out := make(map[string]string)
 

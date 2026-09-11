@@ -5,9 +5,7 @@ import (
 	"sync"
 )
 
-// Processing directives. $base, $namespaces, $schemas and $graph make up the
-// explicit context of a document; $import and $include splice other resources
-// into it. Every other directive beginning with "$" must be ignored.
+// Processing directives.
 const (
 	dirImport     = "$import"
 	dirInclude    = "$include"
@@ -17,9 +15,7 @@ const (
 	dirGraph      = "$graph"
 )
 
-// unimplemented builds the panic message used by the entry points that are
-// declared here to freeze the package's public surface but are filled in by a
-// later implementation stream.
+// unimplemented builds a panic message for unimplemented entry points.
 func unimplemented(stream, symbol string, args ...any) string {
 	return fmt.Sprintf("%s: %s is not implemented yet (called with %v)", stream, symbol, args)
 }
@@ -35,40 +31,28 @@ type loaderConfig struct {
 // LoaderOption configures a Loader. Pass options to NewLoader.
 type LoaderOption func(*loaderConfig)
 
-// WithFetcher makes the loader retrieve documents through f. Without it, the
-// loader uses a default fetcher that reads file:// and http(s):// URLs.
+// WithFetcher sets the document fetcher. Defaults to file:// and http(s)://.
 func WithFetcher(f Fetcher) LoaderOption {
 	return func(c *loaderConfig) { c.fetcher = f }
 }
 
-// WithBaseURL sets the base URL that relative references in the root document
-// resolve against. Without it, the base URL is the reference passed to Load.
+// WithBaseURL sets the base URL for relative references.
 func WithBaseURL(base string) LoaderOption {
 	return func(c *loaderConfig) { c.baseURL = base }
 }
 
-// WithSkipLinkCheck opts out of link validation, which is otherwise performed
-// and is fatal when a link cannot be resolved.
+// WithSkipLinkCheck disables link validation.
 func WithSkipLinkCheck(skip bool) LoaderOption {
 	return func(c *loaderConfig) { c.skipLinkCheck = skip }
 }
 
-// WithContext gives the loader the term table that drives identifier, link,
-// vocabulary and identifier-map resolution. Without it a loader still resolves
-// $import and $include and the explicit context directives, but knows no
-// vocabulary, so no field is treated as an identifier or a link.
+// WithContext sets the term table for identifier, link and vocabulary resolution.
 func WithContext(ctx *Context) LoaderOption {
 	return func(c *loaderConfig) { c.context = ctx }
 }
 
-// Loader resolves $import and $include references and caches parsed documents by
-// normalized URL. It is the analogue of schema-salad's ref_resolver.Loader.
-//
-// A Loader keeps a normalized document cache and an explicit in-progress set, so
-// an import cycle produces a clear error rather than being silently deduplicated
-// by the cache.
-//
-// A Loader is safe for concurrent use.
+// Loader resolves $import/$include references and caches parsed documents.
+// Safe for concurrent use.
 type Loader struct {
 	cfg    *loaderConfig
 	parsed map[string]Node
@@ -85,8 +69,7 @@ func NewLoader(opts ...LoaderOption) *Loader {
 	return &Loader{cfg: cfg, parsed: make(map[string]Node), mu: sync.Mutex{}}
 }
 
-// Context returns the term table the loader resolves documents against. It is
-// never nil; a loader constructed without WithContext reports an empty context.
+// Context returns the term table. Never nil.
 func (l *Loader) Context() *Context {
 	if l.cfg.context == nil {
 		return newContext()
@@ -95,8 +78,7 @@ func (l *Loader) Context() *Context {
 	return l.cfg.context
 }
 
-// Fetcher returns the fetcher the loader retrieves documents through, which is
-// the shared default fetcher when none was configured.
+// Fetcher returns the configured fetcher, or the shared default.
 func (l *Loader) Fetcher() Fetcher {
 	if l.cfg.fetcher == nil {
 		return defaultFetcher()
@@ -106,13 +88,6 @@ func (l *Loader) Fetcher() Fetcher {
 }
 
 // Load fetches, parses and fully resolves the document at ref.
-//
-// $import references are parsed and spliced in as fully-resolved subtrees;
-// $include references are inserted verbatim as string scalars and are never
-// re-parsed. Source lines survive splicing, so an error in an imported document
-// still points at the imported file.
-//
-// It is the analogue of ref_resolver.Loader.resolve_ref.
 func (l *Loader) Load(ref string) (*Document, error) {
 	docURL, err := l.Fetcher().Normalize(l.cfg.baseURL, ref)
 	if err != nil {
@@ -147,10 +122,7 @@ func (l *Loader) Load(ref string) (*Document, error) {
 	return r.finish(root, docURL)
 }
 
-// LoadNode resolves references within an already-parsed in-memory document,
-// without fetching a root. baseURL is what relative references resolve against.
-//
-// It is the analogue of ref_resolver.Loader.resolve_all.
+// LoadNode resolves references in an already-parsed in-memory document.
 func (l *Loader) LoadNode(doc Node, baseURL string) (*Document, error) {
 	base := baseURL
 	if base == "" {
@@ -167,8 +139,7 @@ func (l *Loader) LoadNode(doc Node, baseURL string) (*Document, error) {
 	return r.finish(root, base)
 }
 
-// parse fetches and parses a document, memoizing the result by normalized URL so
-// that a document imported from several places is read and parsed once.
+// parse fetches and parses a document, memoizing by normalized URL.
 func (l *Loader) parse(docURL string) (Node, error) {
 	l.mu.Lock()
 	cached, ok := l.parsed[docURL]

@@ -11,45 +11,32 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// Rendering a sorted leaf binding into command-line elements: step 5 of the specification's
-// algorithm, "in the sorted order, apply the rules defined in CommandLineBinding to convert
-// bindings to actual command line elements".
-//
-// Those rules are stated per data type, and this file is one small function per type. The type in
-// question is the *value's*, not the schema's, per CommandLineBinding: "if there is a mismatch
-// between the type described by the input schema and the effective value ... an implementation
-// must use the data type of the effective value".
+// Rendering sorted leaf bindings into command-line elements (spec step 5).
+// Rules dispatch on the effective value's type, not the schema's.
 
 const (
 	// argRadix is the radix a number is written in on a command line.
 	argRadix = 10
 
-	// exactIntegerLimit is the largest magnitude a float64 represents every integer below, so
-	// beyond it a float is no longer a faithful integer position.
+	// exactIntegerLimit is the largest float64 that faithfully represents every integer below it.
 	exactIntegerLimit = 1 << 53
 
-	// fileClassField and filePathField are the fields of a File or Directory value in its
-	// decoded map form.
+	// fileClassField and filePathField are the map-form keys of a File or Directory.
 	fileClassField = "class"
 	filePathField  = "path"
 )
 
 // fileLike is a File or Directory value viewed uniformly, whichever Go shape it arrived in.
 type fileLike struct {
-	// class is ClassFile or ClassDirectory, for diagnostics.
-	class string
-
-	// path is the value's path, which is what a command line names it by.
-	path string
+	class string // ClassFile or ClassDirectory.
+	path  string // The filesystem path used on the command line.
 }
 
 // renderArg converts one sorted leaf binding into the command-line elements it contributes.
 func renderArg(bound *boundArg) ([]Arg, error) {
 	binding := bound.binding
 
-	// The specification defines `separate` purely as how a prefix and its value are joined, so
-	// declaring it false without a prefix says nothing. The reference implementation rejects it
-	// too. An absent `separate` defaults to true and never reaches this.
+	// separate=false without a prefix is meaningless.
 	if binding.Prefix == "" && binding.Separate.IsSet() && !binding.Separate.Bool() {
 		return nil, fmt.Errorf("%w: separate is false but no prefix is declared", ErrBindingPrefix)
 	}
@@ -61,15 +48,8 @@ func renderArg(bound *boundArg) ([]Arg, error) {
 	return renderScalar(bound)
 }
 
-// renderList applies the array rule: "if itemSeparator is specified, add prefix and the join the
-// array into a single string with itemSeparator separating the items. Otherwise, first add prefix,
-// then recursively process individual elements. If the array is empty, it does not add anything to
-// command line."
-//
-// The recursion into individual elements has already happened during collection, so here the
-// non-itemSeparator case adds the prefix and nothing else — except for a list that valueFrom
-// produced, which has no element bindings to have recursed into. That case follows the reference
-// implementation: the prefix, then every element as its own argument.
+// renderList applies the array binding rule: itemSeparator joins, otherwise prefix only.
+// A valueFrom-produced list emits each element as a separate argument.
 func renderList(bound *boundArg, list []any) ([]Arg, error) {
 	binding := bound.binding
 
@@ -93,8 +73,7 @@ func renderList(bound *boundArg, list []any) ([]Arg, error) {
 	return prefixOnly(binding), nil
 }
 
-// renderComputedList renders a list that valueFrom produced: the prefix once, then one argument
-// per element. `separate` has nothing to join here, so it does not apply.
+// renderComputedList renders a valueFrom list: prefix once, then one arg per element.
 func renderComputedList(binding *cwlcore.CommandLineBinding, list []any) ([]Arg, error) {
 	args := prefixOnly(binding)
 
@@ -110,9 +89,7 @@ func renderComputedList(binding *cwlcore.CommandLineBinding, list []any) ([]Arg,
 	return args, nil
 }
 
-// renderScalar applies the rules for every value that is not an array: null adds nothing, a
-// boolean adds its prefix or nothing at all, a record adds its prefix only, and everything else
-// adds its prefix and its string form.
+// renderScalar renders a non-array value to command-line arguments.
 func renderScalar(bound *boundArg) ([]Arg, error) {
 	if bound.value == nil {
 		return nil, nil
@@ -126,8 +103,7 @@ func renderScalar(bound *boundArg) ([]Arg, error) {
 		return renderTrue(bound.binding), nil
 	}
 
-	// "object: Add prefix only, and recursively add object fields for which inputBinding is
-	// specified." The fields were walked during collection; only the prefix is left.
+	// Record: prefix only; fields were already walked during collection.
 	if isRecordValue(bound.value) {
 		return prefixOnly(bound.binding), nil
 	}
@@ -140,27 +116,12 @@ func renderScalar(bound *boundArg) ([]Arg, error) {
 	return emitValue(bound.binding, text), nil
 }
 
-// renderTrue applies the true half of the boolean rule, "if true, add prefix to the command line";
-// the false half, "if false, add nothing", is handled at the one call site because a boolean
-// parameter deciding which half runs would be a control flag.
-//
-// A true value with no prefix therefore adds nothing, exactly as a false one does. The
-// specification does not say what a prefixless true renders as, and the conformance suite settles
-// it: `booleanflags_cl_noinputbinding` — a `required` test — binds `flag: boolean` under
-// `inputBinding: {}`, passes it true, and requires an empty argv.
-//
-// The deviation, recorded because it was this engine's behaviour until the suite ran: emitting
-// nothing makes a true indistinguishable from a false on the command line, so a document that
-// forgot its prefix produces a quietly wrong invocation rather than a loud failure. That is a real
-// hazard and reporting it was defensible — but the suite is the definition of done, and it requires
-// the silent form.
+// renderTrue emits the prefix for a true boolean. No prefix means no output.
 func renderTrue(binding *cwlcore.CommandLineBinding) []Arg {
 	return prefixOnly(binding)
 }
 
-// emitValue renders a prefix and a value together, applying `separate`: true — the schema default —
-// keeps them two arguments, false concatenates them into one. A binding with no prefix contributes
-// the value alone.
+// emitValue renders prefix + value, respecting the `separate` flag.
 func emitValue(binding *cwlcore.CommandLineBinding, text string) []Arg {
 	quote := shellQuotable(binding)
 
@@ -205,13 +166,7 @@ func joinItems(list []any, separator string) (string, error) {
 	return strings.Join(parts, separator), nil
 }
 
-// argText renders one value as the text of a command-line argument.
-//
-// A File or Directory renders as its path, never its location: the binding rules say "add prefix
-// and the value of File.path", and a location is a URI in the workflow runner's namespace, not a
-// name the tool can open. A value with no path is an error rather than an empty argument, because
-// the path is assigned when the file is staged and a command line naming an unstaged file is
-// wrong, not merely incomplete.
+// argText renders one value as command-line text. File/Directory uses path, not location.
 func argText(value any) (string, error) {
 	if object, ok := asFileLike(value); ok {
 		if object.path == "" {
@@ -236,14 +191,7 @@ func argText(value any) (string, error) {
 	return "", fmt.Errorf("%w: %s has no command line form", ErrBindingValue, cwlcore.TypeName(value))
 }
 
-// numberText renders any Go numeric type as the "decimal representation" the binding rules call
-// for. ok is false for everything that is not a number.
-//
-// A number a document wrote arrives as a [salad.Decimal] and is rendered from its own digits, which
-// is what the reference implementation does and what this rule means by "the decimal
-// representation": Builder.tostr puts a document's float on a command line through Python's
-// decimal.Decimal, so 1.23e-05 is written 0.0000123 and an integer literal declared as a float is
-// written without a ".0". Only a computed number reaches the reflective path below.
+// numberText renders a numeric value as its decimal string. Returns false for non-numbers.
 func numberText(value any) (string, bool) {
 	if literal, ok := value.(salad.Decimal); ok {
 		return literal.String(), true
@@ -263,25 +211,12 @@ func numberText(value any) (string, bool) {
 	}
 }
 
-// floatText renders a computed float onto a command line, which is the same rendering
-// [cwlcore.EncodeJSON] gives it and is deliberately not a second copy of that rule.
-//
-// The two agree because the reference implementation makes them agree: it puts a number on a
-// command line with Python's str() and into an interpolated string with json.dumps, and for a float
-// those are the same function — json.dumps writes a float through its repr, and in Python 3 str and
-// repr of a float are identical.
-//
-// Keeping a private copy here is what actually goes wrong in practice: the copy was byte-identical
-// to cwlcore's until cwlcore's changed, and then a `double` input carrying an inputBinding put
-// "1e+42" on a command line while the same value interpolated into a string said
-// "1000000000000000000000000000000000000000000". One rule, one implementation.
+// floatText renders a float using [cwlcore.EncodeJSON] so command-line and interpolation agree.
 func floatText(value float64) string {
 	return cwlcore.EncodeJSON(value)
 }
 
-// integerValue views value as an int64, for a `position` expression's result. ok is false for
-// anything that is not an integer, including a float with a fractional part and one too large for
-// an int64 to hold faithfully.
+// integerValue converts value to int64. Returns false for non-integers.
 func integerValue(value any) (int64, bool) {
 	if literal, ok := value.(salad.Decimal); ok {
 		return literal.Int64()
@@ -319,8 +254,7 @@ func floatAsInt(value float64) (int64, bool) {
 	return int64(value), true
 }
 
-// valueList views value as a list. []any covers everything a decoded document or an expression
-// result produces; the reflective path accepts a caller's []string or []*cwlcore.File too.
+// valueList views value as a list, accepting []any or any typed slice.
 func valueList(value any) ([]any, bool) {
 	if list, ok := value.([]any); ok {
 		return list, true
@@ -346,8 +280,7 @@ func valueObject(value any) (map[string]any, bool) {
 	return object, ok
 }
 
-// isRecordValue reports whether value is an object that is not a File or Directory — that is, one
-// the binding rules treat as a record.
+// isRecordValue reports whether value is an object that is not a File or Directory.
 func isRecordValue(value any) bool {
 	if _, ok := asFileLike(value); ok {
 		return false
@@ -358,9 +291,7 @@ func isRecordValue(value any) bool {
 	return ok
 }
 
-// asFileLike views value as a File or Directory, in either the typed form cwlcore decodes to or
-// the map form a job order carries. Which of the two an input object holds is a seam this package
-// does not get to choose, so both are accepted.
+// asFileLike views value as a File or Directory, accepting both typed and map forms.
 func asFileLike(value any) (fileLike, bool) {
 	switch typed := value.(type) {
 	case *cwlcore.File:

@@ -13,71 +13,25 @@ import (
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
-// Globbing a finished tool's output directory.
-//
-// CommandLineTool.yml, CommandOutputBinding.glob: "Find files or directories relative to the
-// output directory, using POSIX glob(3) pathname matching. If an array is provided, find files or
-// directories that match any pattern in the array. If an expression is provided, the expression
-// must return a string or an array of strings, which will then be evaluated as one or more glob
-// patterns. Must only match and return files/directories which actually exist."
-//
-// Every path a pattern matches becomes a [cwlcore.File] or [cwlcore.Directory], with the derived
-// name fields filled in, and — for a File — a size and a sha1 checksum read from the bytes
-// themselves. The conformance harness recomputes both from disk when it compares an output, so a
-// value that is merely plausible is a failure.
+// Globbing a finished tool's output directory to collect File/Directory values.
 
-// Errors reported while globbing an output directory. They are wrapped with context, so callers
-// should test them with [errors.Is].
+// Errors reported while globbing an output directory. Use [errors.Is] to test.
 var (
-	// ErrGlobEscape reports a glob pattern that resolves to a path outside the output directory.
-	//
-	// CommandLineTool.yml, glob: "If the value of the glob is an absolute path pattern (it does
-	// begin with a slash '/') then it must refer to a path within the output directory. It is an
-	// error if any glob resolves to a path outside the output directory." This is a containment
-	// property rather than a stylistic one: a tool that could name `../../etc/passwd` as its own
-	// output would have the engine read, checksum and publish it.
+	// ErrGlobEscape reports a glob pattern resolving outside the output directory.
 	ErrGlobEscape = errors.New("glob pattern resolves outside the output directory")
-
-	// ErrGlobSymlink reports a globbed path that is, or leads through, a symlink whose target is
-	// under neither the output directory nor any directory an input came out of.
-	//
-	// CommandLineTool.yml, glob: "It is an error if a symlink in the output directory (or any
-	// symlink in a chain of links) refers to any file or directory that is not under an input or
-	// output directory." [ErrGlobEscape] is the same containment property applied to the pattern;
-	// this one applies it to what the matched path turns out to point at, which a pattern spelled
-	// entirely inside the output directory can still get wrong.
+	// ErrGlobSymlink reports a symlink leading outside output and input directories.
 	ErrGlobSymlink = errors.New("globbed symlink leads outside the output and input directories")
-
-	// ErrGlobPattern reports a glob pattern that is not valid glob(3) syntax.
+	// ErrGlobPattern reports invalid glob(3) syntax.
 	ErrGlobPattern = errors.New("malformed glob pattern")
-
-	// ErrGlobValue reports a glob expression that evaluated to something other than a string or
-	// an array of strings.
+	// ErrGlobValue reports a glob expression that is not a string or string array.
 	ErrGlobValue = errors.New("glob expression did not produce a string or array of strings")
-
-	// ErrContentsTooLarge reports a loadContents read of a file over the specification's 64 KiB
-	// ceiling.
-	//
-	// CommandLineTool.yml, loadContents: "the file (or each file in the array) must be a UTF-8
-	// text file 64 KiB or smaller ... If the size of the file is greater than 64 KiB, the
-	// implementation must raise a fatal error." The v1.2 changelog records this as a deliberate
-	// change: "When using `loadContents` it now must fail when attempting to load a file greater
-	// than 64 KiB instead of silently truncating the data". Truncation is not an option.
+	// ErrContentsTooLarge reports a loadContents file over 64 KiB.
 	ErrContentsTooLarge = errors.New("loadContents: file is over the 64 KiB limit")
-
-	// ErrContentsNotText reports a loadContents read of a file that is not valid UTF-8, which the
-	// same sentence of the specification requires it to be.
+	// ErrContentsNotText reports a loadContents file that is not valid UTF-8.
 	ErrContentsNotText = errors.New("loadContents: file is not UTF-8 text")
 )
 
-// globValues resolves the patterns against the output directory and builds a File or Directory
-// value for every path they match, in pattern order and sorted within each pattern.
-//
-// Sorting is what makes the result reproducible: the order glob(3) reports matches in is not
-// specified, and an output array whose order changed between two identical runs would make every
-// downstream comparison — including the conformance harness's — unreliable. Patterns are not
-// merged before sorting, so a document that writes two patterns gets the first pattern's matches
-// ahead of the second's, which is the order it asked for.
+// globValues matches patterns against the output directory and builds File/Directory values, sorted within each pattern.
 func (c *outputCollector) globValues(
 	patterns []string, binding *cwlcore.CommandOutputBinding,
 ) ([]cwlcore.FileOrDirectory, error) {
@@ -95,12 +49,7 @@ func (c *outputCollector) globValues(
 	return collected, nil
 }
 
-// globOne matches one pattern and builds a value for each path it matched.
-//
-// An empty pattern matches nothing at all rather than the output directory itself, which is what
-// joining "" onto a directory would otherwise produce. An expression that declines to name a glob
-// is how a document writes "collect nothing here", and reading that as "collect the whole output
-// directory" would be the worst possible interpretation of it.
+// globOne matches one pattern. An empty pattern matches nothing.
 func (c *outputCollector) globOne(
 	pattern string, binding *cwlcore.CommandOutputBinding,
 ) ([]cwlcore.FileOrDirectory, error) {
@@ -127,8 +76,7 @@ func (c *outputCollector) globOne(
 	return values, nil
 }
 
-// collectMatch builds the value for one matched path, once that path has been shown to lead
-// somewhere the tool is allowed to publish from.
+// collectMatch builds a value for one matched path after checking containment.
 func (c *outputCollector) collectMatch(
 	local string, binding *cwlcore.CommandOutputBinding,
 ) (cwlcore.FileOrDirectory, error) {
@@ -140,26 +88,7 @@ func (c *outputCollector) collectMatch(
 	return outCollectPath(local, binding)
 }
 
-// checkRetrievable rejects a matched path that leads outside everything the tool may publish from.
-//
-// CommandLineTool.yml, glob: "It is an error if a symlink in the output directory (or any symlink
-// in a chain of links) refers to any file or directory that is not under an input or output
-// directory." [filepath.EvalSymlinks] resolves the whole chain, which is what "any symlink in a
-// chain" asks for, and the containment test is then the same lexical one
-// [outputCollector.resolveGlob] applies to a pattern.
-//
-// Three ways of satisfying it, because there are three ways a legitimate match arises:
-//
-//   - the chain stays inside the output directory, which is the ordinary case and the whole of
-//     what a tool writing its own outputs produces;
-//   - the matched path *is* an input, or sits inside one. An implementation stages an input into
-//     the output directory as a symlink to wherever the input really lives, so a tool that names a
-//     staged input as its own output produces a link leading straight back out. The staged value's
-//     `path` is the link, which is why the test is applied to the path as matched;
-//   - the chain ends at an input, which is what a tool that follows an input's own path produces.
-//
-// The matched path itself is left exactly as it was found, because the same paragraph requires the
-// collected value to keep the symlink's own basename: only where the link *leads* is in question.
+// checkRetrievable rejects a matched path whose symlink chain leads outside the output and input directories.
 func (c *outputCollector) checkRetrievable(local string) error {
 	resolved, err := filepath.EvalSymlinks(local)
 	if err != nil {
@@ -174,39 +103,20 @@ func (c *outputCollector) checkRetrievable(local string) error {
 		ErrGlobSymlink, local, resolved, c.outroot, outQuoted(c.roots))
 }
 
-// fromInput reports whether local names one of the invocation's inputs, or something inside one.
+// fromInput reports whether local is under one of the invocation's input roots.
 func (c *outputCollector) fromInput(local string) bool {
 	return slices.ContainsFunc(c.roots, func(root string) bool { return outWithinDir(root, local) })
 }
 
-// publishable reports whether local names a path this invocation may publish as it stands: the
-// output directory or something inside it, or one of the paths the invocation brought into it.
-//
-// This is the containment rule applied to a path the *tool named*, which is the question a
-// cwl.output.json asks; see [outputCollector.checkPublishable]. [outputCollector.checkRetrievable]
-// asks a narrower one about a globbed path, because a glob pattern has already been shown to denote
-// something inside the output directory and what remains in doubt is only where its symlinks lead.
-// Both draw on the same root set, so a path one of them admits as an input the other does too.
+// publishable reports whether local is under the output directory or an input root.
 func (c *outputCollector) publishable(local string) bool {
 	return outWithinDir(c.outdir, local) || c.fromInput(local)
 }
 
-// outRootForms is how many forms of each root [outAllowedRoots] records: the declared one and the
-// symlink-resolved one.
+// outRootForms is how many forms of each root are recorded: declared and symlink-resolved.
 const outRootForms = 2
 
-// outAllowedRoots is the set of paths the invocation brought into its working directory: every File
-// and Directory the input object carries, wherever the staging that ran before the tool did leave
-// it, plus everything an InitialWorkDirRequirement staged from.
-//
-// Both are "an input directory" in the sense [outputCollector.checkRetrievable] quotes. The engine
-// stages either kind by symlinking the source into the output directory, so a tool that names one as
-// its own output produces a link leading straight back out, and a rule that admitted only the input
-// object would reject a value the specification requires an implementation to publish.
-//
-// Each is recorded twice, as it appears in the document and again with its symlinks resolved,
-// because [outputCollector.checkRetrievable] compares it against both forms of a matched path.
-// [slices.Compact] then drops the duplicate for the common case where the two are the same.
+// outAllowedRoots collects all input and staged paths (both declared and symlink-resolved) for containment checks.
 func outAllowedRoots(inputs map[string]any, scope *cwlcore.RequirementScope) []string {
 	declared := outInputRoots(inputs, make([]string, 0, len(inputs)))
 	declared = outStagedRoots(scope, declared)
@@ -221,23 +131,13 @@ func outAllowedRoots(inputs map[string]any, scope *cwlcore.RequirementScope) []s
 	return slices.Compact(roots)
 }
 
-// outStagedRoots appends the host paths an InitialWorkDirRequirement stages from, which are the ones
-// [StageInitialWorkDir] hands to the path mapper.
-//
-// Only the forms that name an existing resource contribute. A Dirent's content is *created* in the
-// output directory rather than staged from anywhere, so it is already inside it and needs no root;
-// an expression — a listing written as one, or an entry written as one — names nothing until it is
-// evaluated, and re-evaluating it here to find out would run the document's expressions a second
-// time to answer a containment question. Both therefore contribute nothing, which is the
-// conservative direction: an output that then fails the containment test fails loudly.
+// outStagedRoots appends host paths from InitialWorkDirRequirement entries.
 func outStagedRoots(scope *cwlcore.RequirementScope, roots []string) []string {
 	requirement, found := initialWorkDir(scope)
 	if !found {
 		return roots
 	}
 
-	// Entries is empty unless the listing is the written-out array, so the expression form needs
-	// no separate arm.
 	for _, entry := range requirement.Listing.Entries() {
 		roots = outEntryRoots(entry, roots)
 	}
@@ -245,7 +145,7 @@ func outStagedRoots(scope *cwlcore.RequirementScope, roots []string) []string {
 	return roots
 }
 
-// outEntryRoots appends the paths one written-out listing entry stages from.
+// outEntryRoots appends paths from one listing entry.
 func outEntryRoots(entry cwlcore.InitialWorkDirEntry, roots []string) []string {
 	switch entry.Kind() {
 	case cwlcore.ValueFile:
@@ -259,14 +159,11 @@ func outEntryRoots(entry cwlcore.InitialWorkDirEntry, roots []string) []string {
 
 		return roots
 	default:
-		// A Dirent, an expression, an explicit null, or the unset zero value a malformed entry
-		// decodes to: none of them names a path to stage from.
 		return roots
 	}
 }
 
-// outStagedRoot appends the path one staged filesystem value occupies, if it occupies one. A literal
-// and a resource on storage that is not a local filesystem occupy none.
+// outStagedRoot appends the local path of a staged value, if it has one.
 func outStagedRoot(value cwlcore.FileOrDirectory, roots []string) []string {
 	local := pathOf(value)
 	if local == "" {
@@ -276,8 +173,7 @@ func outStagedRoot(value cwlcore.FileOrDirectory, roots []string) []string {
 	return append(roots, local)
 }
 
-// outResolvePath resolves the symlinks in a path, leaving one it cannot resolve as it was: a path
-// that is not on disk contains nothing either way, so there is nothing to report.
+// outResolvePath resolves symlinks, returning the original path on error.
 func outResolvePath(local string) string {
 	resolved, err := filepath.EvalSymlinks(local)
 	if err != nil {
@@ -287,8 +183,7 @@ func outResolvePath(local string) string {
 	return resolved
 }
 
-// outInputRoots collects the paths the filesystem values inside one input value occupy, appending
-// them to roots.
+// outInputRoots recursively collects filesystem paths from an input value.
 func outInputRoots(value any, roots []string) []string {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -304,8 +199,7 @@ func outInputRoots(value any, roots []string) []string {
 	}
 }
 
-// outObjectRoots collects the path one object occupies, and then those of every field it carries —
-// which is how the entries of a listing and of a secondaryFiles array are reached.
+// outObjectRoots collects the path of an object and its nested fields.
 func outObjectRoots(object map[string]any, roots []string) []string {
 	root := outInputRoot(object)
 	if root != "" {
@@ -319,9 +213,7 @@ func outObjectRoots(object map[string]any, roots []string) []string {
 	return roots
 }
 
-// outInputRoot returns the path one input value occupies. An object that is not a File or a
-// Directory, or that names no local path, occupies none: a record field that happens to be called
-// `path` is not a filesystem location, and a literal has nowhere to be yet.
+// outInputRoot returns the path of a File or Directory object, or "" if not applicable.
 func outInputRoot(object map[string]any) string {
 	class := outTextField(object, outKeyClass)
 	if class != cwlcore.ClassFile && class != cwlcore.ClassDirectory {
@@ -331,7 +223,7 @@ func outInputRoot(object map[string]any) string {
 	return outTextField(object, outKeyPath)
 }
 
-// globMatches returns the existing paths one pattern names, sorted.
+// globMatches returns sorted paths matching one pattern.
 func (c *outputCollector) globMatches(pattern string) ([]string, error) {
 	resolved, err := c.resolveGlob(pattern)
 	if err != nil {
@@ -348,17 +240,7 @@ func (c *outputCollector) globMatches(pattern string) ([]string, error) {
 	return matches, nil
 }
 
-// resolveGlob turns one declared pattern into an absolute pattern inside the output directory, or
-// reports that it escapes.
-//
-// A relative pattern is resolved against the output directory, and an absolute one is accepted
-// only when it already names something inside it — which is exactly what the specification says
-// an absolute glob must do. Cleaning happens before the containment test, so "sub/../../secret"
-// is rejected on the path it actually denotes rather than on the way it was spelled.
-//
-// Symlinks are deliberately not resolved. The specification says a globbed symlink keeps its own
-// basename, so the link's own location is the one that has to be inside the output directory; a
-// link whose target lies elsewhere is a staging concern, not a containment breach here.
+// resolveGlob makes a pattern absolute within the output directory, or rejects it as an escape.
 func (c *outputCollector) resolveGlob(pattern string) (string, error) {
 	resolved := filepath.Join(c.outdir, pattern)
 	if filepath.IsAbs(pattern) {
@@ -373,13 +255,12 @@ func (c *outputCollector) resolveGlob(pattern string) (string, error) {
 	return resolved, nil
 }
 
-// outWithinDir reports whether local names dir itself or something beneath it, comparing cleaned
-// paths lexically.
+// outWithinDir reports whether local is dir or a descendant of dir.
 func outWithinDir(dir, local string) bool {
 	return local == dir || strings.HasPrefix(local, dir+string(filepath.Separator))
 }
 
-// globPatterns expands an output binding's declared glob entries into the patterns to match.
+// globPatterns expands a binding's glob entries into patterns.
 func (c *outputCollector) globPatterns(binding *cwlcore.CommandOutputBinding) ([]string, error) {
 	patterns := make([]string, 0, len(binding.Glob))
 
@@ -395,8 +276,7 @@ func (c *outputCollector) globPatterns(binding *cwlcore.CommandOutputBinding) ([
 	return patterns, nil
 }
 
-// globPattern expands one declared glob entry, which is either a literal pattern or an expression
-// producing one or several.
+// globPattern expands one glob entry (literal or expression).
 func (c *outputCollector) globPattern(declared cwlcore.Expression) ([]string, error) {
 	text := string(declared)
 	if !cwlcore.NeedsParsing(text) {
@@ -411,10 +291,7 @@ func (c *outputCollector) globPattern(declared cwlcore.Expression) ([]string, er
 	return outGlobStrings(value)
 }
 
-// outGlobStrings normalizes what a glob expression evaluated to.
-//
-// A null result contributes no patterns, matching the reference implementation, so a conditional
-// glob can be written as an expression that returns null when it has nothing to collect.
+// outGlobStrings normalizes a glob expression result. Null means no patterns.
 func outGlobStrings(value any) ([]string, error) {
 	switch typed := value.(type) {
 	case nil:
@@ -428,7 +305,7 @@ func outGlobStrings(value any) ([]string, error) {
 	}
 }
 
-// outGlobStringList normalizes the array form of a glob expression's result.
+// outGlobStringList converts a []any of strings to []string.
 func outGlobStringList(values []any) ([]string, error) {
 	patterns := make([]string, 0, len(values))
 
@@ -444,12 +321,7 @@ func outGlobStringList(values []any) ([]string, error) {
 	return patterns, nil
 }
 
-// outCollectPath builds the File or Directory value for one matched path.
-//
-// The class is decided by a stat that follows symlinks, so a link to a file is a File with the
-// target's bytes and the link's own basename, which is what CommandLineTool.yml describes: "the
-// expected behavior is for the resulting File/Directory object to take the `basename` (and
-// corresponding `nameroot` and `nameext`) of the symlink".
+// outCollectPath builds a File or Directory value for a matched path, following symlinks for stat.
 func outCollectPath(local string, binding *cwlcore.CommandOutputBinding) (cwlcore.FileOrDirectory, error) {
 	info, err := os.Stat(local)
 	if err != nil {
@@ -463,12 +335,7 @@ func outCollectPath(local string, binding *cwlcore.CommandOutputBinding) (cwlcor
 	return outCollectFile(local, binding)
 }
 
-// outCollectFile builds a File value with its size and checksum read from disk, and its contents too
-// when the binding asked for them.
-//
-// Process.yml, size: "It must be computed from the resource and made available to expressions."
-// Size, checksum and the loadContents bytes all come from one pass over the file, so no two of
-// them can ever describe different content.
+// outCollectFile builds a File value with size, checksum, and optionally contents from disk.
 func outCollectFile(local string, binding *cwlcore.CommandOutputBinding) (*cwlcore.File, error) {
 	stats, err := outDigest(local)
 	if err != nil {
@@ -486,8 +353,7 @@ func outCollectFile(local string, binding *cwlcore.CommandOutputBinding) (*cwlco
 	return outWithContents(file, &stats)
 }
 
-// outMeasureFile builds a File value for local with its size and checksum read from disk and no
-// contents, which is what a directory listing entry and a secondary file get.
+// outMeasureFile builds a File value with size and checksum but no contents.
 func outMeasureFile(local string) (*cwlcore.File, error) {
 	return outCollectFile(
 		local,
@@ -495,11 +361,7 @@ func outMeasureFile(local string) (*cwlcore.File, error) {
 	)
 }
 
-// outWithContents puts a file's leading bytes into the value a loadContents binding asks for.
-//
-// An empty file yields an OptString that is set and empty rather than unset: "" is the whole
-// content of a zero-byte file, and an expression asking for `self.contents` must see it rather
-// than find the field missing.
+// outWithContents populates File.Contents from the digested bytes, enforcing the 64 KiB and UTF-8 constraints.
 func outWithContents(file *cwlcore.File, stats *outFileStats) (*cwlcore.File, error) {
 	if stats.size > joMaxContentsBytes {
 		return nil, fmt.Errorf("%w: %s is %d bytes, over %d",
@@ -515,24 +377,18 @@ func outWithContents(file *cwlcore.File, stats *outFileStats) (*cwlcore.File, er
 	return file, nil
 }
 
-// outListingDepth is how far a directory walk descends, which is what the two reading settings of
-// loadListing amount to once no_listing has been dealt with.
+// outListingDepth controls directory walk depth.
 type outListingDepth uint8
 
 const (
-	// outShallowWalk reads one directory and names its subdirectories without reading them.
+	// outShallowWalk reads one level.
 	outShallowWalk outListingDepth = iota
 
-	// outDeepWalk reads every directory it reaches.
+	// outDeepWalk reads the full tree.
 	outDeepWalk
 )
 
-// outCollectDirectory builds a Directory value, reading its listing as deeply as loadListing asks.
-//
-// Process.yml gives loadListing three settings and a default of no_listing, and under that
-// default the Listing stays nil. That is not the same as an empty directory: nil records that
-// nothing read the listing, so a later consumer can still go and read it, whereas an empty slice
-// would assert that the directory has no entries.
+// outCollectDirectory builds a Directory value with listing depth per loadListing. nil listing means unread.
 func outCollectDirectory(
 	local string, info fs.FileInfo, mode cwlcore.LoadListingEnum,
 ) (*cwlcore.Directory, error) {
@@ -546,10 +402,7 @@ func outCollectDirectory(
 	}
 }
 
-// outListDirectory builds a Directory value whose listing is read from disk.
-//
-// walked carries the directories already on the branch being walked, which is how a deep walk
-// terminates: a symlink pointing back up the tree would otherwise be followed for ever.
+// outListDirectory builds a Directory with its listing read from disk. walked prevents symlink cycles.
 func outListDirectory(local string, depth outListingDepth, walked []fs.FileInfo) (*cwlcore.Directory, error) {
 	entries, err := os.ReadDir(local)
 	if err != nil {
@@ -559,8 +412,6 @@ func outListDirectory(local string, depth outListingDepth, walked []fs.FileInfo)
 	dir := outNewDirectory(local)
 	listing := make([]cwlcore.FileOrDirectory, 0, len(entries))
 
-	// os.ReadDir sorts its result by filename, which for these entries is the basename, so the
-	// listing is already in the order the reference implementation sorts it into.
 	for _, entry := range entries {
 		value, err := outListingEntry(filepath.Join(local, entry.Name()), depth, walked)
 		if err != nil {
@@ -575,9 +426,7 @@ func outListDirectory(local string, depth outListingDepth, walked []fs.FileInfo)
 	return dir, nil
 }
 
-// outListingEntry builds one entry of a directory listing. A subdirectory reached during a deep walk
-// gets a listing of its own; one reached during a shallow walk gets a nil listing, which reads as
-// "not read" rather than "empty".
+// outListingEntry builds one directory listing entry. Deep-walked subdirs get their own listing.
 func outListingEntry(
 	local string, depth outListingDepth, walked []fs.FileInfo,
 ) (cwlcore.FileOrDirectory, error) {
@@ -597,10 +446,7 @@ func outListingEntry(
 	return outListDirectory(local, outDeepWalk, append(walked, info))
 }
 
-// outAlreadyWalked reports whether info names a directory already on the branch being walked, which
-// is what a symlink pointing back up the tree produces. Identity is compared with [os.SameFile]
-// rather than by path, because two paths that reach the same directory through different links
-// are the same directory.
+// outAlreadyWalked detects symlink cycles using [os.SameFile].
 func outAlreadyWalked(info fs.FileInfo, walked []fs.FileInfo) bool {
 	for _, seen := range walked {
 		if os.SameFile(info, seen) {
@@ -611,7 +457,7 @@ func outAlreadyWalked(info fs.FileInfo, walked []fs.FileInfo) bool {
 	return false
 }
 
-// outNewFile builds the File fields that follow from the path alone.
+// outNewFile builds a File value from a path with derived name fields.
 func outNewFile(local string) *cwlcore.File {
 	basename := filepath.Base(local)
 	parts := outSplitName(basename)
@@ -632,54 +478,10 @@ func outNewFile(local string) *cwlcore.File {
 	}
 }
 
-// Completing the listings of a value on its way out of the engine.
-//
-// Process.yml gives loadListing a default of no_listing and says it decides how a Directory's
-// listing is loaded "for use by expressions" — so wherever it appears it governs what an expression
-// sees, and nothing more. What is *published* is a different question, and the specification answers
-// it in Process.yml's description of `listing`: "If `listing` is not provided, the implementation
-// must have some way of fetching the Directory listing at runtime based on the `location` field." A
-// run's output object is exactly the place that guarantee runs out — the caller may relocate the
-// directory, upload it to storage with no directory concept, or discard the container it lived in —
-// so a Directory leaving the engine without its listing is a Directory whose contents nobody can
-// recover. The conformance harness makes the same judgement and treats `listing` as a mandatory
-// field of every Directory it is shown.
-//
-// # Why this happens once, at the boundary, and not when a tool collects an output
-//
-// Because a listing written onto a value is not a cache, it is the value. The same Process.yml
-// sentence says the location is consulted only "if `listing` is not provided", so whatever is
-// written here becomes the authoritative answer to what that directory contains, for every consumer
-// that ever reads it.
-//
-// That is fine for a value nothing will touch again, and wrong for one still in flight.
-// InplaceUpdateRequirement is the case that proves it: tests/inpdir_update_wf.cwl has step1 create a
-// directory, step2 modify that same directory on disk, and step3 read it with
-// `loadListing: shallow_listing`. Completing step1's output at collection time froze the empty
-// listing it had at that moment onto the value, and step3 — correctly declining to overwrite a
-// listing that had been provided — then reported the directory as empty, hours of disk activity
-// notwithstanding. Deferring the completion to the boundary leaves the intermediate value saying
-// what is true of it, which is that nobody has read its listing, so every later consumer that asks
-// for one goes and reads the directory as it stands.
-//
-// The alternative — completing at collection time and re-reading at the far end whenever a consumer
-// asks for a listing mode — was rejected because it cannot tell the two kinds of listing apart. A
-// listing a *document* wrote is a claim the specification makes authoritative, and a Directory
-// literal's listing is the only description of it there is; re-reading on request would silently
-// replace both with whatever happened to be on disk. Deferring the write instead means the only
-// non-nil listings inside a run are the ones a document or an expression put there, and DECIDED-16's
-// nil-versus-supplied distinction survives untouched.
-//
-// The pass only ever *completes* a value: a listing already set is kept, and descended into so that
-// its own subdirectories are completed too.
+// Completing directory listings at the engine boundary. Done once on output, not during
+// collection, so in-flight values reflect current disk state rather than frozen snapshots.
 
-// outFillListings gives every Directory a collected value carries the listing it must be published
-// with.
-//
-// Failure is not reported. A Directory an expression named but that is not on disk keeps the nil
-// listing it had, on the same terms as [outRemeasure] leaving an unreadable File unmeasured: the
-// value may legitimately describe something a later stage will create, and refusing to publish a
-// tool's whole output over it would be the wrong trade.
+// outFillListings ensures every Directory in value has a listing. Errors are silently ignored.
 func outFillListings(value any) {
 	switch typed := value.(type) {
 	case *cwlcore.Directory:
@@ -699,23 +501,17 @@ func outFillListings(value any) {
 			outFillListings(field)
 		}
 	default:
-		// A string, a number, a boolean or a null: nothing that can carry a Directory.
 	}
 }
 
-// outFillEntries completes every member of a listing or a secondaryFiles array.
+// outFillEntries completes listings for each entry.
 func outFillEntries(entries []cwlcore.FileOrDirectory) {
 	for _, entry := range entries {
 		outFillListings(entry)
 	}
 }
 
-// outFillDirectory completes one Directory.
-//
-// A listing that is already set is descended into rather than replaced, and one that is read here
-// is not descended into again — it was read to the bottom already, and the only nil listings it can
-// contain are the ones [outListDirectory] leaves at a symlink loop, which is precisely where
-// descending again would not terminate.
+// outFillDirectory completes one Directory. Existing listings are kept and descended into.
 func outFillDirectory(dir *cwlcore.Directory) {
 	if dir.Listing != nil {
 		outFillEntries(dir.Listing)
@@ -726,8 +522,7 @@ func outFillDirectory(dir *cwlcore.Directory) {
 	dir.Listing = outReadListing(dir.Path)
 }
 
-// outReadListing reads the whole tree under local, and returns nil when there is no directory there
-// to read or reading it fails.
+// outReadListing reads the full tree under local, returning nil on error.
 func outReadListing(local string) []cwlcore.FileOrDirectory {
 	info, err := os.Stat(local)
 	if err != nil || !info.IsDir() {
@@ -742,11 +537,7 @@ func outReadListing(local string) []cwlcore.FileOrDirectory {
 	return read.Listing
 }
 
-// outNewDirectory builds the Directory fields that follow from the path alone.
-//
-// There are only three. The vendored schema gives Directory class, location, path, basename and
-// listing and nothing else — no size, no checksum, no format, no secondaryFiles — so a Directory
-// carries no derived name fields either.
+// outNewDirectory builds a Directory value from a path.
 func outNewDirectory(local string) *cwlcore.Directory {
 	return &cwlcore.Directory{
 		Node:     nil,

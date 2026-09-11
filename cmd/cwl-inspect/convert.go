@@ -5,12 +5,7 @@ import (
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
-// The conversions from the model's typed slices to the renderers' []any.
-//
-// Everything a renderer sees is []any rather than a typed slice, because the
-// text renderer would otherwise print a typed slice through fmt and produce
-// "[a b c]" where the reader expects a list. Converting at the boundary keeps
-// that decision in one place.
+// Typed-slice to []any conversions for renderers.
 
 // stringItems converts a string slice for rendering.
 func stringItems(items []string) []any {

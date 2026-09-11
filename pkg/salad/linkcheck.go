@@ -6,13 +6,7 @@ import (
 	"strings"
 )
 
-// checkLinks validates every link in a resolved document and rewrites the
-// references that a refScope search resolves.
-//
-// The specification makes link validation optional; this package performs it by
-// default and treats a dangling link as fatal. WithSkipLinkCheck opts out. Two
-// jsonldPredicate modifiers narrow it: identity means the absence of an object
-// with that URI is not an error, and noLinkCheck stops traversal at the field.
+// checkLinks validates every link in a resolved document.
 func (r *resolver) checkLinks(n Node, sc scope) (Node, error) {
 	checked := r.walkLinks(n, sc)
 	if len(r.linkErrs) == 0 {
@@ -44,9 +38,7 @@ func (r *resolver) walkLinksSeq(s *SeqNode, sc scope) Node {
 	return NewSeqNode(s.Loc(), items)
 }
 
-// walkLinksMap checks every field of an object. The object's own identifier is
-// the scope a refScope search starts from, falling back to the base URI the
-// document's explicit context sets.
+// walkLinksMap checks every field of an object.
 func (r *resolver) walkLinksMap(m *MapNode, sc scope) Node {
 	sc = applyExplicitContext(m, sc)
 	child := sc.child()
@@ -67,8 +59,7 @@ func (r *resolver) walkLinksMap(m *MapNode, sc scope) Node {
 	return NewMapNode(m.Loc(), out)
 }
 
-// checkField checks one field's value, honouring noLinkCheck and the identity
-// modifier, and recursing into anything that is not itself a reference.
+// checkField checks one field's value, honouring noLinkCheck and identity.
 func (r *resolver) checkField(field string, term *TermDef, val Node, sc scope) Node {
 	if term.NoLinkCheck {
 		return val
@@ -103,9 +94,7 @@ func (r *resolver) checkField(field string, term *TermDef, val Node, sc scope) N
 	return NewSeqNode(seq.Loc(), items)
 }
 
-// checkLink resolves and validates one reference, returning the reference the
-// document should carry. A reference that cannot be resolved is recorded as an
-// error and returned unchanged.
+// checkLink resolves and validates one reference.
 func (r *resolver) checkLink(field string, term *TermDef, link string, loc SourceLine, sc scope) string {
 	if link == "" || isTemplate(link) || r.isKnown(link, term, sc) {
 		return link
@@ -131,8 +120,7 @@ func (r *resolver) checkLink(field string, term *TermDef, link string, loc Sourc
 	return link
 }
 
-// isKnown reports whether a reference names something the document, the
-// vocabulary, or a declared foreign vocabulary already defines.
+// isKnown reports whether a reference is defined in the document or vocabulary.
 func (r *resolver) isKnown(link string, term *TermDef, sc scope) bool {
 	if _, ok := r.idx[link]; ok {
 		return true
@@ -149,9 +137,7 @@ func (r *resolver) isKnown(link string, term *TermDef, sc scope) bool {
 	return r.inDeclaredNamespace(link)
 }
 
-// searchScopes implements the refScope rule: a relative reference is resolved by
-// searching each successive parent scope of the containing identifier, the last
-// scope searched being the top level.
+// searchScopes resolves a relative reference by searching successive parent scopes.
 func (r *resolver) searchScopes(field string, term *TermDef, link string, loc SourceLine, sc scope) (string, *Error) {
 	base, err := url.Parse(sc.base)
 	if err != nil {

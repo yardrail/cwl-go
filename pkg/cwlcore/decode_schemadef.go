@@ -6,33 +6,10 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// Resolving a named type against the SchemaDefRequirement declarations in scope.
-//
-// SchemaDefRequirement.Types are carried as validated salad nodes rather than as
-// decoded TypeRefs, because one declaration may refer by name to another
-// declared alongside it: a node decoded in isolation cannot follow that edge,
-// and the set of nodes to follow it through is a property of the requirement
-// scope rather than of any single node. This file is where the two halves are
-// put back together, and it is the only thing standing between a
-// TypeKindNamed TypeRef and the schema it names.
+// Resolving named types against SchemaDefRequirement declarations.
 
-// ResolveSchemaDef resolves the named type name against the SchemaDefRequirement
-// in scope, returning the type it names and whether the scope declares one.
-//
-// The reference may be spelled however identifier resolution left it — "rec",
-// "#rec", or "file:///tool.cwl#rec" all name the same declaration — and the same
-// goes for the name each declaration gives itself.
-//
-// The result is resolved through: a declaration whose fields, array items or
-// union members refer to other declarations comes back with those substituted
-// too, so a caller can walk the returned TypeRef without resolving anything
-// further. The one exception is a recursive type. A declaration that reaches
-// itself cannot be expanded indefinitely, so the edge that closes the cycle is
-// left as the TypeKindNamed reference it was written as, which both terminates
-// the expansion and tells the caller exactly where the cycle is.
-//
-// A nil scope, a scope with no SchemaDefRequirement, and a name no declaration
-// matches all report false.
+// ResolveSchemaDef resolves a named type against the SchemaDefRequirement in scope.
+// Recursive types leave the cycle edge as TypeKindNamed.
 func ResolveSchemaDef(scope *RequirementScope, name string) (TypeRef, bool) {
 	types := schemaDefTypes(scope)
 	if len(types) == 0 {
@@ -44,15 +21,7 @@ func ResolveSchemaDef(scope *RequirementScope, name string) (TypeRef, bool) {
 	return resolver.byName(name)
 }
 
-// ResolveTypeRef resolves every named reference inside t against the
-// SchemaDefRequirement in scope, leaving anything it cannot resolve as it is.
-//
-// It is ResolveSchemaDef applied to a type a parameter already carries rather
-// than to a bare name, which is what a consumer walking a process's parameters
-// wants: a parameter typed as a SchemaDef record, or as an array or union of
-// them, comes back with the real schemas in place and its nested inputBindings
-// reachable. A type that names nothing declared is returned unchanged, so this
-// is safe to call on every parameter.
+// ResolveTypeRef resolves all named references inside t against the SchemaDefRequirement in scope.
 func ResolveTypeRef(scope *RequirementScope, t TypeRef) TypeRef {
 	types := schemaDefTypes(scope)
 	if len(types) == 0 {
@@ -64,8 +33,7 @@ func ResolveTypeRef(scope *RequirementScope, t TypeRef) TypeRef {
 	return resolver.substitute(t)
 }
 
-// schemaDefTypes returns the type declarations of the SchemaDefRequirement in
-// effect for the scope, or nil when the scope declares none.
+// schemaDefTypes returns SchemaDefRequirement type declarations from scope, or nil.
 func schemaDefTypes(scope *RequirementScope) []salad.Node {
 	if scope == nil {
 		return nil
@@ -84,11 +52,8 @@ func schemaDefTypes(scope *RequirementScope) []salad.Node {
 	return declared.Types
 }
 
-// schemaDefResolver expands named references against one set of declarations.
-//
-// active holds the names currently being expanded, which is what stops a
-// recursive declaration from expanding forever. It is a resolver rather than a
-// pair of free functions purely so that this set travels with the recursion.
+// schemaDefResolver expands named references against a set of declarations.
+// active tracks in-progress expansions to detect recursive types.
 type schemaDefResolver struct {
 	active map[string]bool
 	types  []salad.Node
@@ -103,8 +68,7 @@ func (r *schemaDefResolver) byName(name string) (TypeRef, bool) {
 
 	key := typeNameKey(name)
 	if r.active[key] {
-		// The cycle closes here. A recursive type has no finite expansion,
-		// so the reference stands for itself.
+		// Recursive cycle — return the named reference as-is.
 		return NewNamedType(name).WithNode(node), true
 	}
 
@@ -146,15 +110,12 @@ func (r *schemaDefResolver) substitute(t TypeRef) TypeRef {
 	case TypeKindRecord:
 		return r.substituteRecord(t)
 	default:
-		// A primitive, an enum, a standard-stream shortcut or the unset
-		// zero value: nothing inside any of them can name a declaration.
+		// Primitive, enum, or zero value — nothing to substitute.
 		return t
 	}
 }
 
-// substituteNamed expands one reference, leaving it alone when nothing in scope
-// declares it — a parameter may name a type this package does not resolve, and
-// that is the caller's business rather than an error here.
+// substituteNamed expands one named reference, leaving it alone if not declared.
 func (r *schemaDefResolver) substituteNamed(t TypeRef) TypeRef {
 	resolved, found := r.byName(t.Name())
 	if !found {
@@ -189,8 +150,7 @@ func (r *schemaDefResolver) substituteArray(t TypeRef) TypeRef {
 	return NewArrayType(&replaced).WithNode(t.Node())
 }
 
-// substituteRecord expands every field type of a record, copying the schema
-// rather than editing it so that the decoded original is left alone.
+// substituteRecord expands every field type of a record.
 func (r *schemaDefResolver) substituteRecord(t TypeRef) TypeRef {
 	schema := t.Record()
 	if schema == nil {
@@ -210,14 +170,7 @@ func (r *schemaDefResolver) substituteRecord(t TypeRef) TypeRef {
 	return NewRecordType(&replaced).WithNode(t.Node())
 }
 
-// typeNameKey reduces a type name to the short form that every spelling of the
-// same type shares: the last "/"-separated segment of the identifier's fragment,
-// or of its path when it has no fragment.
-//
-// It is this package's spelling of the rule cwltool applies wherever a CWL
-// identifier is matched by name, and it is what lets a parameter written
-// "type: rec" find a declaration whose own name resolved to
-// "file:///tool.cwl#rec".
+// typeNameKey reduces a type name to its short form for matching.
 func typeNameKey(name string) string {
 	key := shortName(name)
 

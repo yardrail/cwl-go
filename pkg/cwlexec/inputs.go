@@ -14,46 +14,32 @@ import (
 
 // Errors reported while resolving the values that flow along a workflow's edges.
 var (
-	// ErrUnknownLinkMerge reports a linkMerge method that is neither merge_nested nor
-	// merge_flattened.
+	// ErrUnknownLinkMerge reports an unrecognized linkMerge method.
 	ErrUnknownLinkMerge = errors.New("unknown linkMerge method")
 
-	// ErrUnknownPickValue reports a pickValue method that is none of first_non_null,
-	// the_only_non_null and all_non_null.
+	// ErrUnknownPickValue reports an unrecognized pickValue method.
 	ErrUnknownPickValue = errors.New("unknown pickValue method")
 
-	// ErrPickValue reports a pickValue that found the wrong number of non-null values: none at
-	// all for first_non_null or the_only_non_null, or more than one for the_only_non_null. The
-	// specification makes each of those an error rather than a null result, because a sink that
-	// asked for exactly one value and got none has not been satisfied.
+	// ErrPickValue reports a pickValue with the wrong number of non-null values.
 	ErrPickValue = errors.New("pickValue found no usable value")
 
-	// ErrIncomplete reports a sink read before the step producing it has finished. It is an
-	// internal consistency failure — the ready-queue loop only resolves a sink once every source
-	// behind it is available — and never a document error.
+	// ErrIncomplete reports a sink read before its producing step has finished.
 	ErrIncomplete = errors.New("source value is not available yet")
 
-	// ErrValueFrom reports a step input's valueFrom expression that failed to evaluate. The
-	// underlying cwlcore expression sentinel is wrapped, so a caller can still classify it.
+	// ErrValueFrom reports a failed valueFrom expression evaluation.
 	ErrValueFrom = errors.New("step input valueFrom failed")
 
-	// ErrLoadContents reports a loadContents read of a step input that could not be performed
-	// at all — the file is gone, or unreadable. A file that is present but too large or not
-	// UTF-8 text is reported as [ErrContentsTooLarge] or [ErrContentsNotText] instead.
+	// ErrLoadContents reports an unreadable file during loadContents.
 	ErrLoadContents = errors.New("loadContents: cannot read the file")
 
-	// ErrLoadListing reports a loadListing read of a step input that could not be performed:
-	// the directory is gone, or the walk failed part way down.
+	// ErrLoadListing reports a failed directory listing read.
 	ErrLoadListing = errors.New("loadListing: cannot read the directory")
 )
 
-// sourceLookup reads the value behind a resolved source identifier, reporting whether the port that
-// produces it has finished.
+// sourceLookup reads a source value by identifier, reporting whether the port is ready.
 type sourceLookup func(id string) (any, bool)
 
-// sink is one place a value flows into: a step input, or an output of the run itself. Both are
-// wired the same way — one or more sources, combined by linkMerge and filtered by pickValue — so
-// they resolve through one implementation rather than two that can drift apart.
+// sink is a step input or workflow output that receives values from one or more sources.
 type sink struct {
 	// Name is the sink's short name, used only in error messages.
 	Name string
@@ -67,29 +53,14 @@ type sink struct {
 	// Sources are the resolved identifiers this sink draws from, in document order.
 	Sources []string
 
-	// Type is the type the resolved value must inhabit, and is set only for an output parameter
-	// of the run itself. A step input leaves it unset: what a step input has to satisfy is the
-	// declared type of the *run process's* parameter, which the process is entitled to be lax
-	// about — valueFrom may still be about to replace the value outright, and an undeclared step
-	// input has no type at all. An output parameter is the last word on a value, so it is the
-	// one place a mismatch is certainly a mismatch.
+	// Type is set only for workflow output parameters; step inputs leave it unset.
 	Type cwlcore.TypeRef
 
-	// StepInput distinguishes the two kinds of sink, and only [resolveInput] sets it: an output
-	// parameter of the run itself is the zero value, so a sink built anywhere else is one by
-	// construction. It says whether the value resolved here is leaving the engine, which is what
-	// decides whether a Directory's listing is completed; see [sink.value].
+	// StepInput is true for step inputs, false for workflow outputs.
 	StepInput bool
 }
 
-// value resolves the sink: it reads every source, merges them, and applies pickValue.
-//
-// It expects at least one source. A sink with none has no value to resolve — it is absent, and what
-// fills it is a default, which is the caller's business rather than the wiring's; both call sites
-// therefore check [sink.wired] first.
-//
-// An output parameter of the run itself is also where a Directory's listing is completed, which is
-// the one point in a run where doing so is safe; see [outFillListings] for the whole of that rule.
+// value resolves the sink: reads sources, merges, applies pickValue.
 func (s *sink) value(lookup sourceLookup) (any, error) {
 	values := make([]any, 0, len(s.Sources))
 
@@ -119,17 +90,7 @@ func (s *sink) value(lookup sourceLookup) (any, error) {
 	return picked, s.checkType(picked)
 }
 
-// checkType rejects a resolved value that does not inhabit the sink's declared type, for the sinks
-// that have one; see [sink.Type].
-//
-// It is what makes `pickValue: all_non_null` on a non-array output the error the specification says
-// it is. That method "will produce a list", so an output declared `type: string` that picks two
-// values has produced something its own declaration forbids, and a runner that handed it back
-// anyway would be reporting a workflow output the document says cannot exist.
-//
-// The value is rendered through [cwlcore.ToExpressionValue] first, for the same reason an output binding's
-// result is: inside the engine a File is a *cwlcore.File, and the type checker works on the plain
-// JSON-shaped objects a CWL type describes.
+// checkType rejects a resolved value that doesn't match the sink's declared type.
 func (s *sink) checkType(value any) error {
 	err := checkValueType(cwlcore.ToExpressionValue(value), s.Type)
 	if err != nil {
@@ -144,12 +105,7 @@ func (s *sink) wired() bool {
 	return len(s.Sources) > 0
 }
 
-// merge combines the source values according to linkMerge.
-//
-// A single source with no declared linkMerge passes its value through untouched. That is the one
-// case the specification singles out — "if merge_nested is specified with a single link, the value
-// from the link must be wrapped in a single-item list" — so wrapping happens exactly when the
-// document asked for it, or when there is genuinely more than one link to combine.
+// merge combines source values according to linkMerge.
 func (s *sink) merge(values []any) (any, error) {
 	if s.LinkMerge == "" && len(values) == 1 {
 		return values[0], nil
@@ -165,8 +121,7 @@ func (s *sink) merge(values []any) (any, error) {
 	}
 }
 
-// flattenSources concatenates array sources and appends non-array sources as single elements,
-// which is what merge_flattened specifies.
+// flattenSources implements merge_flattened: concatenates arrays, appends scalars.
 func flattenSources(values []any) []any {
 	flat := make([]any, 0, len(values))
 
@@ -184,12 +139,7 @@ func flattenSources(values []any) []any {
 	return flat
 }
 
-// pick applies pickValue to the merged value.
-//
-// pickValue is defined over "the first level of a list input", so a merged value that is not a list
-// — a single unwrapped source — is treated as a one-element list. That keeps a pickValue on a
-// single link meaningful rather than silently inert, and leaves the far more common case, a source
-// that is already an array (a conditional scatter's gathered output), working on its own elements.
+// pick applies pickValue to the merged value, filtering nulls.
 func (s *sink) pick(merged any) (any, error) {
 	if s.PickValue == "" {
 		return merged, nil
@@ -234,19 +184,8 @@ func (s *sink) selectPicked(kept []any) (any, error) {
 	}
 }
 
-// resolveInputs builds a step's input object from the values its sources have produced: sources
-// followed, linkMerge and pickValue applied, defaults filled in, and the loadContents and
-// loadListing reads the declarations ask for performed.
-//
-// valueFrom is deliberately not applied here. The specification binds its `inputs` to the step's
-// input object "after assigning the source values, applying default, and then scattering", so it
-// runs once per scatter sub-job — see [applyValueFrom] — not once for the step.
-//
-// The step-side secondaryFiles requirement is checked once the object is complete; see
-// [checkStepSecondaryFiles] for the rule and joborder_secondary.go for why a step requires what the
-// top level discovers. This is the right place for it because it is the only one reached by every
-// step and by no bare process: a bare process's input object comes from [ParseJobOrder], which is
-// the top level by definition, and never through here.
+// resolveInputs builds a step's input object from source values, defaults, and load reads.
+// valueFrom is applied later, per scatter sub-job.
 func resolveInputs(step *plannedStep, lookup sourceLookup) (map[string]any, error) {
 	ins := step.step.In
 	object := make(map[string]any, len(ins)+len(step.defaults))
@@ -275,8 +214,7 @@ func resolveInputs(step *plannedStep, lookup sourceLookup) (map[string]any, erro
 	return object, nil
 }
 
-// resolveInput resolves the value of one step input: its sources, then — if those produced nothing
-// — its default, and finally whichever read the step's or the run process's declaration asked for.
+// resolveInput resolves one step input: sources, then default, then load reads.
 func resolveInput(step *plannedStep, in *cwlcore.WorkflowStepInput, lookup sourceLookup) (any, error) {
 	name := ShortName(in.ID)
 	wiring := sink{
@@ -299,9 +237,6 @@ func resolveInput(step *plannedStep, in *cwlcore.WorkflowStepInput, lookup sourc
 		value = resolved
 	}
 
-	// A step input's default covers both "no source" and "the source produced null", which is
-	// why it is tested against the resolved value rather than against len(Source). The run
-	// process's own defaults follow the same rule one step later; see [pendingValues.fillProcessDefaults].
 	if value == nil {
 		fallback, err := step.pending.stepDefault(name)
 		if err != nil {
@@ -319,25 +254,7 @@ func resolveInput(step *plannedStep, in *cwlcore.WorkflowStepInput, lookup sourc
 	return loaded, nil
 }
 
-// projectDeclaredInputs reduces a step's input object to the parameters the process under run:
-// declares.
-//
-// Workflow.yml, WorkflowStepInput: "Only input parameters declared by the target process will be
-// passed through at runtime to the process though additional parameters may be specified (for use
-// within `valueFrom` expressions for instance) - unconnected or unused parameters do not represent
-// an error condition."
-//
-// So an undeclared step input is legal, and it is legal precisely *because* it is dropped here. It
-// exists to be read by a `valueFrom` or a `when`, both of which have already run by the time this is
-// called, and it must not reach the process itself: a tool whose arguments read `$(inputs.in2)` for
-// a parameter it never declared has to fail on an undefined field. The conformance suite pins both
-// halves with the same wiring — pass-unconnected.cwl must succeed, fail-unconnected.cwl must not.
-//
-// This is the mirror of [projectOutputs], which reduces a handler's output object to the ports the
-// step declares in its out list, and it is deliberately only half as thorough: extra parameters are
-// dropped, missing ones are not filled in. An input nothing supplied a value for is absent, and
-// inventing a null for it would make "not supplied" indistinguishable from "supplied as null" — a
-// distinction [applyProcessDefaults] depends on.
+// projectDeclaredInputs drops step inputs that the run process doesn't declare.
 func projectDeclaredInputs(step *plannedStep, object map[string]any) map[string]any {
 	if !hasUndeclaredInput(step.declaredIn, object) {
 		return object
@@ -354,11 +271,7 @@ func projectDeclaredInputs(step *plannedStep, object map[string]any) map[string]
 	return projected
 }
 
-// hasUndeclaredInput reports whether object carries a key the process does not declare.
-//
-// Testing first is what lets the ordinary case — every key declared, which is every step of every
-// well-behaved document — hand back the object it was given instead of copying it once per
-// invocation, and a thousand-element scatter is a thousand invocations.
+// hasUndeclaredInput reports whether object has a key not in declared.
 func hasUndeclaredInput(declared map[string]bool, object map[string]any) bool {
 	for name := range object {
 		if !declared[name] {
@@ -369,16 +282,7 @@ func hasUndeclaredInput(declared map[string]bool, object map[string]any) bool {
 	return false
 }
 
-// applyProcessDefaults fills in the defaults declared by the process under run: for the parameters
-// the input object supplies no usable value for.
-//
-// Nullness is the test, not absence. Process.yml, InputParameter.default: "The default value to use
-// for this parameter if the parameter is missing from the input object, *or if the value of the
-// parameter in the input object is `null`*." The two are one rule, and the same rule a step input's
-// own default follows — see [resolveInput]. Testing presence instead is a wrong answer that only
-// shows itself one layer in: a workflow input declared `File?` and left unsupplied reaches a step as
-// an explicit null under a key that is very much present, and the tool's own default would then
-// never apply.
+// applyProcessDefaults fills in defaults for missing or null parameters.
 func applyProcessDefaults(defaults, object map[string]any) {
 	for name, value := range defaults {
 		if object[name] == nil {
@@ -387,62 +291,37 @@ func applyProcessDefaults(defaults, object map[string]any) {
 	}
 }
 
-// pendingValues is everything about a step's inputs that the wiring alone does not carry: the
-// `default` each input falls back to, the declared type that default must satisfy, the directory a
-// relative reference inside one resolves against, and the two reads a declaration can ask for — a
-// File's contents, and a Directory's listing.
-//
-// The two reads are why this exists at all. A step's input object is assembled by the scheduler and
-// never passes through job-order loading, so nothing else is in a position to give a value arriving
-// from an upstream step the enrichment the same value would have got from a job file.
+// pendingValues holds defaults, types, and load settings for a step's inputs.
 type pendingValues struct {
-	// stepDefaults maps an input short name to the `default` the step's own `in` entry
-	// declared, resolved against the workflow document.
+	// stepDefaults maps input name to the step's own default value.
 	stepDefaults map[string]deferredValue
 
-	// runDefaults maps an input short name to the `default` the process under run: declared,
-	// resolved against that process's document.
+	// runDefaults maps input name to the run process's default value.
 	runDefaults map[string]deferredValue
 
-	// types maps an input short name to the type the process under run: declares for it. A
-	// step input the run process does not declare has no entry, and its zero TypeRef is what
-	// makes conversion walk the value without checking it against anything.
+	// types maps input name to the run process's declared type.
 	types map[string]cwlcore.TypeRef
 
-	// loadListing maps an input short name to the `loadListing` its own declaration wrote,
-	// empty when it wrote none. Read it through [pendingValues.listingFor], which applies the
-	// rest of the precedence.
+	// loadListing maps input name to its declared loadListing, empty if unset.
 	loadListing map[string]cwlcore.LoadListingEnum
 
-	// loadContents holds the input short names either the step's `in` entry or the run
-	// process's parameter asked for a contents read on.
+	// loadContents holds input names that requested contents loading.
 	loadContents map[string]bool
 
-	// stepBase is the directory a relative reference inside a step-level default resolves
-	// against: the directory of the workflow document the step is written in.
+	// stepBase is the workflow document directory for resolving step-level defaults.
 	stepBase string
 
-	// runBase is the directory a relative reference inside the run process's parameter default
-	// resolves against: the directory of that process's own document.
+	// runBase is the run process document directory for resolving its defaults.
 	runBase string
 
-	// secondary are the run process's input declarations as the step-side secondaryFiles check
-	// reads them; see [checkStepSecondaryFiles]. It is populated only for a step of a workflow,
-	// because the check itself applies only there — a bare process run directly is the top
-	// level, where a declared pattern is discovered rather than required.
+	// secondary holds run process input declarations for the step-side secondaryFiles check.
 	secondary []stepSecondaryDecl
 
-	// listingDefault is the LoadListingRequirement in effect, which is the second step of the
-	// `loadListing` precedence and so what a declaration setting none inherits.
+	// listingDefault is the process-level LoadListingRequirement fallback.
 	listingDefault cwlcore.LoadListingEnum
 }
 
-// deferredValue is a `default` already materialized, together with whatever went wrong doing so.
-//
-// Materializing happens at planning time, where there is no context to observe and no run under way
-// to interrupt. Reporting the failure does not: a `default` naming a file that is not there is
-// perfectly legal in a document that always supplies a value for that input, so the failure is held
-// until the default turns out to be the value the step actually runs with.
+// deferredValue is a materialized default value, deferring error reporting until use.
 type deferredValue struct {
 	value any
 	err   error
@@ -453,12 +332,7 @@ func (d deferredValue) get() (any, error) {
 	return d.value, d.err
 }
 
-// newProcessValues collects what the process under run: contributes: the declared type, the
-// parameter default, and the loadContents and loadListing requests of each of its inputs. scope
-// supplies the LoadListingRequirement those requests fall back to.
-//
-// It is the whole of what a bare process — one run as the implicit single step, with no workflow
-// step around it — has to contribute. A step of a workflow builds on it with [newPendingValues].
+// newProcessValues collects the run process's types, defaults, and load settings.
 func newProcessValues(
 	ctx context.Context, run cwlcore.Process, scope *cwlcore.RequirementScope, decls []portDecl,
 ) *pendingValues {
@@ -484,8 +358,6 @@ func newProcessValues(
 		pending.loadContents[decl.Name] = decl.LoadContents
 	}
 
-	// The defaults are materialized in a second pass because each is converted against its own
-	// parameter's type, loadContents and loadListing, which the first pass is what records.
 	for index := range decls {
 		decl := &decls[index]
 		pending.record(ctx, decl.Name, decl.DefaultNode, pending.runBase, pending.runDefaults)
@@ -494,12 +366,7 @@ func newProcessValues(
 	return pending
 }
 
-// newPendingValues extends [newProcessValues] with what the step itself contributes: its own
-// per-input defaults and read requests, which sit closer to the value than the run process's and are
-// written in the workflow document rather than the run process's.
-//
-// A step's own requests do not reach the run process's parameter defaults, and cannot: those fill
-// parameters the step wired no `in` entry for at all, so there is no step declaration in play.
+// newPendingValues extends [newProcessValues] with step-level defaults and load requests.
 func newPendingValues(
 	ctx context.Context, sc cwlcore.StepContainer, step *plannedStep, decls []portDecl,
 ) *pendingValues {
@@ -524,15 +391,12 @@ func newPendingValues(
 	return pending
 }
 
-// listingFor resolves the loadListing in effect for one input, which Process.yml gives a three-step
-// precedence: the declaration's own setting, then the LoadListingRequirement in scope, then
-// no_listing — which is the empty result, and which reads nothing.
+// listingFor returns the effective loadListing for an input, applying the precedence chain.
 func (p *pendingValues) listingFor(name string) cwlcore.LoadListingEnum {
 	return cmp.Or(p.loadListing[name], p.listingDefault)
 }
 
-// record materializes one declaration's `default` and files it under name, doing nothing at all
-// when the declaration wrote none.
+// record materializes a declaration's default and stores it under name.
 func (p *pendingValues) record(
 	ctx context.Context, name string, def salad.Node, base string, into map[string]deferredValue,
 ) {
@@ -543,18 +407,12 @@ func (p *pendingValues) record(
 	into[name] = p.materialize(ctx, def, base, name)
 }
 
-// stepDefault returns the value of the `default` the step's own `in` entry declared for name, and
-// nil when it declared none.
+// stepDefault returns the step's own default for name, or nil.
 func (p *pendingValues) stepDefault(name string) (any, error) {
 	return p.stepDefaults[name].get()
 }
 
-// fillProcessDefaults fills in the defaults declared by the process under run: for the parameters
-// the step's wiring supplied no usable value for.
-//
-// Nullness is the test, not absence, for the reason [applyProcessDefaults] sets out: Process.yml
-// makes "missing from the input object" and "present but null" the same case, and a step that wires
-// an unsupplied optional workflow input produces exactly the second.
+// fillProcessDefaults fills in the run process's defaults for null or missing parameters.
 func (p *pendingValues) fillProcessDefaults(object map[string]any) error {
 	for name, pending := range p.runDefaults {
 		if object[name] != nil {
@@ -572,17 +430,7 @@ func (p *pendingValues) fillProcessDefaults(object map[string]any) error {
 	return nil
 }
 
-// materialize turns a `default` node into the Go value an input object holds.
-//
-// It runs the job-order loader over the node rather than [salad.ToAny], which is the whole point:
-// that is where a File is resolved against its document, given an absolute path, measured and
-// checksummed, and — when the parameter asked for it — read. A `default` is a value written in a
-// document exactly as a job order's is, so it deserves the same treatment, and giving it a second
-// implementation of that treatment is how the two would drift.
-//
-// The loader is built with no vocabulary and no LoadListingRequirement, which is what makes this a
-// value conversion and not a second format-checking pass: a `default` belongs to a parameter whose
-// format constraint the handler checks against the input object as a whole, once.
+// materialize converts a default node into a Go value using the job-order loader.
 func (p *pendingValues) materialize(ctx context.Context, node salad.Node, base, name string) deferredValue {
 	loader := &joLoader{
 		vocab:   joVocabulary{namespaces: nil, hasOntology: false},
@@ -608,16 +456,7 @@ func (p *pendingValues) materialize(ctx context.Context, node salad.Node, base, 
 	return deferredValue{value: value, err: nil}
 }
 
-// load gives one resolved input value the reads its declaration asked for: loadContents on a File,
-// loadListing on a Directory.
-//
-// Both are scoped by Process.yml to the value bound to the declaration — "type: File or an array of
-// items: File" for loadContents — so an array is read element by element and anything the request
-// does not apply to is returned untouched, because a request that finds nothing to do is not an
-// error.
-//
-// This is the enrichment a top-level input gets from job-order loading. A step's input object never
-// passes through that, which is why it has to happen here as well.
+// load applies loadContents/loadListing reads to a resolved input value.
 func (p *pendingValues) load(name string, value any) (any, error) {
 	if !p.loadContents[name] && !readsListing(p.listingFor(name)) {
 		return value, nil
@@ -658,23 +497,13 @@ func (p *pendingValues) loadOne(name string, value any) (any, error) {
 	}
 }
 
-// readsListing reports whether a resolved loadListing setting asks for the listing to be read at
-// all. The empty setting is no_listing, which Process.yml makes the default.
+// readsListing reports whether the loadListing mode requires reading.
 func readsListing(mode cwlcore.LoadListingEnum) bool {
 	return mode != "" && mode != cwlcore.LoadListingNone
 }
 
-// loadDirectoryListing returns dir with its listing read to the depth loadListing asks for.
-//
-// A nil Listing that stays nil is the point of the guard, not an oversight: nil records that nothing
-// read the listing, which is what `$(inputs.d.listing === undefined)` observes, whereas an empty
-// slice asserts that the directory has no entries. A listing the document supplied explicitly is
-// never overwritten, and a Directory naming a resource with no local path has nothing to read.
-//
-// The walk itself is the one the output collector uses. An input Directory and an output Directory
-// are the same value read from the same filesystem, and a second walk would be a second chance to
-// disagree about entry order, about what a listed File's size and checksum are, or about a symlink
-// pointing back up the tree.
+// loadDirectoryListing reads a Directory's listing from disk at the requested depth.
+// Skips if listing is already set, mode is no_listing, or path is empty.
 func loadDirectoryListing(dir *cwlcore.Directory, mode cwlcore.LoadListingEnum) (any, error) {
 	if !readsListing(mode) || dir.Listing != nil || dir.Path == "" {
 		return dir, nil
@@ -690,23 +519,13 @@ func loadDirectoryListing(dir *cwlcore.Directory, mode cwlcore.LoadListingEnum) 
 		return nil, fmt.Errorf("%w: %s: %w", ErrLoadListing, dir.Path, err)
 	}
 
-	// The Directory is copied for the same reason a File is; see [loadFileContents].
 	loaded := *dir
 	loaded.Listing = listed.Listing
 
 	return &loaded, nil
 }
 
-// loadFileContents returns value with its contents populated, when value is a File that has bytes
-// on disk still to read.
-//
-// The read goes through the same digest the output collector uses, so the 64 KiB ceiling and the
-// UTF-8 requirement are enforced in one place and nothing is ever truncated: Process.yml says "if
-// the size of the file is greater than 64 KiB, the implementation must raise a fatal error".
-//
-// The File is copied before its contents are set. The value on a step input is the very object an
-// upstream step published, and writing to it would make one step's loadContents request silently
-// change what every other consumer of that output sees.
+// loadFileContents reads a File's contents from disk. Returns a copy to avoid mutating shared values.
 func loadFileContents(file *cwlcore.File) (any, error) {
 	if file.Contents.IsSet() || file.Path == "" {
 		return file, nil
@@ -727,23 +546,12 @@ func loadFileContents(file *cwlcore.File) (any, error) {
 	return read, nil
 }
 
-// documentDir is the directory a relative location written inside p's document resolves against.
-//
-// A process carrying no document identifier — one built in memory, or one decoding gave a blank
-// node — has no document for such a reference to resolve against, so it falls back to ".": the
-// reference then resolves against the process working directory, which is the base the invocation
-// itself was written against and the only one still available.
+// documentDir returns p's document directory, defaulting to ".".
 func documentDir(p cwlcore.Process) string {
 	return joProcessDir(p, ".")
 }
 
-// applyValueFrom returns a copy of one sub-job's input object with every declared valueFrom
-// evaluated.
-//
-// `self` is bound to that input's own incoming value and `inputs` to the whole pre-valueFrom
-// object, so that — as the specification requires — "the result of evaluating valueFrom on a
-// parameter must not be visible to evaluation of valueFrom on other parameters", whatever order
-// they happen to be evaluated in.
+// applyValueFrom evaluates valueFrom expressions on a copy of the input object.
 func applyValueFrom(step *plannedStep, object map[string]any) (map[string]any, error) {
 	if step.implicit {
 		return object, nil

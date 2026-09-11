@@ -10,15 +10,10 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// signatureLeaves is how many of a failure's most common leaf messages go into its
-// clustering signature. One is too coarse -- every union rejection starts the same way --
-// and the whole set is too fine, because a union over twenty members produces a leaf per
-// member and no two documents share the exact set.
+// signatureLeaves is the number of top leaf messages in a clustering signature.
 const signatureLeaves = 3
 
-// Patterns that erase the parts of a message that vary between documents but not between
-// causes. Applied in this order: URIs first (they contain digits and slashes that the
-// later patterns would mangle), then quoted spans, then bare numbers.
+// Normalization patterns: erase URIs, quoted spans, and bare numbers.
 var (
 	rePath   = regexp.MustCompile(`(?:[a-z][a-z0-9+.-]*://|/)[^\s'"` + "`" + `,;:)\]]+`)
 	reQuoted = regexp.MustCompile(`"[^"]*"|'[^']*'|` + "`[^`]*`")
@@ -65,12 +60,7 @@ func (c *cluster) topTags(limit int) []string {
 	return names
 }
 
-// clusterFailures groups failing documents by the normalized shape of their error and
-// returns the groups largest first.
-//
-// This is the sweep's most useful output. Across several hundred documents a single
-// systemic gap produces a wall of individually plausible errors; grouping turns that
-// wall back into the handful of causes it actually represents.
+// clusterFailures groups failures by normalized error signature, largest cluster first.
 func clusterFailures(failures []docResult) []*cluster {
 	byKey := make(map[string]*cluster, len(failures))
 	order := make([]*cluster, 0, len(failures))
@@ -107,19 +97,13 @@ func countTags(dst map[string]int, entry *manifestEntry) {
 	}
 }
 
-// failureSignature is an error reduced for clustering: the key failures are grouped by,
-// and the message the report shows for the group.
+// failureSignature is the clustering key and display message for a group of failures.
 type failureSignature struct {
 	key      string
 	headline string
 }
 
 // signature reduces an error to its clustering signature.
-//
-// For a *salad.Error the key is built from the tip errors, because those name the actual
-// problem; the grouping nodes above them only say which union member or which field was
-// being checked. The most frequent tips win, so a union rejection clusters on the reason
-// every member was rejected rather than on the incidental order of the members.
 func signature(err error) failureSignature {
 	var se *salad.Error
 	if !errors.As(err, &se) {
@@ -152,9 +136,7 @@ func signature(err error) failureSignature {
 	}
 }
 
-// headlineOf joins the error tree's root message to its most telling tip. The root alone
-// is often only context ("document has unresolved links") and the tip alone is often only
-// a detail ("first declared here"); together they read as a cause.
+// headlineOf joins the root message and the most frequent tip.
 func headlineOf(root, tip string) string {
 	if root == "" || root == tip {
 		return tip
@@ -163,21 +145,14 @@ func headlineOf(root, tip string) string {
 	return root + ": " + tip
 }
 
-// rankedMessage is one distinct leaf message, its normalized clustering key, and how
-// often the message occurred in the error tree.
+// rankedMessage is a distinct leaf message with its normalized key and frequency.
 type rankedMessage struct {
 	msg   string
 	key   string
 	count int
 }
 
-// rankMessages counts the distinct normalized leaf messages and orders them by frequency,
-// breaking ties on the key rather than on position.
-//
-// The tiebreak is load-bearing, not cosmetic: validating a union records one child per
-// member, and the members are visited in schema order, which differs between two
-// documents that failed for the same reason. Ordering ties by position would give those
-// two documents different signatures and split one cause into several clusters.
+// rankMessages counts distinct normalized leaves, ordered by frequency then key.
 func rankMessages(leaves []*salad.Error) []rankedMessage {
 	counts := make(map[string]int, len(leaves))
 	first := make(map[string]string, len(leaves))
@@ -207,8 +182,7 @@ func rankMessages(leaves []*salad.Error) []rankedMessage {
 	return ranked
 }
 
-// normalize erases the document-specific parts of a message so that two failures with
-// the same cause produce the same key.
+// normalize erases document-specific parts of a message for clustering.
 func normalize(msg string) string {
 	out := rePath.ReplaceAllString(msg, "<path>")
 	out = reQuoted.ReplaceAllString(out, "<name>")

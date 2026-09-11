@@ -2,8 +2,7 @@ package cwlcore
 
 import "github.com/yardrail/cwl-go/pkg/salad"
 
-// Workflow steps: the node, the process it runs, and the edges wiring it into
-// the rest of the graph.
+// Decoding workflow steps and their input/output wiring.
 
 // Keys a WorkflowStep and its sinks add to the shared field set.
 const (
@@ -35,8 +34,7 @@ func (d *decoder) workflowStep(node salad.Node) WorkflowStep {
 	}
 }
 
-// stepRun decodes a step's run field, whose schema type is `string | Process`: a
-// reference to a process defined elsewhere, or one embedded inline.
+// stepRun decodes a step's run field (string reference or inline process).
 func (d *decoder) stepRun(m *salad.MapNode) StepRun {
 	value := fieldNode(m, keyRun)
 	if value == nil {
@@ -69,9 +67,7 @@ func (d *decoder) workflowStepInput(node salad.Node) WorkflowStepInput {
 	}
 }
 
-// workflowStepOutput decodes one entry of a step's out list. The schema permits
-// a bare identifier string as shorthand for the record, and both forms normalize
-// into the same struct.
+// workflowStepOutput decodes one entry of a step's out list.
 func (d *decoder) workflowStepOutput(node salad.Node) WorkflowStepOutput {
 	if id, ok := salad.AsString(node); ok {
 		return WorkflowStepOutput{ID: id}

@@ -1,8 +1,6 @@
 package salad
 
-// Field names a Schema Salad schema document uses to describe its types. They
-// are spelled once here because BuildContext reads them out of documents that
-// may or may not have been through identifier resolution.
+// Schema Salad schema document field names.
 const (
 	keyName            = "name"
 	keyType            = "type"
@@ -22,10 +20,7 @@ const (
 	kindDocumentation = "documentation"
 )
 
-// typeKinds is the set of type declarations a schema document may contain. A
-// mapping is treated as a type definition only when its type field names one of
-// them, which keeps identifier-map-shaped field tables from being mistaken for
-// type definitions.
+// typeKinds is the set of valid type declaration kinds.
 var typeKinds = map[string]bool{
 	kindRecord:        true,
 	kindEnum:          true,
@@ -35,9 +30,7 @@ var typeKinds = map[string]bool{
 	kindDocumentation: true,
 }
 
-// addTypeTree registers every type definition reachable from n, including the
-// named types nested inside field types, so that their names and symbols enter
-// the vocabulary.
+// addTypeTree registers every type definition reachable from n into the vocabulary.
 func (c *Context) addTypeTree(n Node) *Error {
 	switch v := n.(type) {
 	case *SeqNode:
@@ -55,8 +48,7 @@ func (c *Context) addTypeTree(n Node) *Error {
 	return nil
 }
 
-// addTypeMap registers a mapping that may be a $graph wrapper, a type
-// definition, or merely a container of nested type definitions.
+// addTypeMap registers a mapping as a type definition or descends into it.
 func (c *Context) addTypeMap(m *MapNode) *Error {
 	if graph, ok := m.Get(dirGraph); ok {
 		return c.addTypeTree(graph)
@@ -79,8 +71,7 @@ func (c *Context) addTypeMap(m *MapNode) *Error {
 	return nil
 }
 
-// registerType adds one type definition's own name, symbols and fields to the
-// context. Nested definitions are left to the surrounding tree walk.
+// registerType adds one type definition's name, symbols and fields to the context.
 func (c *Context) registerType(m *MapNode) *Error {
 	err := c.registerTypeName(m)
 	if err != nil {
@@ -99,8 +90,7 @@ func (c *Context) registerType(m *MapNode) *Error {
 	return nil
 }
 
-// registerTypeName adds a named type's own name to the vocabulary, honouring
-// inVocab: false.
+// registerTypeName adds a type's name to the vocabulary, honouring inVocab: false.
 func (c *Context) registerTypeName(m *MapNode) *Error {
 	name, ok := AsString(nodeOrNil(m, keyName))
 	if !ok || name == "" {
@@ -116,15 +106,7 @@ func (c *Context) registerTypeName(m *MapNode) *Error {
 	return c.putVocabTerm(shortName(iri), iri, m.Loc())
 }
 
-// registerSymbols adds an enum's symbols to the vocabulary under their short
-// names, which is how documents spell them.
-//
-// This stays on the lenient putVocab path, like registerField: an
-// unqualified symbol's default IRI is scoped under its own enum's name (e.g.
-// ".../BaseEnum/green" vs ".../MoreEnum/green"), and a subtype enum
-// legitimately re-lists a symbol it shares with a base it extends (see
-// expandEnum in flatten.go) — that is a normal part of the extends/merge
-// mechanism, not a collision.
+// registerSymbols adds an enum's symbols to the vocabulary under their short names.
 func (c *Context) registerSymbols(m *MapNode) {
 	seq, ok := AsSeq(nodeOrNil(m, keySymbols))
 	if !ok {
@@ -142,9 +124,7 @@ func (c *Context) registerSymbols(m *MapNode) {
 	}
 }
 
-// registerFields adds a record's fields to the term table. The fields entry may
-// be a sequence of field definitions or, in an unresolved document, an
-// identifier map keyed by field name.
+// registerFields adds a record's fields to the term table.
 func (c *Context) registerFields(m *MapNode) {
 	fields := nodeOrNil(m, keyFields)
 
@@ -159,8 +139,7 @@ func (c *Context) registerFields(m *MapNode) {
 	}
 }
 
-// registerFieldList registers the fields of a record written as a sequence of
-// field definitions.
+// registerFieldList registers fields from a sequence of field definitions.
 func (c *Context) registerFieldList(seq *SeqNode) {
 	for _, item := range seq.Items() {
 		field, ok := AsMap(item)
@@ -173,8 +152,7 @@ func (c *Context) registerFieldList(seq *SeqNode) {
 	}
 }
 
-// registerFieldMap registers the fields of a record written as an identifier map
-// keyed by field name, which is how an unresolved schema document spells them.
+// registerFieldMap registers fields from an identifier map keyed by field name.
 func (c *Context) registerFieldMap(idmap *MapNode) {
 	for key, val := range idmap.All() {
 		field, ok := AsMap(val)
@@ -190,8 +168,7 @@ func (c *Context) registerFieldMap(idmap *MapNode) {
 	}
 }
 
-// registerField derives one field's term definition and records it under the
-// field's short name.
+// registerField derives and records one field's term definition.
 func (c *Context) registerField(name string, field *MapNode) {
 	iri := c.expandPrefix(name)
 
@@ -210,8 +187,7 @@ func (c *Context) registerField(name string, field *MapNode) {
 	}
 }
 
-// termFor builds a TermDef from a field's jsonldPredicate, defaulting the
-// predicate IRI to the field's own absolute name when none is declared.
+// termFor builds a TermDef from a field's jsonldPredicate.
 func (c *Context) termFor(field *MapNode, fieldIRI string) *TermDef {
 	def := &TermDef{
 		ID:                absoluteOrEmpty(fieldIRI),
@@ -258,8 +234,7 @@ func (c *Context) applyPredicateMap(def *TermDef, m *MapNode) {
 	}
 }
 
-// predicateKey normalizes a jsonldPredicate key: the schema spells the JSON-LD
-// keywords with a leading underscore, as in _id and _type.
+// predicateKey normalizes a jsonldPredicate key (_id → @id, _type → @type).
 func predicateKey(key string) string {
 	if len(key) > 1 && key[0] == '_' {
 		return "@" + key[1:]
@@ -287,7 +262,7 @@ func applyPredicateEntry(c *Context, def *TermDef, key string, val Node) {
 	}
 }
 
-// applyPredicateText copies the string-valued jsonldPredicate modifiers onto def.
+// applyPredicateText copies string-valued jsonldPredicate modifiers onto def.
 func applyPredicateText(def *TermDef, key string, val Node) {
 	switch key {
 	case keywordType:
@@ -302,7 +277,7 @@ func applyPredicateText(def *TermDef, key string, val Node) {
 	}
 }
 
-// applyPredicateFlag copies the boolean jsonldPredicate modifiers onto def.
+// applyPredicateFlag copies boolean jsonldPredicate modifiers onto def.
 func applyPredicateFlag(def *TermDef, key string, val Node) {
 	flag := false
 	if s, ok := AsScalar(val); ok {
@@ -334,8 +309,7 @@ func isTypeDefinition(m *MapNode) bool {
 	return typeKinds[shortName(kind)]
 }
 
-// absoluteOrEmpty returns name when it is an absolute IRI, and "" otherwise. An
-// unresolved short name is not a usable predicate IRI.
+// absoluteOrEmpty returns name if it is an absolute IRI, "" otherwise.
 func absoluteOrEmpty(name string) string {
 	if hasScheme(name) {
 		return name

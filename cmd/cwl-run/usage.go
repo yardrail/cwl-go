@@ -2,11 +2,7 @@ package main
 
 import "github.com/yardrail/cwl-go/cmd/internal/cwlcli"
 
-// usageText returns the whole usage message.
-//
-// It is written out rather than assembled from [flag.PrintDefaults] because the
-// exit statuses are this tool's real interface — the cwltest harness reads
-// nothing else — and PrintDefaults has nowhere to put them.
+// usageText returns the usage message.
 func usageText() string {
 	return `cwl-run executes a CWL document and prints its output object as JSON. Documents
 declaring v1.0 or v1.1 are validated against their own version's schema and

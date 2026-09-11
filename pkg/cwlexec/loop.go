@@ -6,12 +6,7 @@ import (
 	"maps"
 )
 
-// runJob is the run-time half of one invocation: the input object it is to be executed with, and
-// whether it has been handed to a handler yet.
-//
-// The persisted half lives in [jobState]. The two are kept apart because the input object of an
-// invocation is derivable from the run's recorded outputs, and a snapshot that carried a copy of
-// every sub-job's inputs would grow with the square of a large scatter for nothing.
+// runJob is the in-memory state of one invocation. Persisted state lives in [jobState].
 type runJob struct {
 	inputs     map[string]any
 	index      []int
@@ -19,11 +14,7 @@ type runJob struct {
 	dispatched bool
 }
 
-// jobDone is one invocation reporting back to the event loop.
-//
-// The step is carried as the planned step itself rather than as its identifier. That is not a
-// convenience: it is what makes the report unable to name a step this run does not have, which a
-// string would leave the receiving end to look up and then wonder about.
+// jobDone is an invocation's completion report to the event loop.
 type jobDone struct {
 	err    error
 	step   *plannedStep
@@ -32,13 +23,7 @@ type jobDone struct {
 	index  int
 }
 
-// runLoop is the single goroutine that owns a run.
-//
-// Every mutation of run state happens on this one goroutine. Handlers execute on goroutines of
-// their own and report back over done, which is the only channel of communication; nothing is
-// shared, so there is no lock, no condition variable and no per-step wake-up. The reference
-// implementation instead funnels every state change through one global condition variable, which is
-// the design this deliberately does not port.
+// runLoop owns all run state on a single goroutine. Handlers report back over done.
 type runLoop struct {
 	runner   *Runner
 	state    *RunState
@@ -50,7 +35,7 @@ type runLoop struct {
 	stopped  bool
 }
 
-// newLoop prepares the event loop for a run over state, which it takes ownership of.
+// newLoop prepares the event loop for a run, taking ownership of state.
 func (r *Runner) newLoop(state *RunState) *runLoop {
 	return &runLoop{
 		runner:   r,
@@ -64,11 +49,7 @@ func (r *Runner) newLoop(state *RunState) *runLoop {
 	}
 }
 
-// run drives the loop to a terminal or suspended state and renders the result.
-//
-// Closing finished on the way out releases any handler goroutine still in flight from its report:
-// a cancelled run does not wait for a handler that is ignoring its context, and does not leak the
-// goroutine either, since the send it is parked on can no longer block.
+// run drives the loop to completion or suspension and returns the result.
 func (l *runLoop) run(ctx context.Context) (RunResult, error) {
 	defer close(l.finished)
 
@@ -80,8 +61,7 @@ func (l *runLoop) run(ctx context.Context) (RunResult, error) {
 	return l.result()
 }
 
-// execute is the loop proper: dispatch everything that is ready, then block until something
-// completes, and repeat until nothing is left running.
+// execute runs the dispatch/wait loop until nothing is running.
 func (l *runLoop) execute(ctx context.Context) error {
 	for {
 		l.dispatch(ctx)
@@ -100,12 +80,7 @@ func (l *runLoop) execute(ctx context.Context) error {
 	}
 }
 
-// dispatch starts every step whose inputs are satisfied and launches every invocation the
-// parallelism cap has room for, repeating until neither makes progress.
-//
-// The repetition is what makes a step that completes without a handler — a zero-cardinality
-// scatter, a `when` that gated every sub-job out — unblock the steps downstream of it within the
-// same pass, rather than stalling the run until some unrelated invocation happens to finish.
+// dispatch starts ready steps and launches pending invocations, repeating until no progress.
 func (l *runLoop) dispatch(ctx context.Context) {
 	for {
 		started := l.startReadySteps()
@@ -117,8 +92,7 @@ func (l *runLoop) dispatch(ctx context.Context) {
 	}
 }
 
-// startReadySteps starts every step whose dependencies have all produced their outputs, and reports
-// whether any did.
+// startReadySteps starts steps whose dependencies are all satisfied. Returns true if any started.
 func (l *runLoop) startReadySteps() bool {
 	if l.stopped {
 		return false
@@ -140,8 +114,7 @@ func (l *runLoop) startReadySteps() bool {
 	return progressed
 }
 
-// ready reports whether every step this one draws on has finished with usable outputs. A dependency
-// that failed is never ready, which is what keeps a failed branch from being propagated as data.
+// ready reports whether all dependencies have produced outputs.
 func (l *runLoop) ready(step *plannedStep) bool {
 	for _, dep := range step.deps {
 		if !produced(l.state.steps[dep]) {
@@ -152,13 +125,12 @@ func (l *runLoop) ready(step *plannedStep) bool {
 	return true
 }
 
-// produced reports whether a step has finished in a way that gives its output ports values.
+// produced reports whether a step finished with usable outputs (success or skipped).
 func produced(recorded *stepState) bool {
 	return recorded != nil && (recorded.Status == StatusSuccess || recorded.Status == StatusSkipped)
 }
 
-// startStep resolves a step's inputs, expands its scatter, applies its per-sub-job valueFrom and
-// `when`, and records the resulting invocations as pending.
+// startStep resolves inputs, expands scatter, applies valueFrom/when, and records invocations.
 func (l *runLoop) startStep(step *plannedStep, recorded *stepState) {
 	recorded.Started = true
 
@@ -188,7 +160,7 @@ func (l *runLoop) startStep(step *plannedStep, recorded *stepState) {
 	l.finishIfComplete(step, recorded)
 }
 
-// adopt installs a freshly expanded job list on the step, recording each invocation's coordinates.
+// adopt installs expanded jobs on the step and records their scatter coordinates.
 func (l *runLoop) adopt(step *plannedStep, recorded *stepState, jobs []runJob, shape []int) {
 	l.jobs[step.id] = jobs
 	recorded.Shape = shape
@@ -199,11 +171,7 @@ func (l *runLoop) adopt(step *plannedStep, recorded *stepState, jobs []runJob, s
 	}
 }
 
-// gateJobs applies valueFrom and then `when` to each invocation that has no outcome yet.
-//
-// Both run once per sub-job, because both are defined over the input object of the individual
-// scatter job: valueFrom sees that job's element as `self`, and a `when` may therefore admit some
-// elements of a scatter and skip others.
+// gateJobs applies valueFrom and `when` to each pending invocation.
 func (l *runLoop) gateJobs(step *plannedStep, recorded *stepState) error {
 	jobs := l.jobs[step.id]
 
@@ -235,8 +203,7 @@ func (l *runLoop) gateJobs(step *plannedStep, recorded *stepState) error {
 	return nil
 }
 
-// launchPending hands pending invocations to their handlers, up to the parallelism cap, and reports
-// whether any were launched.
+// launchPending dispatches pending invocations up to the parallelism cap.
 func (l *runLoop) launchPending(ctx context.Context) bool {
 	if l.stopped {
 		return false
@@ -258,9 +225,7 @@ func (l *runLoop) launchPending(ctx context.Context) bool {
 	return launched
 }
 
-// launchStep hands one step's pending invocations to their handlers, reporting whether it got
-// through all of them: a false result means the parallelism cap is full, or the step finished
-// during the pass, and there is nothing more to launch this time round.
+// launchStep launches one step's pending invocations. Returns false when the cap is full.
 func (l *runLoop) launchStep(ctx context.Context, step *plannedStep, recorded *stepState, launched *bool) bool {
 	jobs := l.jobs[step.id]
 
@@ -281,13 +246,12 @@ func (l *runLoop) launchStep(ctx context.Context, step *plannedStep, recorded *s
 	return true
 }
 
-// hasCapacity reports whether another handler call may be started. A MaxParallel of zero or less is
-// unbounded.
+// hasCapacity reports whether another handler may be started.
 func (l *runLoop) hasCapacity() bool {
 	return l.runner.cfg.MaxParallel <= 0 || l.running < l.runner.cfg.MaxParallel
 }
 
-// launch builds the call for one invocation and runs its handler on a goroutine of its own.
+// launch builds a [StepCall] and runs the handler on its own goroutine.
 func (l *runLoop) launch(ctx context.Context, jobs []runJob, step *plannedStep, index int) {
 	job := &jobs[index]
 	job.dispatched = true
@@ -319,11 +283,7 @@ func (l *runLoop) launch(ctx context.Context, jobs []runJob, step *plannedStep, 
 	}()
 }
 
-// record folds one invocation's report back into the run state.
-//
-// Every handler return passes through [Outcome] first. A handler is the only third-party code in
-// this engine, so what it returns is normalized and checked rather than trusted: a Result that
-// contradicts itself becomes a permanent failure, whatever it claimed.
+// record folds an invocation's result into run state via [Outcome].
 func (l *runLoop) record(finished jobDone) {
 	step := finished.step
 	recorded := l.state.step(step.id)
@@ -346,11 +306,7 @@ func (l *runLoop) record(finished jobDone) {
 	l.finishIfComplete(step, recorded)
 }
 
-// finishIfComplete gives the step its outcome once every one of its invocations has one.
-//
-// A suspended invocation is not one, which is exactly how a suspension pauses a single scatter slot
-// without touching its siblings: they keep running, and the gather waits for the slot to be
-// resumed.
+// finishIfComplete completes the step once all its invocations have terminal outcomes.
 func (l *runLoop) finishIfComplete(step *plannedStep, recorded *stepState) {
 	for index := range recorded.Jobs {
 		if !recorded.Jobs[index].terminal() {
@@ -376,12 +332,7 @@ func (l *runLoop) finishIfComplete(step *plannedStep, recorded *stepState) {
 	recorded.Outputs = outputs
 }
 
-// jobsOutcome reduces the invocations' outcomes to the step's own.
-//
-// A permanent failure outranks a temporary one, so a step that failed both ways reports the
-// verdict that forecloses a retry. A step is only skipped when it was not scattered: a scattered
-// step whose every sub-job was gated out still succeeds, producing arrays of nulls, because that is
-// what its downstream consumers read.
+// jobsOutcome reduces all invocation outcomes to the step's overall status.
 func (l *runLoop) jobsOutcome(step *plannedStep, recorded *stepState) (Status, error) {
 	worst := StatusSuccess
 
@@ -409,8 +360,7 @@ func (l *runLoop) jobsOutcome(step *plannedStep, recorded *stepState) (Status, e
 	return StatusSuccess, nil
 }
 
-// jobError recovers the error behind a failed invocation, preferring the live error value — so that
-// [errors.Is] still works — and falling back to the text a rehydrated snapshot preserved.
+// jobError returns the error for a failed invocation, preferring the live value over serialized text.
 func (l *runLoop) jobError(step *plannedStep, recorded *stepState, index int) error {
 	jobs := l.jobs[step.id]
 	if index < len(jobs) && jobs[index].err != nil {
@@ -425,10 +375,7 @@ func (l *runLoop) failStep(step *plannedStep, recorded *stepState, err error) {
 	l.failStepWith(step, recorded, StatusPermanentFail, err)
 }
 
-// failStepWith records a failure for the step and, unless the caller asked to keep going, stops the
-// loop from starting anything new. Work already in flight is left to finish: cancelling it is what
-// the context is for, and a handler that has already started a container should be told once, by
-// one mechanism.
+// failStepWith records a step failure. Stops the loop unless OnErrorContinue is set.
 func (l *runLoop) failStepWith(step *plannedStep, recorded *stepState, status Status, err error) {
 	recorded.Started = true
 	recorded.Status = status
@@ -440,10 +387,7 @@ func (l *runLoop) failStepWith(step *plannedStep, recorded *stepState, status St
 	}
 }
 
-// stepInputs resolves the input object a step starts from.
-//
-// A bare process run as the single implicit step takes the run's own input object directly: it has
-// no `in` wiring to follow, because there is no workflow around it to wire it to.
+// stepInputs resolves the input object for a step. Implicit steps use the run's inputs directly.
 func (l *runLoop) stepInputs(step *plannedStep) (map[string]any, error) {
 	if !step.implicit {
 		return resolveInputs(step, l.sourceValue)
@@ -456,8 +400,7 @@ func (l *runLoop) stepInputs(step *plannedStep) (map[string]any, error) {
 	return object, nil
 }
 
-// sourceValue reads the value behind a resolved source identifier, reporting whether the port that
-// produces it has finished.
+// sourceValue reads the value behind a resolved source identifier.
 func (l *runLoop) sourceValue(id string) (any, bool) {
 	ref, known := l.runner.plan.sources[id]
 	if !known {
@@ -476,11 +419,7 @@ func (l *runLoop) sourceValue(id string) (any, bool) {
 	return recorded.Outputs[ref.Port], true
 }
 
-// expandJobs enumerates a step's invocations: one, or one per element of its scatter.
-//
-// A single scatter key with no declared scatterMethod is a dotproduct over that one array, which is
-// the only reading available — the schema only requires scatterMethod when more than one input is
-// scattered, and every method agrees on the one-key case.
+// expandJobs enumerates a step's invocations: one if unscattered, or one per scatter element.
 func expandJobs(step *plannedStep, inputs map[string]any) ([]runJob, []int, error) {
 	if len(step.scatter) == 0 {
 		return []runJob{{inputs: inputs, index: nil, err: nil, dispatched: false}}, nil, nil
@@ -504,7 +443,7 @@ func expandJobs(step *plannedStep, inputs map[string]any) ([]runJob, []int, erro
 	return jobs, expanded.OutShape.Dims, nil
 }
 
-// gatherStep assembles a finished step's output object from its invocations' outputs.
+// gatherStep assembles a step's output object from its invocations.
 func gatherStep(step *plannedStep, recorded *stepState) (map[string]any, error) {
 	if recorded.Shape == nil {
 		return recorded.Jobs[0].Outputs, nil
@@ -532,12 +471,7 @@ func gatherStep(step *plannedStep, recorded *stepState) (map[string]any, error) 
 	return gathered, nil
 }
 
-// projectOutputs reduces a handler's output object to the ports the step declares in its out list.
-//
-// The two differ whenever a step consumes a subset of what its tool produces, and it is the step's
-// list that names what the rest of the workflow can read. Projecting here — rather than passing the
-// handler's object through — is what keeps a phantom port from appearing downstream, and what
-// guarantees every declared port is present even if the handler omitted it.
+// projectOutputs reduces outputs to only the ports declared in the step's out list.
 func projectOutputs(ports []string, outputs map[string]any) map[string]any {
 	projected := make(map[string]any, len(ports))
 	for _, port := range ports {
@@ -547,12 +481,7 @@ func projectOutputs(ports []string, outputs map[string]any) map[string]any {
 	return projected
 }
 
-// newCall builds the [StepCall] for one invocation, resolving its resource reservation and the
-// directories it is to work in.
-//
-// The input object is projected onto the parameters the process declares on the way past, which is
-// the last thing to happen to it: valueFrom and `when` have both run by now, and both are entitled
-// to read a step input the process does not declare. See [projectDeclaredInputs].
+// newCall builds the [StepCall] for one invocation, resolving resources and directories.
 func (l *runLoop) newCall(job *runJob, step *plannedStep) (*StepCall, error) {
 	dirs := l.runner.cfg.dirsFor(step.id, job.index)
 

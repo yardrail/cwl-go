@@ -21,58 +21,27 @@ const (
 	fieldShouldFail = "should_fail"
 )
 
-// Entry is one entry of the cwl-v1.2 conformance manifest, in the shape a harness needs to
-// run it: which document to run, against which job order, and what the run must produce.
-//
-// Tool and Job are corpus-relative, slash-separated paths. Job is empty when the entry
-// names none, which means the process runs against an empty input object.
-//
-// Output is the expected output object as plain Go values, and is nil both when the entry
-// declares no output and when it declares a null one. cwltest draws no distinction between
-// those either -- it reads the field with dict.get, which answers None for both -- so
-// neither does this.
+// Entry is one conformance manifest entry: document to run, job order, and expected output.
 type Entry struct {
-	// Output is the expected output object, or nil when the entry declares none.
-	Output any
-	// ID is the entry's conformance test id, such as "cl_basic_generation".
-	ID string
-	// Doc is the entry's one-line description.
-	Doc string
-	// Tool is the CWL document the test runs.
-	Tool string
-	// Job is the job order it runs against, empty when the entry names none.
-	Job string
-	// Tags are the entry's feature tags, as written. An entry carrying none is treated
-	// as required by cwltest; that policy belongs to the harness, not to the reader.
-	Tags []string
-	// ShouldFail records an entry that passes only when the run fails.
+	Output     any      // expected output, or nil
+	ID         string   // conformance test id
+	Doc        string   // one-line description
+	Tool       string   // CWL document path (corpus-relative)
+	Job        string   // job order path, or empty
+	Tags       []string // feature tags
 	ShouldFail bool
 }
 
-// LoadEntries reads the conformance manifest at the root of a cwl-v1.2 corpus checkout and
-// returns one [Entry] per entry, in manifest order.
-//
-// It is exported so that the in-process execution driver in pkg/cwlexec/conformance reads
-// the suite through this reader rather than through a second parser of its own. Two
-// parsers of the same file is how the in-process numbers and cwltest's would quietly come
-// to disagree about which tests exist, which is precisely what that driver is checked
-// against.
+// LoadEntries reads the conformance manifest and returns one [Entry] per test.
 func LoadEntries(root string) ([]Entry, error) {
 	return readEntries(filepath.Join(root, manifestName), root)
 }
 
-// manifestEntry is what the corpus manifest says about one CWL document, merged across
-// every test that names it. A single document is frequently referenced by several tests
-// with different tags, and occasionally by both a passing and a should_fail test.
+// manifestEntry is per-document metadata merged from all referencing tests.
 type manifestEntry struct {
-	// ids are the conformance test ids that reference this document.
-	ids []string
-	// tags is the union of the feature tags of those tests.
-	tags []string
-	// alwaysFails is true when every referencing test expects a failure, which is the
-	// manifest's strongest available signal that the document itself is meant to be
-	// rejected.
-	alwaysFails bool
+	ids         []string // test ids referencing this document
+	tags        []string // union of feature tags
+	alwaysFails bool     // true if every referencing test expects failure
 }
 
 // manifest maps a corpus-relative, slash-separated document path to what the test
@@ -89,12 +58,7 @@ func loadManifest(c *corpus) (manifest, error) {
 	return indexEntries(tests), nil
 }
 
-// readEntries reads conformance_tests.yaml through pkg/salad, which resolves the seven
-// $import-ed sub-suites in place, and renders every entry as an [Entry].
-//
-// Loading the manifest with our own loader is deliberate: the manifest is itself a
-// Schema Salad document, so this dogfoods $import resolution against a file nobody wrote
-// for us. Link checking is off because the manifest has no schema to link against.
+// readEntries reads conformance_tests.yaml through pkg/salad, resolving $imports.
 func readEntries(manifestPath, root string) ([]Entry, error) {
 	loader := salad.NewLoader(salad.WithSkipLinkCheck(true))
 
@@ -149,8 +113,7 @@ func collectEntries(entries *salad.SeqNode, root string) []Entry {
 	return tests
 }
 
-// newEntry renders one manifest entry, reporting false for an entry that names no document
-// to run and so cannot be a test.
+// newEntry renders one manifest entry. Returns false if no tool is named.
 func newEntry(entry *salad.MapNode, root string) (Entry, bool) {
 	tool, ok := pathField(entry, fieldTool, root)
 	if !ok {
@@ -209,10 +172,7 @@ func mergeEntry(record *manifestEntry, test *Entry) {
 	record.alwaysFails = false
 }
 
-// pathField resolves an entry's document reference to a corpus-relative, slash-separated
-// path. The reference is relative to the document the entry was written in, which for an
-// $import-ed sub-suite is not the top-level manifest -- so the entry node's own
-// SourceLine is what it must be resolved against.
+// pathField resolves a document reference to a corpus-relative path.
 func pathField(entry *salad.MapNode, key, root string) (string, bool) {
 	ref, ok := stringField(entry, key)
 	if !ok {
@@ -229,8 +189,7 @@ func pathField(entry *salad.MapNode, key, root string) (string, bool) {
 	return filepath.ToSlash(rel), true
 }
 
-// outputValue reads an entry's expected output object as plain Go values, which is nil
-// both for an absent field and for an explicitly null one.
+// outputValue reads an entry's expected output object, or nil.
 func outputValue(entry *salad.MapNode) any {
 	node, ok := entry.Get(fieldOutput)
 	if !ok {
@@ -240,8 +199,7 @@ func outputValue(entry *salad.MapNode) any {
 	return salad.ToAny(node)
 }
 
-// sourceDir is the directory holding the document a node came from, falling back to the
-// corpus root when the node carries no usable location.
+// sourceDir returns the directory of the document a node came from.
 func sourceDir(loc salad.SourceLine, root string) string {
 	file := localPath(loc.File)
 	if file == "" {
@@ -255,8 +213,7 @@ func sourceDir(loc salad.SourceLine, root string) string {
 	return filepath.Dir(file)
 }
 
-// localPath turns a document reference into a filesystem path, tolerating both the
-// file:// URLs the loader normalizes to and bare paths.
+// localPath converts a document reference (file:// URL or bare path) to a filesystem path.
 func localPath(ref string) string {
 	if ref == "" || !strings.Contains(ref, "://") {
 		return filepath.FromSlash(ref)
@@ -280,9 +237,7 @@ func stringField(entry *salad.MapNode, key string) (string, bool) {
 	return salad.AsString(node)
 }
 
-// stringOrEmpty reads a string-valued field, answering "" when it is absent or is not a
-// string. It is for the descriptive fields, where absence and emptiness mean the same
-// thing to every caller.
+// stringOrEmpty reads a string field, returning "" if absent.
 func stringOrEmpty(entry *salad.MapNode, key string) string {
 	value, _ := stringField(entry, key)
 

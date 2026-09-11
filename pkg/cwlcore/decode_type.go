@@ -2,18 +2,9 @@ package cwlcore
 
 import "github.com/yardrail/cwl-go/pkg/salad"
 
-// The CWL type language.
-//
-// A type arrives as a string naming a CWLType symbol or a declared type, a
-// sequence meaning a union, or a mapping holding an inline record, enum or array
-// schema. The `T?` and `T[]` shorthands never reach this layer: pkg/salad
-// expands them while resolving the document, so an optional type arrives already
-// spelled as the union [null, T].
+// Decoding the CWL type language (primitive names, unions, inline schemas).
 
-// primitiveTypeNames is the set of CWLType symbols, in the short spelling
-// TypeRef.Name uses. A type name outside it is a reference to a type declared
-// elsewhere — by a SchemaDefRequirement, or by an inline schema that named
-// itself — which decoding records but does not resolve.
+// primitiveTypeNames is the set of built-in CWLType symbols.
 var primitiveTypeNames = map[string]bool{
 	PrimitiveNull:      true,
 	PrimitiveBoolean:   true,
@@ -37,18 +28,14 @@ func (d *decoder) typeRef(node salad.Node) TypeRef {
 	case *salad.MapNode:
 		return d.inlineTypeRef(value)
 	default:
-		// A nil node, which is what an absent type field reads as. The
-		// Node interface is sealed, so there is no fourth shape.
+		// Nil node — absent type field.
 		return TypeRef{payload: nil, node: nil, name: "", kind: 0}
 	}
 }
 
-// namedTypeRef decodes a type written as a name: a CWLType symbol, one of the
-// three standard-stream shortcuts, or a reference to a declared type.
+// namedTypeRef decodes a type written as a name.
 func (d *decoder) namedTypeRef(node salad.Node) TypeRef {
-	// A union member written as a bare YAML null rather than the quoted
-	// string "null" means the same type. pkg/salad's type DSL produces the
-	// quoted spelling, but a document may be written either way.
+	// Bare YAML null is the same as the string "null".
 	if salad.IsNull(node) {
 		return NewPrimitiveType(PrimitiveNull).WithNode(node)
 	}
@@ -136,10 +123,6 @@ func (d *decoder) arraySchema(m *salad.MapNode) *ArraySchema {
 }
 
 // recordField decodes one field of an inline record schema.
-//
-// The model flattens the schema's four record-field variants into one type, so a
-// field carries both binding kinds; at most one is ever populated, according to
-// which side of the process the enclosing schema sits on.
 func (d *decoder) recordField(node salad.Node) RecordField {
 	m := d.mapping(node, "a record field")
 

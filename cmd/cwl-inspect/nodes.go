@@ -5,8 +5,7 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// The keys of a dumped node. They are short because a node dump is deeply
-// nested and the keys repeat on every line of it.
+// Keys for dumped nodes.
 const (
 	keyKind    = "kind"
 	keyLoc     = "loc"
@@ -16,15 +15,7 @@ const (
 	keyKey     = "key"
 )
 
-// nodeObject dumps a salad node tree, preserving mapping key order and
-// carrying every node's source line.
-//
-// The point of the dump is what an ordinary YAML round-trip throws away.
-// pkg/salad keeps a [salad.SourceLine] on every node so that a validation
-// error can name the line it came from, and it keeps mapping keys in document
-// order because Schema Salad's identifier maps and field lists are
-// order-sensitive; both are invisible in [salad.ToAny] output and both are
-// exactly what you need when a source line comes out wrong.
+// nodeObject dumps a salad node tree with source lines and key order preserved.
 func nodeObject(n salad.Node) *cwlcli.Object {
 	o := cwlcli.NewObject()
 	o.Set(keyKind, salad.NodeKind(n))

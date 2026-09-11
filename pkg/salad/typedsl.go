@@ -10,11 +10,7 @@ const (
 	typeArray   = "array"
 )
 
-// expandDSLFields applies the type DSL and the secondary files DSL to every
-// field of an object whose term declares one.
-//
-// Both DSLs run before identifier resolution, so that the objects they generate
-// are resolved like any other part of the document.
+// expandDSLFields applies the type DSL and secondary files DSL to an object's fields.
 func expandDSLFields(m *MapNode, ctx *Context) (*MapNode, error) {
 	out := m
 
@@ -49,12 +45,7 @@ func expandDSLValue(val Node, term *TermDef) (Node, *Error) {
 	}
 }
 
-// expandTypeDSL expands the shorthand type syntax: a trailing "?" makes the type
-// a union with null, a trailing "[]" makes it an array, and "[]?" does both.
-//
-// A list of types is expanded item by item and then flattened one level, so that
-// the unions the shorthand introduces merge into the surrounding union rather
-// than nesting inside it.
+// expandTypeDSL expands shorthand type syntax (trailing "?", "[]", "[]?").
 func expandTypeDSL(val Node) (Node, *Error) {
 	if s, ok := AsString(val); ok {
 		expanded, err := expandTypeName(s, val.Loc())
@@ -133,8 +124,7 @@ func expandTypeName(name string, loc SourceLine) (Node, *Error) {
 	return NewSeqNode(loc, []Node{NewStringNode(loc, nameNull), expanded}), nil
 }
 
-// flattenTypes merges nested unions into the enclosing one and drops repeated
-// members, preserving first-occurrence order.
+// flattenTypes merges nested unions and deduplicates members.
 func flattenTypes(seq *SeqNode) Node {
 	items := make([]Node, 0, seq.Len())
 	seen := make(map[string]bool, seq.Len())
@@ -168,8 +158,7 @@ func appendUnique(items []Node, seen map[string]bool, add []Node) []Node {
 	return items
 }
 
-// expandSecondaryFilesDSL turns a secondary file pattern written as a string
-// into the object form, where a trailing "?" means the file is not required.
+// expandSecondaryFilesDSL turns string patterns into object form.
 func expandSecondaryFilesDSL(val Node) Node {
 	if s, ok := AsString(val); ok {
 		return secondaryFileObject(s, val.Loc())
@@ -195,9 +184,7 @@ func expandSecondaryFilesDSL(val Node) Node {
 	return NewSeqNode(seq.Loc(), items)
 }
 
-// secondaryFileObject builds the pattern/required object form of one secondary
-// file pattern. required is null unless the pattern ended in "?", which makes
-// the file explicitly optional.
+// secondaryFileObject builds the pattern/required object form of one pattern.
 func secondaryFileObject(pattern string, loc SourceLine) Node {
 	var required Node = NewNullNode(loc)
 

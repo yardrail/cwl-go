@@ -26,36 +26,21 @@ const httpTimeout = 30 * time.Second
 // errEmptyReference is returned when a document reference is the empty string.
 var errEmptyReference = errors.New("empty document reference")
 
-// Fetcher retrieves raw document text for a URL.
-//
-// It is the seam between the loader and the outside world: callers inject a
-// Fetcher to serve documents from memory (an embedded schema, a test fixture),
-// from disk, or over the network, without the loader knowing which. It is the
-// analogue of schema-salad's fetcher.Fetcher.
-//
-// Implementations must be safe for concurrent use.
+// Fetcher retrieves raw document text for a URL. Must be safe for concurrent use.
 type Fetcher interface {
 	// FetchText returns the raw bytes of the document at docURL. The URL is
 	// always one that Normalize produced.
 	FetchText(docURL string) ([]byte, error)
-	// Exists reports whether anything is present at docURL. Its one caller is
-	// link checking, where a missing target is a validation error rather than a
-	// fetch failure, so the question is whether the reference points at
-	// something -- not whether that something is a document this loader could
-	// parse. A directory is a legitimate link target even though it can never be
-	// fetched as a document.
+	// Exists reports whether anything is present at docURL.
 	Exists(docURL string) bool
-	// Normalize resolves ref against base and returns the absolute, normalized
-	// URL that identifies the document. It is the cache key the loader uses, so
-	// two references that name the same document must normalize identically.
+	// Normalize resolves ref against base and returns the canonical document URL.
 	Normalize(base, ref string) (string, error)
 }
 
 // FetcherOption configures a DefaultFetcher. Pass options to NewDefaultFetcher.
 type FetcherOption func(*DefaultFetcher)
 
-// WithCacheDir sets the directory the fetcher caches HTTP responses in. An empty
-// directory disables caching.
+// WithCacheDir sets the HTTP response cache directory. Empty disables caching.
 func WithCacheDir(dir string) FetcherOption {
 	return func(f *DefaultFetcher) { f.cacheDir = dir }
 }
@@ -65,8 +50,7 @@ func WithHTTPClient(c *http.Client) FetcherOption {
 	return func(f *DefaultFetcher) { f.client = c }
 }
 
-// DefaultFetcher serves file:// and http(s):// URLs, caching HTTP responses on
-// disk so that a schema fetched over the network is read once.
+// DefaultFetcher serves file:// and http(s):// URLs with disk-cached HTTP responses.
 type DefaultFetcher struct {
 	client   *http.Client
 	cacheDir string
@@ -74,9 +58,7 @@ type DefaultFetcher struct {
 
 var _ Fetcher = (*DefaultFetcher)(nil)
 
-// NewDefaultFetcher builds a fetcher for file:// and http(s):// URLs. Unless
-// WithCacheDir says otherwise, HTTP responses are cached under the user's cache
-// directory.
+// NewDefaultFetcher builds a fetcher for file:// and http(s):// URLs.
 func NewDefaultFetcher(opts ...FetcherOption) *DefaultFetcher {
 	f := &DefaultFetcher{
 		client:   &http.Client{Transport: nil, CheckRedirect: nil, Jar: nil, Timeout: httpTimeout},
@@ -90,8 +72,7 @@ func NewDefaultFetcher(opts ...FetcherOption) *DefaultFetcher {
 	return f
 }
 
-// defaultFetcher returns the process-wide fetcher a Loader uses when none was
-// injected.
+// defaultFetcher returns the process-wide shared fetcher.
 var defaultFetcher = sync.OnceValue(func() Fetcher { return NewDefaultFetcher() })
 
 // FetchText reads the document at u.
@@ -120,10 +101,6 @@ func (f *DefaultFetcher) FetchText(u string) ([]byte, error) {
 }
 
 // Exists reports whether anything is present at u.
-//
-// A directory counts: a link may legitimately name one, and only the caller
-// knows whether it then intends to read it as a document. This mirrors
-// schema-salad's check_exists, which is os.path.exists.
 func (f *DefaultFetcher) Exists(u string) bool {
 	target, err := url.Parse(dropFragment(u))
 	if err != nil {
@@ -149,9 +126,7 @@ func (f *DefaultFetcher) Normalize(base, ref string) (string, error) {
 	return normalizeURL(base, ref)
 }
 
-// FSFetcher serves documents from an [fs.FS] mounted at a synthetic base URL. It
-// is how an embedded schema is loaded without touching the filesystem or the
-// network.
+// FSFetcher serves documents from an [fs.FS] mounted at a synthetic base URL.
 type FSFetcher struct {
 	fsys fs.FS
 	base string
@@ -159,8 +134,7 @@ type FSFetcher struct {
 
 var _ Fetcher = (*FSFetcher)(nil)
 
-// NewFSFetcher mounts fsys at base, which must be an absolute URL ending in a
-// slash. A document URL under base maps to the path below it inside fsys.
+// NewFSFetcher mounts fsys at base (must be an absolute URL ending in "/").
 func NewFSFetcher(fsys fs.FS, base string) *FSFetcher {
 	if !strings.HasSuffix(base, "/") {
 		base += "/"
@@ -200,8 +174,7 @@ func (f *FSFetcher) Exists(u string) bool {
 	return err == nil
 }
 
-// Normalize resolves ref against base, defaulting to the mount point when there
-// is no base.
+// Normalize resolves ref against base, defaulting to the mount point.
 func (f *FSFetcher) Normalize(base, ref string) (string, error) {
 	if base == "" {
 		base = f.base
@@ -220,18 +193,12 @@ func (f *FSFetcher) path(u string) (string, bool) {
 	return rest, true
 }
 
-// normalizeURL resolves ref against base and returns the absolute URL that
-// identifies the document. A reference with no scheme is a filesystem path when
-// there is no base to resolve it against.
+// normalizeURL resolves ref against base into an absolute URL.
 func normalizeURL(base, ref string) (string, error) {
 	return normalizeURLAbs(filepath.Abs, base, ref)
 }
 
-// normalizeURLAbs is normalizeURL with the [filepath.Abs] call taken as a
-// parameter, so a test can make pathToURLAbs's otherwise-unreachable failure
-// path (os.Getwd erroring) deterministic by passing a stub — without
-// mutating the process's actual working directory or any state shared with
-// other callers.
+// normalizeURLAbs is normalizeURL with an injectable filepath.Abs for testing.
 func normalizeURLAbs(abs func(string) (string, error), base, ref string) (string, error) {
 	if ref == "" {
 		return "", errEmptyReference
@@ -253,9 +220,7 @@ func normalizeURLAbs(abs func(string) (string, error), base, ref string) (string
 	return cleanURL(resolveReference(baseURL, ref))
 }
 
-// pathToURLAbs turns a filesystem path into an absolute file:// URL, passing
-// through anything that is already a URL. The [filepath.Abs] call is taken
-// as a parameter; see [normalizeURLAbs].
+// pathToURLAbs turns a filesystem path into an absolute file:// URL.
 func pathToURLAbs(abs func(string) (string, error), p string) (string, error) {
 	if hasScheme(p) {
 		return cleanURL(p)
@@ -283,8 +248,7 @@ func pathToURLAbs(abs func(string) (string, error), p string) (string, error) {
 	return u.String(), nil
 }
 
-// cleanURL normalizes a URL so that two spellings of the same document produce
-// the same cache key.
+// cleanURL normalizes a URL for consistent cache keys.
 func cleanURL(raw string) (string, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -304,16 +268,14 @@ func cleanURL(raw string) (string, error) {
 	return u.String(), nil
 }
 
-// dropFragment removes a URL's fragment identifier, which selects an object
-// inside a document rather than a different document.
+// dropFragment removes a URL's fragment identifier.
 func dropFragment(u string) string {
 	base, _, _ := strings.Cut(u, "#")
 
 	return base
 }
 
-// userCacheDir returns the directory HTTP responses are cached in, or "" when
-// the platform does not offer one.
+// userCacheDir returns the HTTP cache directory, or "" if unavailable.
 func userCacheDir() string {
 	dir, err := os.UserCacheDir()
 	if err != nil {

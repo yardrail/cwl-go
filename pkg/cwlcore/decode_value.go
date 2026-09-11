@@ -2,14 +2,7 @@ package cwlcore
 
 import "github.com/yardrail/cwl-go/pkg/salad"
 
-// The union wrappers.
-//
-// Every CWL field spelled "a literal or an Expression" decodes the same way: a
-// scalar of the literal's kind becomes the literal member, a string becomes the
-// expression member, and an absent field leaves the wrapper unset. The unset
-// kind is load-bearing rather than incidental — several of these fields have a
-// schema default that is not the Go zero value, and one that is unset must not
-// be read as zero.
+// Decoding literal-or-Expression union wrappers.
 
 // exprBool decodes a `boolean | Expression` field.
 func (d *decoder) exprBool(m *salad.MapNode, key string) ExprBool {
@@ -30,14 +23,7 @@ func (d *decoder) exprBool(m *salad.MapNode, key string) ExprBool {
 	}
 }
 
-// exprLong decodes an `int | long | Expression` field. Both integer members land
-// on the same kind: an int64 covers the whole of both ranges, so keeping them
-// apart would propagate a distinction with no consumer.
-//
-// That is also why a [salad.DecimalScalar] falls through to the failure branch
-// rather than getting a member of its own. It is by definition outside both
-// ranges, the schema validator has already rejected it, and there is no wider
-// integer member for it to land on.
+// exprLong decodes an `int | long | Expression` field.
 func (d *decoder) exprLong(m *salad.MapNode, key string) ExprLong {
 	scalar, ok := d.unionScalar(m, key, "an integer or an expression")
 	if !ok {
@@ -58,13 +44,7 @@ func (d *decoder) exprLong(m *salad.MapNode, key string) ExprLong {
 	}
 }
 
-// resourceValue decodes an `int | long | float | Expression` field, which is
-// every field of a ResourceRequirement.
-//
-// An integer too large for an int64 lands on the float member, which is the only
-// member of the union that can hold it and the one the schema validator accepted
-// it under. A resource request that large is not satisfiable anyway, so nothing
-// is lost by spending its precision here.
+// resourceValue decodes an `int | long | float | Expression` field.
 func (d *decoder) resourceValue(m *salad.MapNode, key string) ResourceValue {
 	scalar, ok := d.unionScalar(m, key, "a number or an expression")
 	if !ok {
@@ -89,9 +69,7 @@ func (d *decoder) resourceValue(m *salad.MapNode, key string) ResourceValue {
 	}
 }
 
-// unionScalar reads the scalar a literal-or-expression field must hold. It
-// reports false when the field is absent, and records an error when the value is
-// not a scalar at all.
+// unionScalar reads a scalar value from a union field. False if absent.
 func (d *decoder) unionScalar(m *salad.MapNode, key, want string) (*salad.ScalarNode, bool) {
 	value := fieldNode(m, key)
 	if value == nil {
@@ -113,13 +91,7 @@ func (d *decoder) failUnion(scalar *salad.ScalarNode, key, want string) {
 	d.failf(scalar.Loc(), "the %q field must be %s, but it is %s", key, want, salad.NodeKind(scalar))
 }
 
-// argument decodes one entry of CommandLineTool.arguments, whose schema type is
-// `string | Expression | CommandLineBinding`.
-//
-// The schema cannot tell its string and Expression members apart — both are
-// strings — so decoding separates them by looking for expression syntax in the
-// text. A string that embeds none is used verbatim and can never fail to
-// evaluate, which is exactly what the plain-string member means.
+// argument decodes a `string | Expression | CommandLineBinding` entry.
 func (d *decoder) argument(node salad.Node) CommandLineArgument {
 	if text, ok := salad.AsString(node); ok {
 		if NeedsParsing(text) {
@@ -137,12 +109,7 @@ func (d *decoder) argument(node salad.Node) CommandLineArgument {
 	return NewCommandLineArgumentBinding(binding)
 }
 
-// initialWorkDirListing decodes an InitialWorkDirRequirement's listing, whose
-// schema type is `Expression | array<InitialWorkDirEntry>`.
-//
-// The two forms cannot be flattened into one slice here: when the whole listing
-// is an expression, the entries it produces are not known until pkg/cwlexec
-// evaluates it.
+// initialWorkDirListing decodes an `Expression | []InitialWorkDirEntry` field.
 func (d *decoder) initialWorkDirListing(m *salad.MapNode) InitialWorkDirListing {
 	value := fieldNode(m, keyListing)
 	if value == nil {
@@ -164,8 +131,7 @@ func (d *decoder) initialWorkDirListing(m *salad.MapNode) InitialWorkDirListing 
 	return NewInitialWorkDirListing(decodeEach(seq.Items(), d.initialWorkDirEntry))
 }
 
-// initialWorkDirEntry decodes one listing entry, whose schema type is
-// `null | Dirent | Expression | File | Directory | array<File | Directory>`.
+// initialWorkDirEntry decodes one InitialWorkDir listing entry.
 func (d *decoder) initialWorkDirEntry(node salad.Node) InitialWorkDirEntry {
 	if salad.IsNull(node) {
 		return NewInitialWorkDirNull()
@@ -187,8 +153,7 @@ func (d *decoder) initialWorkDirEntry(node salad.Node) InitialWorkDirEntry {
 	return d.initialWorkDirObject(m)
 }
 
-// initialWorkDirObject decodes a listing entry written as a mapping: a File or
-// Directory value when it declares one of those classes, and a Dirent otherwise.
+// initialWorkDirObject decodes a mapping-form listing entry (File, Directory, or Dirent).
 func (d *decoder) initialWorkDirObject(m *salad.MapNode) InitialWorkDirEntry {
 	switch shortName(lenientText(m, keyClass)) {
 	case ClassFile:

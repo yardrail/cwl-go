@@ -6,9 +6,7 @@ import (
 	"strings"
 )
 
-// The text renderer's fixed vocabulary: one indent level, the sequence bullet
-// and the continuation that keeps a bulleted item's later lines aligned under
-// its first, and the markers for a composite with nothing in it.
+// Text renderer constants.
 const (
 	textIndent   = "  "
 	textBullet   = "- "
@@ -18,17 +16,12 @@ const (
 	nullText     = "null"
 )
 
-// Text renders v as an indented outline, in the same order [JSON] would use.
-//
-// The shape is deliberately YAML-like, because a CWL developer reading a dump
-// of a CWL document already reads YAML all day. It is a rendering, not a
-// serialization: it round-trips nothing and must not be parsed.
+// Text renders v as a YAML-like indented outline.
 func Text(v any) string {
 	return strings.Join(textLines(v), "\n")
 }
 
-// textLines renders v as unindented lines. A single-line result is one the
-// caller may inline after a key or a bullet; a multi-line one must be nested.
+// textLines renders v as unindented lines.
 func textLines(v any) []string {
 	switch t := v.(type) {
 	case *Object:
@@ -40,8 +33,7 @@ func textLines(v any) []string {
 	}
 }
 
-// objectLines renders an object as "key: value" lines, nesting any value that
-// does not fit on one line under its key.
+// objectLines renders an object as "key: value" lines.
 func objectLines(o *Object) []string {
 	if o.Len() == 0 {
 		return []string{emptyObject}
@@ -66,8 +58,7 @@ func objectLines(o *Object) []string {
 	return out
 }
 
-// sliceLines renders a slice as bulleted items, aligning the later lines of a
-// multi-line item under the first.
+// sliceLines renders a slice as bulleted items.
 func sliceLines(items []any) []string {
 	if len(items) == 0 {
 		return []string{emptySeq}
@@ -91,11 +82,6 @@ func sliceLines(items []any) []string {
 }
 
 // isCollection reports whether v is a non-empty object or slice.
-//
-// A one-entry collection renders on one line, and inlining it after its key
-// would spell a list the same way as a scalar — "intent: - urn:x" reads as
-// neither. Collections therefore nest whatever their length, and only the
-// empty markers, which are unambiguous, stay inline.
 func isCollection(v any) bool {
 	switch t := v.(type) {
 	case *Object:
@@ -107,9 +93,7 @@ func isCollection(v any) bool {
 	}
 }
 
-// scalarText renders a leaf value. A string is written bare, which is what
-// makes the output readable, except when writing it bare would be ambiguous —
-// when it is empty or spans lines — in which case it is quoted.
+// scalarText renders a leaf value. Empty or multiline strings are quoted.
 func scalarText(v any) string {
 	if v == nil {
 		return nullText

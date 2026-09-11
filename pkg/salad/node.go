@@ -2,26 +2,14 @@ package salad
 
 import "iter"
 
-// Node is a single parsed value in a Schema Salad document, carrying the source
-// location it came from.
-//
-// Node is a sealed discriminated union: the only implementations are *MapNode,
-// *SeqNode and *ScalarNode, all in this package. It is the Go analogue of
-// ruamel's CommentedMap / CommentedSeq / scalar values, and it exists instead of
-// a plain map[string]any for two reasons: every value carries a SourceLine so
-// validation errors can point at the offending line, and map key order is
-// preserved, which Schema Salad depends on for fields, symbols and identifier
-// maps.
-//
-// Use ToAny and FromAny to cross the boundary to and from plain Go values.
+// Node is a sealed union of *MapNode, *SeqNode and *ScalarNode, carrying source locations.
 type Node interface {
 	// Loc reports where in the source document this value came from.
 	Loc() SourceLine
 	isNode()
 }
 
-// Document is a fully-resolved Schema Salad document: its root value, the
-// top-level metadata directives, and the base URI everything resolved against.
+// Document is a fully-resolved Schema Salad document.
 type Document struct {
 	// Root is the resolved document tree, with all $import/$include references spliced in.
 	Root Node
@@ -38,12 +26,7 @@ type MapEntry struct {
 	Key   string
 }
 
-// MapNode is an ordered, string-keyed map.
-//
-// Order is semantically significant in Schema Salad (record fields, enum
-// symbols, and identifier-map expansion all depend on it), so MapNode keeps an
-// explicit ordered entry slice alongside its lookup index. Values are treated as
-// immutable: With and Without return new maps rather than mutating in place.
+// MapNode is an ordered, string-keyed map. Immutable after construction.
 type MapNode struct {
 	index   map[string]int
 	entries []MapEntry
@@ -52,9 +35,7 @@ type MapNode struct {
 
 var _ Node = (*MapNode)(nil)
 
-// NewMapNode builds a MapNode located at loc from entries, preserving their
-// order. If a key repeats, the last value wins and the key keeps the position of
-// its first occurrence.
+// NewMapNode builds a MapNode from entries. Duplicate keys keep first position, last value.
 func NewMapNode(loc SourceLine, entries []MapEntry) *MapNode {
 	m := &MapNode{
 		loc:     loc,
@@ -150,8 +131,7 @@ func (m *MapNode) All() iter.Seq2[string, Node] {
 	}
 }
 
-// With returns a copy of m with entries added or replaced. Existing keys keep
-// their position; new keys are appended in the order given. m is not modified.
+// With returns a copy with entries added or replaced. m is not modified.
 func (m *MapNode) With(entries ...MapEntry) *MapNode {
 	out := NewMapNode(m.Loc(), m.Entries())
 	for _, e := range entries {
@@ -161,8 +141,7 @@ func (m *MapNode) With(entries ...MapEntry) *MapNode {
 	return out
 }
 
-// Without returns a copy of m with the named keys removed, preserving the order
-// of the remaining entries. m is not modified.
+// Without returns a copy with the named keys removed. m is not modified.
 func (m *MapNode) Without(keys ...string) *MapNode {
 	drop := make(map[string]bool, len(keys))
 	for _, k := range keys {
@@ -305,8 +284,7 @@ func IsNull(n Node) bool {
 	return ok && s.IsNull()
 }
 
-// NodeKind returns a short human-readable name for the kind of n, for use in
-// error messages: "mapping", "sequence", the scalar kind, or "nothing".
+// NodeKind returns a human-readable name for the kind of n.
 func NodeKind(n Node) string {
 	switch v := n.(type) {
 	case *MapNode:

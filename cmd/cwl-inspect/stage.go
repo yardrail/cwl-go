@@ -16,36 +16,24 @@ import (
 // through on its way to being executable. It implements [flag.Value].
 type Stage string
 
-// The representations this tool can dump. They are different debugging views,
-// not different verbosities of one view: the parse tree is what you look at
-// when the document will not load, the resolved tree when resolution or
-// decoding is wrong, the typed model when execution is wrong, and the scope
-// when a requirement is not reaching the tool that needs it.
+// The representations this tool can dump.
 const (
-	// StageParsed is the salad Node tree exactly as the YAML parser
-	// produced it, before any $import, identifier or vocabulary
-	// resolution, with the source line of every node.
+	// StageParsed is the raw YAML parse tree before resolution.
 	StageParsed Stage = "parsed"
-	// StageResolved is the salad Document the loader produced: the same
-	// tree after $import and $include splicing, identifier resolution and
-	// vocabulary expansion, and after schema validation, but before any
-	// typed decode.
+	// StageResolved is the salad Document after loading and schema validation.
 	StageResolved Stage = "resolved"
-	// StageTyped is the typed model pkg/cwlcore decoded from that tree.
+	// StageTyped is the typed model decoded from the resolved tree.
 	StageTyped Stage = "typed"
-	// StageGraph is every top-level process in the document rather than
-	// only the one the entry-point rules select.
+	// StageGraph is every top-level process in the document.
 	StageGraph Stage = "graph"
-	// StageScope is the requirements and hints in effect for the process,
-	// and for each of a workflow's steps, with where each came from.
+	// StageScope is the resolved requirements and hints in effect.
 	StageScope Stage = "scope"
 )
 
 // ErrStage is the error [Stage.Set] reports for an unknown stage.
 var ErrStage = errors.New("unknown stage")
 
-// stageOrder lists the stages in the order a document passes through them,
-// which is also the order the usage message presents them.
+// stageOrder lists the stages in processing order.
 var stageOrder = []Stage{StageParsed, StageResolved, StageTyped, StageGraph, StageScope}
 
 // String returns the stage's flag spelling, satisfying [flag.Value].
@@ -78,8 +66,7 @@ func Stages() string {
 	return strings.Join(names, "|")
 }
 
-// Inspect builds the stage's view of the document at ref, as a value the
-// renderers can write in any format.
+// Inspect builds the stage's view of the document at ref.
 func (s *Stage) Inspect(ref string) (any, error) {
 	switch Stage(s.String()) {
 	case StageParsed:
@@ -96,10 +83,6 @@ func (s *Stage) Inspect(ref string) (any, error) {
 }
 
 // inspectParsed reads the document and dumps its parse tree.
-//
-// It is the only stage that does not go through pkg/cwlcore, and that is the
-// point: a document that will not load is exactly when you need to see what
-// the parser made of it.
 func inspectParsed(ref string) (any, error) {
 	src, url, err := cwlcli.Fetch(ref)
 	if err != nil {
@@ -139,8 +122,7 @@ func inspectGraph(ref string) (any, error) {
 	return graphObject(doc, processes), nil
 }
 
-// inspectProcess loads the document's entry-point process and dumps it through
-// project, which is what separates the typed view from the scope view.
+// inspectProcess loads the entry-point process and dumps it through project.
 func inspectProcess(ref string, project func(cwlcore.Process) *cwlcli.Object) (any, error) {
 	process, err := cwlcore.LoadFile(context.Background(), ref)
 	if err != nil {

@@ -2,9 +2,7 @@ package salad
 
 import "slices"
 
-// expandIdentifierMaps rewrites every field of an object that declares a
-// mapSubject and whose value is a mapping into the sequence of objects the
-// specification defines.
+// expandIdentifierMaps rewrites identifier-map fields into sequences.
 func (r *resolver) expandIdentifierMaps(m *MapNode, sc scope) (*MapNode, error) {
 	out := m
 
@@ -27,11 +25,7 @@ func (r *resolver) expandIdentifierMaps(m *MapNode, sc scope) (*MapNode, error) 
 	return out, nil
 }
 
-// expandIdentifierMap turns one identifier map into a sequence.
-//
-// Keys are visited in sorted order rather than document order: schema-salad
-// sorts them, and the resulting sequence is a set of named objects whose order
-// carries no meaning, so sorting is what makes the expansion reproducible.
+// expandIdentifierMap turns one identifier map into a sorted sequence.
 func expandIdentifierMap(field string, term *TermDef, val Node) (Node, error) {
 	m, ok := AsMap(val)
 	if !ok || m.Has(dirImport) || m.Has(dirInclude) {
@@ -55,8 +49,7 @@ func expandIdentifierMap(field string, term *TermDef, val Node) (Node, error) {
 	return NewSeqNode(m.Loc(), items), nil
 }
 
-// identifierMapEntry builds one list item of an expanded identifier map, moving
-// the map key into the field named by mapSubject.
+// identifierMapEntry builds one expanded item, moving the key into mapSubject.
 func identifierMapEntry(field string, term *TermDef, key string, val Node) (Node, error) {
 	obj, ok := AsMap(val)
 	if !ok {

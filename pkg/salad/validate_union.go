@@ -5,23 +5,13 @@ import (
 	"strings"
 )
 
-// maxLabelDepth bounds how far typeLabel descends into an anonymous type before
-// eliding the rest. A schema type graph may be self-referential, so rendering it
-// has to stop somewhere.
+// maxLabelDepth bounds type label depth to prevent infinite recursion.
 const maxLabelDepth = 3
 
 // labelEllipsis replaces the part of a type label that maxLabelDepth cut off.
 const labelEllipsis = "..."
 
-// checkAlternatives validates n against a set of candidate types, and is where
-// the union strategy inherited from schema-salad lives: every candidate is first
-// probed with diagnostics suppressed, and only once all of them have failed is
-// each one re-run verbosely so the reader gets one child error per candidate
-// saying why that candidate did not match.
-//
-// header introduces those children; it is phrased by the caller because the
-// candidates mean different things — union members, documentRoot types, or the
-// concrete subtypes of an abstract record.
+// checkAlternatives validates n against candidate types. Probes silently first, then re-runs verbosely.
 func (v *validator) checkAlternatives(alts []Type, n Node, header string) *Error {
 	if len(alts) == 0 {
 		return v.fail(nodeLoc(n), "the schema offers no type for this value")
@@ -44,20 +34,7 @@ func (v *validator) checkAlternatives(alts []Type, n Node, header string) *Error
 	return v.explainAlternatives(alts, n, header)
 }
 
-// explainAlternatives re-runs every candidate verbosely, after they have all
-// been probed and rejected, to collect the per-candidate explanation.
-//
-// Both "e == nil" below and the "len(children) == 0" fallback that follows
-// exist for a rerun that disagrees with the probe that rejected the same
-// candidate. No fixture has been found that drives that disagreement: check
-// is a function of (v.active-at-entry, t, n, v.quiet), fail and diag build
-// the same non-nil result under quiet and verbose alike (diag's own quiet
-// branch only ever drops a warning, which isFatal already treats as
-// non-fatal in the verbose result too), and v.active is restored by defer
-// before each alt in a loop is either probed or rerun, so the two passes see
-// the same entry state pair by pair. These are kept as the defensive
-// completion of "a probe said no, but the verbose recheck said yes" rather
-// than chased with a contrived fixture.
+// explainAlternatives re-runs all candidates verbosely to collect per-candidate explanations.
 func (v *validator) explainAlternatives(alts []Type, n Node, header string) *Error {
 	children := make([]*Error, 0, len(alts))
 
@@ -89,13 +66,6 @@ func (v *validator) explainAlternatives(alts []Type, n Node, header string) *Err
 }
 
 // checkUnion validates n against a union of alternative types.
-//
-// Two shapes of union get a plainer message than the general per-candidate tree.
-// A null value in a union that does not accept null is reported as exactly that,
-// rather than as one rejection per member; and a non-null value is never tried
-// against the null member, because "tried null, but the value is a string" tells
-// a reader nothing. Dropping null also collapses the overwhelmingly common
-// optional field, ["null", T], to a direct diagnostic about T.
 func (v *validator) checkUnion(u *UnionType, n Node) *Error {
 	if IsNull(n) {
 		if u.HasNull() {
@@ -133,13 +103,7 @@ func withoutNull(opts []Type) []Type {
 	return out
 }
 
-// checkAbstract validates n against the concrete subtypes of an abstract record.
-//
-// The specification says an abstract type "is not used for validation on its
-// own, but may be extended by other definitions", and that where one appears in
-// a field definition "it is logically replaced with a union of all concrete
-// subtypes of the abstract type" — so this is exactly a union check over the
-// subtypes the schema declares.
+// checkAbstract validates n against all concrete subtypes of an abstract record.
 func (v *validator) checkAbstract(r *RecordType, n Node) *Error {
 	subs := v.concreteSubtypes(r)
 	if len(subs) == 0 {
@@ -151,15 +115,12 @@ func (v *validator) checkAbstract(r *RecordType, n Node) *Error {
 	return v.checkAlternatives(subs, n, header)
 }
 
-// concreteSubtypes returns every concrete record that extends r, directly or
-// transitively, in schema declaration order.
+// concreteSubtypes returns concrete records extending r, directly or transitively.
 func (v *validator) concreteSubtypes(r *RecordType) []Type {
 	return v.appendConcrete(make([]Type, 0), make(map[string]bool), r)
 }
 
-// appendConcrete walks the subtype tree below r, appending concrete records and
-// descending through abstract ones. The seen set keeps a diamond in the
-// inheritance graph from yielding a type twice, and a cycle from looping.
+// appendConcrete walks the subtype tree, appending concrete records.
 func (v *validator) appendConcrete(dst []Type, seen map[string]bool, r *RecordType) []Type {
 	for _, child := range v.childrenOf(r) {
 		if seen[child.Name] {
@@ -197,12 +158,7 @@ func (v *validator) childrenOf(r *RecordType) []*RecordType {
 	return append(out, v.subtypes[short]...)
 }
 
-// ensureSubtypeIndex builds, once per run, the base-name to direct-subtype index
-// that abstract expansion walks.
-//
-// An extends entry is indexed under both the name as written and its short name,
-// because a schema may spell a base type either way and Schema.Type resolves
-// only exact names.
+// ensureSubtypeIndex builds the base-name to direct-subtype index (once per run).
 func (v *validator) ensureSubtypeIndex() {
 	if v.subtypes != nil {
 		return
@@ -239,14 +195,12 @@ func (v *validator) indexExtends(r *RecordType) {
 	}
 }
 
-// typeLabel renders a type the way an error message should name it: a named type
-// by its short name, and an anonymous one by its structure.
+// typeLabel renders a type for error messages.
 func typeLabel(t Type) string {
 	return typeLabelAt(t, 0)
 }
 
-// typeLabelAt renders t's label, eliding any structure below maxLabelDepth so
-// that a self-referential schema type graph still renders.
+// typeLabelAt renders t's label, eliding below maxLabelDepth.
 func typeLabelAt(t Type, depth int) string {
 	if t == nil {
 		return nameNothing
@@ -272,8 +226,7 @@ func typeLabelAt(t Type, depth int) string {
 	}
 }
 
-// unionLabel renders "one of a, b, c", collapsing to the single alternative when
-// null is the only other member — which is how an optional value is spelled.
+// unionLabel renders "one of a, b, c", collapsing optional unions to one alternative.
 func unionLabel(u *UnionType, depth int) string {
 	opts := withoutNull(u.Options)
 	if len(opts) == 0 {

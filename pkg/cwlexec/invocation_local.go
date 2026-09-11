@@ -9,8 +9,7 @@ import (
 
 var _ Invocation = (*localInvocation)(nil)
 
-// localInvocation is the [Invocation] for tools running on this host (no container). It allocates
-// directories on the local filesystem and delegates execution to [RunProcess].
+// localInvocation is the [Invocation] for tools running directly on this host.
 type localInvocation struct {
 	outdir  string
 	tmpdir  string
@@ -46,8 +45,7 @@ func newLocalInvocation(outDir, tmpDir string) (*localInvocation, error) {
 	}, nil
 }
 
-// ensureDir creates the directory at an allocated path, or a fresh temporary one when no path was
-// allocated, and returns it. An allocated path must be absolute; see [ErrInvocationDir].
+// ensureDir creates the given directory (or a temp directory if path is empty).
 func ensureDir(path, prefix string) (string, error) {
 	if path == "" {
 		return os.MkdirTemp("", prefix)

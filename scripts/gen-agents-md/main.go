@@ -116,9 +116,7 @@ func run() error {
 	return nil
 }
 
-// withGeneratedWarning inserts generatedWarning right after the rendered
-// file's leading title line, so the warning lives only in the generated
-// output rather than cluttering the template.
+// withGeneratedWarning inserts the generated-file warning after the title line.
 func withGeneratedWarning(rendered []byte) []byte {
 	title, body, found := bytes.Cut(rendered, []byte("\n"))
 	if !found {
@@ -145,8 +143,7 @@ func repoRoot() (string, error) {
 	return filepath.Dir(strings.TrimSpace(string(out))), nil
 }
 
-// listPackages scrapes package-level doc comments via `go list -json`,
-// keeping only packages with a real doc comment.
+// listPackages scrapes package doc comments via `go list -json`.
 func listPackages(root string) ([]docPackage, error) {
 	cmd := exec.CommandContext(context.Background(), "go", "list", "-json", "./cmd/...", "./pkg/...")
 	cmd.Dir = root
@@ -183,9 +180,7 @@ func listPackages(root string) ([]docPackage, error) {
 	return packages, nil
 }
 
-// listTasks scrapes task names and descriptions via `task --list-all --json`,
-// restoring Taskfile declaration order (the command's own list order doesn't
-// match the file) by sorting on each task's source line.
+// listTasks scrapes task names and descriptions via `task --list-all --json`.
 func listTasks(root string) ([]taskInfo, error) {
 	cmd := exec.CommandContext(context.Background(), "task", "--list-all", "--json")
 	cmd.Dir = root

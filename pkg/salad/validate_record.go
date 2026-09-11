@@ -5,15 +5,10 @@ import (
 	"strings"
 )
 
-// maxListedFields bounds how many field names an "expected one of" message
-// spells out before it trails off, so that a record with dozens of fields does
-// not bury the diagnostic that matters.
+// maxListedFields bounds how many field names appear in "expected one of" messages.
 const maxListedFields = 12
 
-// reservedFieldPrefixes are the leading characters that mark a key as a
-// directive rather than a field. The specification says "other directives
-// beginning with $ must be ignored", and JSON-LD keywords beginning with @ are
-// likewise not fields of the record.
+// reservedFieldPrefixes marks keys as directives ($ and @), not record fields.
 const reservedFieldPrefixes = "$@"
 
 // checkRecord validates n against a record type.
@@ -47,13 +42,7 @@ func (v *validator) checkRecord(r *RecordType, n Node) *Error {
 	return v.group(nodeLoc(n), "", children...)
 }
 
-// checkField validates one declared field of a record against the value the
-// document supplies for it, if any.
-//
-// A field the document omits is considered null, per the specification, and is
-// therefore valid exactly when the field's type accepts null. Absence is
-// reported as a missing field rather than as a type mismatch against nothing,
-// because that is what the reader has to fix.
+// checkField validates one declared field. Missing fields are treated as null.
 func (v *validator) checkField(f *Field, m *MapNode) *Error {
 	value, present := lookupField(f, m)
 	if !present {
@@ -72,8 +61,7 @@ func (v *validator) checkField(f *Field, m *MapNode) *Error {
 	)
 }
 
-// lookupField finds the value a document supplies for a field, under either the
-// field's full identifier or its short name.
+// lookupField finds a field's value by full or short name.
 func lookupField(f *Field, m *MapNode) (Node, bool) {
 	if n, ok := m.Get(f.Name); ok {
 		return n, true
@@ -82,8 +70,7 @@ func lookupField(f *Field, m *MapNode) (Node, bool) {
 	return m.Get(f.ShortName())
 }
 
-// acceptsNull reports whether a declared type admits a null value, which is how
-// Schema Salad spells an optional field.
+// acceptsNull reports whether a type admits null (i.e. is optional).
 func acceptsNull(t Type) bool {
 	switch tt := t.(type) {
 	case *PrimitiveType:
@@ -95,8 +82,7 @@ func acceptsNull(t Type) bool {
 	}
 }
 
-// checkUnknownFields reports every key of the document that the record does not
-// declare.
+// checkUnknownFields reports keys the record does not declare.
 func (v *validator) checkUnknownFields(r *RecordType, m *MapNode) []*Error {
 	out := make([]*Error, 0)
 
@@ -116,11 +102,6 @@ func (v *validator) checkUnknownFields(r *RecordType, m *MapNode) []*Error {
 }
 
 // reportUnknownField raises the diagnostic for one unrecognized key.
-//
-// A key carrying a namespace prefix is a property of a foreign vocabulary: the
-// schema cannot say anything about it, so it is governed by StrictForeign. Any
-// other unrecognized key is a plain mistake in a field name, and is governed by
-// Strict.
 func (v *validator) reportUnknownField(r *RecordType, key string, value Node) *Error {
 	loc := nodeLoc(value)
 
@@ -138,14 +119,12 @@ func isReservedKey(key string) bool {
 	return key != "" && strings.ContainsRune(reservedFieldPrefixes, rune(key[0]))
 }
 
-// isForeignProperty reports whether a key names a property of another
-// vocabulary, which Schema Salad spells with a namespace prefix.
+// isForeignProperty reports whether a key has a namespace prefix.
 func isForeignProperty(key string) bool {
 	return strings.IndexByte(key, ':') > 0
 }
 
-// fieldNames lists a record's field names for an "expected one of" message,
-// trailing off after maxListedFields of them.
+// fieldNames lists a record's field names for diagnostic messages.
 func fieldNames(r *RecordType) string {
 	names := make([]string, 0, len(r.Fields))
 

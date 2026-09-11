@@ -17,16 +17,13 @@ import (
 // toolName is how the tool names itself in its usage and version output.
 const toolName = "cwl-validate"
 
-// The exit statuses, which are this tool's primary output: CI reads the status
-// and only a human reads the text.
+// Exit statuses.
 const (
 	exitInvalid = 1
 	exitUsage   = 2
 )
 
-// The two failure modes run reports, kept apart because they mean different
-// things to the caller: a document that does not validate is the tool working,
-// and a command line that does not parse is not.
+// Failure sentinels.
 var (
 	errInvalid = errors.New("one or more documents are not valid CWL")
 	errUsage   = errors.New("invalid command line")
@@ -45,9 +42,7 @@ func main() {
 	os.Exit(exitInvalid)
 }
 
-// run validates every document named on the command line and reports whether
-// they were all valid. It writes its own diagnostics, so main has nothing left
-// to do but turn the returned error into an exit status.
+// run validates every document named on the command line.
 func run(args []string, stdout, stderr io.Writer) error {
 	cfg, err := parseFlags(args, stderr)
 	if err != nil {
@@ -75,28 +70,15 @@ func run(args []string, stdout, stderr io.Writer) error {
 
 // config is the parsed command line.
 type config struct {
-	// documents are the paths or URLs to validate, in the order given.
-	documents []string
-	// quiet suppresses all output, leaving the exit status as the result.
-	quiet bool
-	// strict promotes advisory diagnostics to errors.
-	strict bool
-	// verbose prints every line of an error tree instead of its head.
-	verbose bool
-	// version asks for the version banner instead of a validation run.
-	version bool
-	// help records that the flag set already printed the usage message in
-	// response to -h, so there is nothing left to do and nothing has failed.
-	help bool
+	documents []string // paths or URLs to validate
+	quiet     bool
+	strict    bool
+	verbose   bool
+	version   bool
+	help      bool
 }
 
-// loadOptions turns the strict flag into the options the loader takes.
-//
-// Under -strict, the conditions the specification lets an implementation
-// tolerate — an unrecognized field, most of all — become errors rather than
-// advisories. That is the check a project wants in CI: permissive validation
-// discards advisories entirely, so a typo'd field name is otherwise reported
-// nowhere at all, and a document that does nothing passes.
+// loadOptions maps the strict flag to loader options.
 func (c *config) loadOptions() []cwlcore.LoadOption {
 	if !c.strict {
 		return nil
@@ -105,8 +87,7 @@ func (c *config) loadOptions() []cwlcore.LoadOption {
 	return []cwlcore.LoadOption{cwlcore.Strict(true)}
 }
 
-// parseFlags reads args into a config. Flag errors are written to stderr by
-// the flag set itself, so the returned error only has to carry the exit status.
+// parseFlags reads args into a config.
 func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	cfg := &config{
 		documents: make([]string, 0, len(args)),

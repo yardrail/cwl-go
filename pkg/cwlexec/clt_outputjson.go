@@ -13,45 +13,15 @@ import (
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
 
-// The output object a tool wrote for itself.
-//
-// invocation.md, Output binding: "If the output directory contains a file named 'cwl.output.json',
-// that file must be loaded and used as the output object. In this case, the output object should
-// still be type-checked against the `outputs` section, but `outputBinding` is ignored."
-//
-// So this is not an alternative source of values to merge with the globbed ones — it replaces them
-// outright, for every declared parameter, whether or not the parameter has a binding.
+// Reading cwl.output.json: a tool-written output object that replaces output binding.
 
-// OutputJSONFile is the name of the file a CommandLineTool may write into its output directory to
-// supply its output object directly, bypassing output binding.
+// OutputJSONFile is the filename a tool writes to supply its output object directly.
 const OutputJSONFile = "cwl.output.json"
 
-// ErrOutputJSON reports a cwl.output.json that exists and cannot be used: one that is not valid
-// JSON, that does not hold an object, or that names a path outside the output directory.
+// ErrOutputJSON reports an unusable cwl.output.json.
 var ErrOutputJSON = errors.New("cwl.output.json is not a usable output object")
 
-// LoadOutputJSON reads the output object a tool wrote into its output directory.
-//
-// A tool that wrote no such file yields an error wrapping [fs.ErrNotExist], which is the ordinary
-// case and means the caller should collect the outputs by binding instead. Test for it with
-// [errors.Is] rather than treating any failure as absence: a file that is present and unusable is a
-// real error, because a tool that tried to report its outputs and failed has not produced no
-// outputs, it has produced broken ones.
-//
-// Values are normalized exactly as a collected output is: relative paths and locations resolve
-// against outdir, `path` wins over `location` when both are given, and each File is measured for
-// size and checksum unless it supplied them. Every declared output parameter appears in the result,
-// including one the file did not mention, whose value is nil.
-//
-// inputs is the invocation's input object, and is here for one reason: it says which paths outside
-// the output directory the tool is nonetheless entitled to name. See
-// [outputCollector.checkPublishable].
-//
-// The file is read whole and no size limit applies to it. The specification's 64 KiB ceiling belongs
-// to loadContents — "the file (or each file in the array) must be a UTF-8 text file 64 KiB or
-// smaller" is a sentence about the files an *input* or an output binding loads the contents of — and
-// an output object is not one of those. A tool listing ten thousand results writes a megabyte here
-// legitimately.
+// LoadOutputJSON reads the cwl.output.json from outdir. Returns [fs.ErrNotExist] if absent.
 func LoadOutputJSON(
 	tool *cwlcore.CommandLineTool, outdir string, outfs WriteFS, inputs map[string]any, opts ...OutputJSONOption,
 ) (map[string]any, error) {
@@ -81,7 +51,7 @@ func LoadOutputJSON(
 	return bindOutputJSON(newOutputCollector(tool, outdir, outfs, inputs), object)
 }
 
-// OutputJSONOption adjusts how [LoadOutputJSON] reads the file.
+// OutputJSONOption adjusts [LoadOutputJSON] behavior.
 type OutputJSONOption func(*outputJSONSettings)
 
 // outputJSONSettings is what the options set.

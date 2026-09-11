@@ -84,7 +84,7 @@ func (s *sink) value(lookup sourceLookup) (any, error) {
 	}
 
 	if !s.StepInput {
-		outFillListings(picked, nil, "")
+		outFillListingsLocal(picked)
 	}
 
 	return picked, s.checkType(picked)

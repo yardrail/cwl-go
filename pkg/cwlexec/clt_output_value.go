@@ -160,8 +160,6 @@ func (c *outputCollector) retypeFile(object map[string]any) (*cwlcore.File, erro
 }
 
 // outRemeasure fills in missing size/checksum from the output FS or literal contents.
-// When fsys is non-nil and the file is within outdir, reads through the FS; otherwise
-// falls back to the host filesystem.
 func outRemeasure(file *cwlcore.File, fsys fs.FS, outdir string) {
 	if file.Checksum != "" && file.Size.IsSet() {
 		return
@@ -173,17 +171,12 @@ func outRemeasure(file *cwlcore.File, fsys fs.FS, outdir string) {
 		return
 	}
 
-	var stats outFileStats
-
-	var err error
-
-	if fsys != nil && strings.HasPrefix(file.Path, outdir+string(filepath.Separator)) {
-		rel, _ := filepath.Rel(outdir, file.Path)
-		stats, err = outDigestFS(fsys, filepath.ToSlash(rel))
-	} else {
-		stats, err = outDigest(file.Path)
+	rel, relErr := filepath.Rel(outdir, file.Path)
+	if relErr != nil || !filepath.IsLocal(rel) {
+		return
 	}
 
+	stats, err := outDigestFS(fsys, filepath.ToSlash(rel))
 	if err != nil {
 		return
 	}

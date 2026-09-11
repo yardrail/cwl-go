@@ -147,21 +147,23 @@ func TestRemeasure(t *testing.T) {
 	dir := t.TempDir()
 	local := outWriteFile(t, dir, outNameA, "alpha")
 
+	localFS := NewLocalDirFS(dir)
+
 	onDisk := &cwlcore.File{Path: local}
-	outRemeasure(onDisk, nil, "")
+	outRemeasure(onDisk, localFS, dir)
 	assertDeepEqual(t, "on-disk checksum", onDisk.Checksum, outSumAlpha)
 	assertDeepEqual(t, "on-disk size", onDisk.Size.Int(), int64(len("alpha")))
 
 	// A file literal is measured from its own bytes: it does not exist yet, but what it will
 	// contain is already known.
 	literal := &cwlcore.File{Contents: cwlcore.NewOptString("alpha")}
-	outRemeasure(literal, nil, "")
+	outRemeasure(literal, localFS, dir)
 	assertDeepEqual(t, "literal checksum", literal.Checksum, outSumAlpha)
 
 	// A path that is not there is left alone rather than reported: an expression may describe a
 	// file some later stage will create.
 	absent := &cwlcore.File{Path: filepath.Join(dir, "gone")}
-	outRemeasure(absent, nil, "")
+	outRemeasure(absent, localFS, dir)
 	assertDeepEqual(t, "absent checksum", absent.Checksum, "")
 
 	if absent.Size.IsSet() {

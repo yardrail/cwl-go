@@ -226,7 +226,7 @@ func (m *PathMap) stageFile(file *cwlcore.File, target string, writable bool) er
 		}, file)
 	case file.Location != "":
 		return fmt.Errorf("%w: %s is not on a filesystem this engine can read",
-			ErrUnsupportedFeature, file.Location)
+			ErrUnsupportedLocationScheme, file.Location)
 	default:
 		return fmt.Errorf("%w: File %q has neither a path nor contents", ErrStageValue, file.Basename)
 	}
@@ -258,7 +258,7 @@ func (m *PathMap) stageDirectory(dir *cwlcore.Directory, target string, writable
 	if dir.Listing == nil {
 		if dir.Location != "" {
 			return fmt.Errorf("%w: %s is not on a filesystem this engine can read",
-				ErrUnsupportedFeature, dir.Location)
+				ErrUnsupportedLocationScheme, dir.Location)
 		}
 
 		return fmt.Errorf("%w: Directory %q has neither a path nor a listing", ErrStageValue, dir.Basename)

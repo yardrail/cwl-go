@@ -164,7 +164,7 @@ func TestPathMapStagingFailures(t *testing.T) {
 			name:  "a File on storage this engine cannot read",
 			value: &cwlcore.File{Basename: pmName, Location: "s3://bucket/named.txt"},
 			entry: pmName,
-			want:  ErrUnsupportedFeature,
+			want:  ErrUnsupportedLocationScheme,
 		},
 		{
 			name:  "a Directory with neither a path nor a listing",
@@ -176,7 +176,7 @@ func TestPathMapStagingFailures(t *testing.T) {
 			name:  "a Directory on storage this engine cannot read",
 			value: &cwlcore.Directory{Basename: stgTreeName, Location: "s3://bucket/tree"},
 			entry: stgTreeName,
-			want:  ErrUnsupportedFeature,
+			want:  ErrUnsupportedLocationScheme,
 		},
 		{
 			name:  "a secondary file that cannot be staged",

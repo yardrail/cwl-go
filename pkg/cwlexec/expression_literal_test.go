@@ -357,8 +357,8 @@ func TestExpressionToolRejectsALiteralItCannotPlace(t *testing.T) {
 	]}};}`)
 
 	_, err := runExpressionTool(t, call)
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("error = %v, want ErrUnsupportedFeature", err)
+	if !errors.Is(err, ErrUnsupportedLocationScheme) {
+		t.Fatalf("error = %v, want ErrUnsupportedLocationScheme", err)
 	}
 }
 

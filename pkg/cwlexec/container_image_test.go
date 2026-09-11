@@ -220,7 +220,7 @@ func TestDockerImageAcquisitionFailures(t *testing.T) {
 		declared: &cwlcore.DockerRequirement{
 			DockerImageID: imgAbsent, DockerLoad: "https://example.invalid/image.tar",
 		},
-		want: ErrUnsupportedFeature,
+		want: ErrUnsupportedImageSource,
 	}, {
 		name: "an archive whose name is not a reference at all",
 		declared: &cwlcore.DockerRequirement{

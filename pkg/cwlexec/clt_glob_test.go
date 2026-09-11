@@ -2,7 +2,6 @@ package cwlexec
 
 import (
 	"cmp"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -122,7 +121,7 @@ func TestFillListingsCompletesADirectoryNothingRead(t *testing.T) {
 	tool := outTestTool(outTestParam("#tool/d", outTypeDirectory, outListingBinding(outNameTree, "")))
 	value := outWantDirectory(t, outCollect(t, tool, dir, 0))
 
-	outFillListings(value)
+	outFillListings(value, nil, "")
 
 	assertDeepEqual(t, "listing", outEntryNames(t, value.Listing), []string{outNameA, outNameSub})
 
@@ -150,7 +149,7 @@ func TestCollectOutputsShallowListing(t *testing.T) {
 
 	// The publication pass then descends into what it left: a listing already set is kept and
 	// completed, never replaced.
-	outFillListings(value)
+	outFillListings(value, nil, "")
 	assertDeepEqual(t, "listing", outEntryNames(t, value.Listing), []string{outNameA, outNameSub})
 	assertDeepEqual(t, "sub listing", outEntryNames(t, sub.Listing), []string{outNameB, outNameDeeper})
 
@@ -254,7 +253,7 @@ func TestDeepListingStopsAtASymlinkLoop(t *testing.T) {
 	// The publication pass reads the link once, because it starts a fresh walk there and the loop
 	// has not been seen yet on that branch. What it must not do is keep going: the copy of the
 	// link one level down closes the cycle, and its listing stays unread.
-	outFillListings(value)
+	outFillListings(value, nil, "")
 	assertDeepEqual(t, "loop listing", outEntryNames(t, loop.Listing), []string{outNameA, "loop"})
 
 	if inner := outSubdirectory(t, loop.Listing, "loop"); inner.Listing != nil {
@@ -285,7 +284,10 @@ func TestGlobbedSymlinkKeepsItsOwnName(t *testing.T) {
 func TestListDirectoryOnAMissingDirectory(t *testing.T) {
 	t.Parallel()
 
-	_, err := outListDirectory(filepath.Join(t.TempDir(), "gone"), outShallowWalk, nil)
+	tmpDir := t.TempDir()
+	gone := filepath.Join(tmpDir, "gone")
+
+	_, err := outListDirectory(gone, outShallowWalk, nil, NewLocalDirFS(tmpDir), tmpDir)
 	if err == nil {
 		t.Fatal("outListDirectory on a missing directory succeeded, want an error")
 	}
@@ -294,7 +296,10 @@ func TestListDirectoryOnAMissingDirectory(t *testing.T) {
 func TestListingEntryOnAMissingPath(t *testing.T) {
 	t.Parallel()
 
-	_, err := outListingEntry(filepath.Join(t.TempDir(), "gone"), outShallowWalk, nil)
+	tmpDir := t.TempDir()
+	gone := filepath.Join(tmpDir, "gone")
+
+	_, err := outListingEntry(gone, outShallowWalk, nil, NewLocalDirFS(tmpDir), tmpDir)
 	if err == nil {
 		t.Fatal("outListingEntry on a missing path succeeded, want an error")
 	}
@@ -303,19 +308,16 @@ func TestListingEntryOnAMissingPath(t *testing.T) {
 func TestAlreadyWalkedOnAnUnrelatedDirectory(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-
-	info, err := os.Stat(dir)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-
-	if outAlreadyWalked(info, nil) {
+	if outAlreadyWalked("sub/dir1", nil) {
 		t.Error("an empty walk cannot contain anything")
 	}
 
-	if !outAlreadyWalked(info, []fs.FileInfo{info}) {
+	if !outAlreadyWalked("sub/dir1", []string{"sub/dir1"}) {
 		t.Error("a directory must be recognised as itself")
+	}
+
+	if outAlreadyWalked("sub/dir3", []string{"sub/dir1", "sub/dir2"}) {
+		t.Error("an unseen directory should not be flagged")
 	}
 }
 
@@ -724,7 +726,7 @@ func TestCollectOutputsCompletesADirectoryInsideAnExpressionResult(t *testing.T)
 		t.Fatalf("found = %#v, want a *cwlcore.Directory", report["found"])
 	}
 
-	outFillListings(outputs["report"])
+	outFillListings(outputs["report"], nil, "")
 	assertDeepEqual(t, "listing", outEntryNames(t, found.Listing), []string{outNameA, outNameSub})
 }
 
@@ -747,7 +749,7 @@ func TestFillListingsLeavesAnUnreadableDirectoryUncompleted(t *testing.T) {
 	}
 
 	value := outWantDirectory(t, outputs)
-	outFillListings(value)
+	outFillListings(value, nil, "")
 
 	// An expression may name a directory that is not there — one a later stage will create, say.
 	// Completing the value is a courtesy, so failing to is not a reason to refuse the output.
@@ -771,7 +773,7 @@ func TestFillListingsLeavesADirectoryItCannotWalkUncompleted(t *testing.T) {
 	tool := outTestTool(outTestParam("#tool/d", outTypeDirectory, outGlobBinding(outNameTree)))
 	value := outWantDirectory(t, outCollect(t, tool, dir, 0))
 
-	outFillListings(value)
+	outFillListings(value, nil, "")
 
 	// The walk cannot measure an entry that leads nowhere. A loadListing that asked for the
 	// listing reports that; the completion pass, which nobody asked for, does not.

@@ -257,7 +257,7 @@ func bindOutputJSON(collector *outputCollector, object map[string]any) (map[stri
 			return nil, fmt.Errorf("%w: output %q: %w", ErrOutputJSON, name, err)
 		}
 
-		outFillListings(value)
+		outFillListings(value, collector.outfs, collector.outdir)
 
 		outputs[name] = value
 	}

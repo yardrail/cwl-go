@@ -250,7 +250,7 @@ func joReadListing(
 		return nil, nil
 	}
 
-	dir, err := outCollectDirectory(local, info, mode)
+	dir, err := outCollectDirectory(local, info, mode, NewLocalDirFS(local), local)
 	if err != nil {
 		return nil, salad.Errorf(m.Loc(), "%s: reading the directory listing: %v", v.path, err)
 	}

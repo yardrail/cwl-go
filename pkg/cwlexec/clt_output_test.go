@@ -420,7 +420,10 @@ func TestWithinDir(t *testing.T) {
 func TestCollectPathOnAMissingPath(t *testing.T) {
 	t.Parallel()
 
-	_, err := outCollectPath(filepath.Join(t.TempDir(), "gone"), &cwlcore.CommandOutputBinding{})
+	tmpDir := t.TempDir()
+	gone := filepath.Join(tmpDir, "gone")
+
+	_, err := outCollectPath(gone, &cwlcore.CommandOutputBinding{}, NewLocalDirFS(tmpDir), tmpDir)
 	if err == nil {
 		t.Fatal("outCollectPath on a missing path succeeded, want an error")
 	}
@@ -429,7 +432,10 @@ func TestCollectPathOnAMissingPath(t *testing.T) {
 func TestCollectFileOnAMissingPath(t *testing.T) {
 	t.Parallel()
 
-	_, err := outCollectFile(filepath.Join(t.TempDir(), "gone"), &cwlcore.CommandOutputBinding{LoadContents: true})
+	tmpDir := t.TempDir()
+	gone := filepath.Join(tmpDir, "gone")
+
+	_, err := outCollectFile(gone, &cwlcore.CommandOutputBinding{LoadContents: true}, NewLocalDirFS(tmpDir), tmpDir)
 	if err == nil {
 		t.Fatal("outCollectFile on a missing path succeeded, want an error")
 	}

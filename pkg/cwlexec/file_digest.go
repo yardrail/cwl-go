@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -26,6 +27,23 @@ type outFileStats struct {
 // outDigest reads the file and returns its size, checksum and leading bytes.
 func outDigest(local string) (outFileStats, error) {
 	file, err := os.Open(filepath.Clean(local))
+	if err != nil {
+		return outFileStats{}, err
+	}
+
+	stats, hashErr := outHashAll(file)
+
+	readErr := errors.Join(hashErr, file.Close())
+	if readErr != nil {
+		return outFileStats{}, readErr
+	}
+
+	return stats, nil
+}
+
+// outDigestFS reads the file from an fs.FS and returns its size, checksum and leading bytes.
+func outDigestFS(fsys fs.FS, name string) (outFileStats, error) {
+	file, err := fsys.Open(name)
 	if err != nil {
 		return outFileStats{}, err
 	}

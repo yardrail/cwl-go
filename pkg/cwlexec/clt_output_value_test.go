@@ -148,20 +148,20 @@ func TestRemeasure(t *testing.T) {
 	local := outWriteFile(t, dir, outNameA, "alpha")
 
 	onDisk := &cwlcore.File{Path: local}
-	outRemeasure(onDisk)
+	outRemeasure(onDisk, nil, "")
 	assertDeepEqual(t, "on-disk checksum", onDisk.Checksum, outSumAlpha)
 	assertDeepEqual(t, "on-disk size", onDisk.Size.Int(), int64(len("alpha")))
 
 	// A file literal is measured from its own bytes: it does not exist yet, but what it will
 	// contain is already known.
 	literal := &cwlcore.File{Contents: cwlcore.NewOptString("alpha")}
-	outRemeasure(literal)
+	outRemeasure(literal, nil, "")
 	assertDeepEqual(t, "literal checksum", literal.Checksum, outSumAlpha)
 
 	// A path that is not there is left alone rather than reported: an expression may describe a
 	// file some later stage will create.
 	absent := &cwlcore.File{Path: filepath.Join(dir, "gone")}
-	outRemeasure(absent)
+	outRemeasure(absent, nil, "")
 	assertDeepEqual(t, "absent checksum", absent.Checksum, "")
 
 	if absent.Size.IsSet() {
@@ -505,7 +505,9 @@ func TestRelocateRenamesADirectoryAndRebasesItsListing(t *testing.T) {
 	dir := t.TempDir()
 	outWriteFile(t, dir, outNameTree+"/"+outNameSub+"/"+outNameA, cltAlpha)
 
-	tree, err := outListDirectory(filepath.Join(dir, outNameTree), outDeepWalk, nil)
+	treePath := filepath.Join(dir, outNameTree)
+
+	tree, err := outListDirectory(treePath, outDeepWalk, nil, NewLocalDirFS(treePath), treePath)
 	if err != nil {
 		t.Fatalf("outListDirectory: %v", err)
 	}

@@ -308,15 +308,15 @@ func TestListingEntryOnAMissingPath(t *testing.T) {
 func TestAlreadyWalkedOnAnUnrelatedDirectory(t *testing.T) {
 	t.Parallel()
 
-	if outAlreadyWalked("sub/dir1", nil) {
+	if outAlreadyWalked(testWalkDir1, nil) {
 		t.Error("an empty walk cannot contain anything")
 	}
 
-	if !outAlreadyWalked("sub/dir1", []string{"sub/dir1"}) {
+	if !outAlreadyWalked(testWalkDir1, []string{testWalkDir1}) {
 		t.Error("a directory must be recognised as itself")
 	}
 
-	if outAlreadyWalked("sub/dir3", []string{"sub/dir1", "sub/dir2"}) {
+	if outAlreadyWalked("sub/dir3", []string{testWalkDir1, "sub/dir2"}) {
 		t.Error("an unseen directory should not be flagged")
 	}
 }

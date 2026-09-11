@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 	"github.com/yardrail/cwl-go/pkg/salad"
@@ -509,12 +508,7 @@ func loadDirectoryListing(dir *cwlcore.Directory, mode cwlcore.LoadListingEnum) 
 		return dir, nil
 	}
 
-	info, err := os.Stat(dir.Path)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s: %w", ErrLoadListing, dir.Path, err)
-	}
-
-	listed, err := outCollectDirectory(dir.Path, info, mode, NewLocalDirFS(dir.Path), dir.Path)
+	listed, err := outCollectDirectory(dir.Path, mode, NewLocalDirFS(dir.Path), dir.Path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %w", ErrLoadListing, dir.Path, err)
 	}

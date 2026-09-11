@@ -239,18 +239,18 @@ func (l *joLoader) directoryListing(
 		return listing, nil
 	}
 
-	return joReadListing(ref.local, info, v.listing, m, v)
+	return joReadListing(ref.local, v.listing, m, v)
 }
 
 // joReadListing reads a Directory's listing from disk at the depth loadListing requests.
 func joReadListing(
-	local string, info fs.FileInfo, mode cwlcore.LoadListingEnum, m *salad.MapNode, v *joValueCtx,
+	local string, mode cwlcore.LoadListingEnum, m *salad.MapNode, v *joValueCtx,
 ) ([]cwlcore.FileOrDirectory, *salad.Error) {
 	if mode == "" || mode == cwlcore.LoadListingNone {
 		return nil, nil
 	}
 
-	dir, err := outCollectDirectory(local, info, mode, NewLocalDirFS(local), local)
+	dir, err := outCollectDirectory(local, mode, NewLocalDirFS(local), local)
 	if err != nil {
 		return nil, salad.Errorf(m.Loc(), "%s: reading the directory listing: %v", v.path, err)
 	}

@@ -46,6 +46,11 @@ type ContainerPolicy struct {
 
 	// Keep leaves the container after exit for inspection (--leave-container).
 	Keep bool
+
+	// NoBindMount copies files instead of creating mount-point placeholders
+	// for StageLink entries. Set for executors (like Kubernetes) that mount
+	// whole directories but cannot bind-mount individual files.
+	NoBindMount bool
 }
 
 // container is the resolved container configuration for one invocation.
@@ -86,7 +91,12 @@ func outdirFor(declared *cwlcore.DockerRequirement) string {
 
 // mapper returns a [PathMap] that plans container-side paths for this invocation.
 func (c *container) mapper() *PathMap {
-	return NewContainerPathMap(c.hostOutdir, c.hostStage, c.toolOutdir, containerStagedir)
+	m := NewContainerPathMap(c.hostOutdir, c.hostStage, c.toolOutdir, containerStagedir)
+	if c.policy.NoBindMount {
+		m.DisableBindMounts()
+	}
+
+	return m
 }
 
 // dirs creates host directories that will be mounted into the container.

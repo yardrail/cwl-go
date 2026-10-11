@@ -75,6 +75,7 @@ type PathMap struct {
 	inplace     bool                               // InplaceUpdateRequirement active
 	contained   bool                               // running in a container
 	absolute    bool                               // allow absolute entry targets
+	noBindMount bool                               // copy instead of creating mount-point placeholders
 }
 
 // NewPathMap returns an empty path map for a host invocation (Host == Target).
@@ -103,6 +104,13 @@ func (m *PathMap) Workdir() string {
 // AllowInplaceUpdate permits writable entries to be linked instead of copied.
 func (m *PathMap) AllowInplaceUpdate() {
 	m.inplace = true
+}
+
+// DisableBindMounts makes StageLink copy files instead of creating empty
+// mount-point placeholders. Use for container executors (like Kubernetes)
+// that mount whole directories but cannot bind-mount individual files.
+func (m *PathMap) DisableBindMounts() {
+	m.noBindMount = true
 }
 
 // Plan returns the ordered placements. The slice must not be modified.

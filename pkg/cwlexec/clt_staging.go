@@ -367,9 +367,14 @@ func (m *PathMap) resolveFS(host string, outFS, stageFS WriteFS) (fsResolution, 
 }
 
 // placeLinkFS symlinks on host; creates a mount point under containers (relinked after exit).
+// When noBindMount is set, copies instead of creating mount points.
 func (m *PathMap) placeLinkFS(mapping *PathMapping, dst WriteFS, rel string) error {
 	if !m.contained {
 		return dst.Symlink(mapping.Resolved, rel)
+	}
+
+	if m.noBindMount {
+		return m.copyToFS(mapping.Resolved, dst, rel)
 	}
 
 	return m.mountPointFS(mapping.Resolved, dst, rel)

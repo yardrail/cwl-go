@@ -113,6 +113,12 @@ func (m *PathMap) DisableBindMounts() {
 	m.noBindMount = true
 }
 
+// SetResolver configures the OutputResolver used by resolveSource to locate
+// files that live in remote storage (e.g. S3) rather than the local filesystem.
+func (m *PathMap) SetResolver(r OutputResolver) {
+	m.resolver = r
+}
+
 // Plan returns the ordered placements. The slice must not be modified.
 func (m *PathMap) Plan() []PathMapping {
 	return m.plan

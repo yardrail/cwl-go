@@ -374,8 +374,10 @@ func (m *PathMap) placeLinkFS(mapping *PathMapping, dst WriteFS, rel string) err
 	}
 
 	if m.noBindMount {
+		fmt.Fprintf(os.Stderr, "[DEBUG placeLinkFS] noBindMount=true, copying %q → %q\n", mapping.Resolved, rel)
 		return m.copyToFS(mapping.Resolved, dst, rel)
 	}
+	fmt.Fprintf(os.Stderr, "[DEBUG placeLinkFS] noBindMount=false, creating mount point for %q\n", mapping.Resolved)
 
 	return m.mountPointFS(mapping.Resolved, dst, rel)
 }

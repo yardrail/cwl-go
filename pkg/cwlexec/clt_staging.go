@@ -374,18 +374,8 @@ func (m *PathMap) placeLinkFS(mapping *PathMapping, dst WriteFS, rel string) err
 	}
 
 	if m.noBindMount {
-		fmt.Fprintf(os.Stderr, "[DEBUG placeLinkFS] noBindMount=true, copying %q → %q\n", mapping.Resolved, rel)
-
-		err := m.copyToFS(mapping.Resolved, dst, rel)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[DEBUG placeLinkFS] copyToFS error: %v\n", err)
-		} else {
-			fmt.Fprintf(os.Stderr, "[DEBUG placeLinkFS] copyToFS succeeded\n")
-		}
-
-		return err
+		return m.copyToFS(mapping.Resolved, dst, rel)
 	}
-	fmt.Fprintf(os.Stderr, "[DEBUG placeLinkFS] noBindMount=false, creating mount point for %q\n", mapping.Resolved)
 
 	return m.mountPointFS(mapping.Resolved, dst, rel)
 }
@@ -542,8 +532,7 @@ func (m *PathMap) copyFileFS(source string, dst WriteFS, rel string) error {
 		return err
 	}
 
-	n, copyErr := io.Copy(w, src)
-	fmt.Fprintf(os.Stderr, "[DEBUG copyFileFS] copied %d bytes from %q to %q (err=%v)\n", n, source, rel, copyErr)
+	_, copyErr := io.Copy(w, src)
 
 	return errors.Join(copyErr, w.Close())
 }

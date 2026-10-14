@@ -256,7 +256,9 @@ func goroutineExecutor(probe *concurrencyProbe) func(*DispatchLoop) error {
 				time.Sleep(20 * time.Millisecond)
 
 				result, err := inv.Run(context.Background())
+
 				probe.leave()
+
 				done <- invocationResult{inv.ID(), result, err}
 			}()
 		}

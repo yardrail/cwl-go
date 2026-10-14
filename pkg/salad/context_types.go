@@ -81,13 +81,22 @@ func (c *Context) registerType(m *MapNode) *Error {
 	kind, _ := AsString(nodeOrNil(m, keyType))
 	switch shortName(kind) {
 	case kindEnum:
-		c.registerSymbols(m)
+		if !isInVocabFalse(m) {
+			c.registerSymbols(m)
+		}
 	case kindRecord:
 		c.registerFields(m)
 	default:
 	}
 
 	return nil
+}
+
+// isInVocabFalse reports whether m declares inVocab: false.
+func isInVocabFalse(m *MapNode) bool {
+	iv, isBool := AsScalar(nodeOrNil(m, keyInVocab))
+
+	return isBool && iv.IsBool() && !iv.AsBool()
 }
 
 // registerTypeName adds a type's name to the vocabulary, honouring inVocab: false.

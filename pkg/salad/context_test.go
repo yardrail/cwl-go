@@ -20,6 +20,10 @@ $graph:
   - name: Colors
     type: enum
     symbols: ["acid:red"]
+  - name: HiddenEnum
+    type: enum
+    inVocab: false
+    symbols: ["acid:hidden_sym"]
   - name: Hidden
     type: record
     inVocab: false
@@ -89,6 +93,14 @@ func TestBuildContextCollectsTheVocabulary(t *testing.T) {
 
 	if _, present := vocab["Hidden"]; present {
 		t.Error("a type declaring inVocab: false must not enter the vocabulary")
+	}
+
+	if _, present := vocab["HiddenEnum"]; present {
+		t.Error("an enum declaring inVocab: false must not enter the vocabulary")
+	}
+
+	if _, present := vocab["hidden_sym"]; present {
+		t.Error("symbols of an enum declaring inVocab: false must not enter the vocabulary")
 	}
 }
 
@@ -286,6 +298,28 @@ func TestBuildContextDetectsPredicateCollisions(t *testing.T) {
 					"$graph:\n  - name: Shade\n    type: enum\n    symbols: [red, blue]\n",
 			},
 			want: nil,
+		},
+		{
+			name: "two enum type names with inVocab false do not collide",
+			files: map[string]string{
+				testSchemaFile: "$graph:\n  - $import: a-ext.yml\n  - $import: b-ext.yml\n",
+				"a-ext.yml": "$base: \"https://example.com/a#\"\n$graph:\n" +
+					"  - name: Action\n    type: enum\n    inVocab: false\n    symbols: [\"a:Action\"]\n",
+				"b-ext.yml": "$base: \"https://example.com/b#\"\n$graph:\n" +
+					"  - name: Action\n    type: enum\n    inVocab: false\n    symbols: [\"b:Action\"]\n",
+			},
+			want: nil,
+		},
+		{
+			name: "two enum type names without inVocab false do collide",
+			files: map[string]string{
+				testSchemaFile: "$graph:\n  - $import: a-ext.yml\n  - $import: b-ext.yml\n",
+				"a-ext.yml": "$base: \"https://example.com/a#\"\n$graph:\n" +
+					"  - name: Action\n    type: enum\n    symbols: [\"a:Action\"]\n",
+				"b-ext.yml": "$base: \"https://example.com/b#\"\n$graph:\n" +
+					"  - name: Action\n    type: enum\n    symbols: [\"b:Action\"]\n",
+			},
+			want: []string{"Predicate collision on Action"},
 		},
 		{
 			name: "a field predicate reused across bases without an explicit jsonldPredicate still builds cleanly",

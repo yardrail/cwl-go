@@ -252,11 +252,11 @@ func goroutineExecutor(probe *concurrencyProbe) func(*DispatchLoop) error {
 		dispatch := func(inv StepInvocation) {
 			go func() {
 				probe.enter()
-				defer probe.leave()
 
 				time.Sleep(20 * time.Millisecond)
 
 				result, err := inv.Run(context.Background())
+				probe.leave()
 				done <- invocationResult{inv.ID(), result, err}
 			}()
 		}

@@ -413,7 +413,7 @@ func TestLoadContentsReadsTheFileAndEnforcesTheLimit(t *testing.T) {
 	fixtures := jobFixtures(t)
 
 	loading := jobTool(cwlcore.CommandInputParameter{
-		ParameterBase: cwlcore.ParameterBase{IDField: "f", Type: jobTypeFile, LoadContents: true},
+		IDField: "f", Type: jobTypeFile, LoadContents: true,
 	})
 
 	t.Run("reads the contents", func(t *testing.T) {
@@ -529,11 +529,9 @@ func TestSuppliedSecondaryFilesSurviveAlongsideDiscoveredOnes(t *testing.T) {
 	// parameter declares are applied by the discovery pass afterwards. Both end up on the same
 	// File, and the supplied entry keeps its place at the front.
 	tool := jobTool(cwlcore.CommandInputParameter{
-		ParameterBase: cwlcore.ParameterBase{
-			IDField:        "f",
-			Type:           jobTypeFile,
-			SecondaryFiles: []cwlcore.SecondaryFileSchema{{Pattern: jobExtBai}},
-		},
+		IDField:        "f",
+		Type:           jobTypeFile,
+		SecondaryFiles: []cwlcore.SecondaryFileSchema{{Pattern: jobExtBai}},
 	})
 
 	src := "f:\n" +

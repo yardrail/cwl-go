@@ -668,14 +668,17 @@ func TestResolveInputsNormalizesAFileProcessDefault(t *testing.T) {
 	run := &cwlcore.Operation{}
 	run.ID = "file://" + filepath.Join(dir, "tool.cwl") + "#tool"
 
-	param := cwlcore.OperationInputParameter{Default: mustNode(fileDefault(whaleFile))}
-	param.IDField = run.ID + "/" + sinkPort
-	param.Type = cwlcore.NewPrimitiveType(cwlcore.PrimitiveFile)
-	param.LoadContents = true
+	param := cwlcore.OperationInputParameter{
+		Default:      mustNode(fileDefault(whaleFile)),
+		IDField:      run.ID + "/" + sinkPort,
+		Type:         cwlcore.NewPrimitiveType(cwlcore.PrimitiveFile),
+		LoadContents: true,
+	}
 	run.Inputs = []cwlcore.OperationInputParameter{param}
 
-	out := cwlcore.OperationOutputParameter{}
-	out.IDField = run.ID + "/" + portA
+	out := cwlcore.OperationOutputParameter{
+		IDField: run.ID + "/" + portA,
+	}
 	run.Outputs = []cwlcore.OperationOutputParameter{out}
 
 	spec := wfSpec{

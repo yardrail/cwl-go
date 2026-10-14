@@ -114,12 +114,15 @@ func bareTool() *cwlcore.CommandLineTool {
 	tool := &cwlcore.CommandLineTool{}
 	tool.ID = "file:///tool.cwl#echo"
 
-	input := cwlcore.CommandInputParameter{Default: mustNode("fallback")}
-	input.IDField = tool.ID + "/" + portIn
+	input := cwlcore.CommandInputParameter{
+		Default: mustNode("fallback"),
+		IDField: tool.ID + "/" + portIn,
+	}
 	tool.Inputs = []cwlcore.CommandInputParameter{input}
 
-	output := cwlcore.CommandOutputParameter{}
-	output.IDField = tool.ID + "/" + portA
+	output := cwlcore.CommandOutputParameter{
+		IDField: tool.ID + "/" + portA,
+	}
 	tool.Outputs = []cwlcore.CommandOutputParameter{output}
 
 	return tool

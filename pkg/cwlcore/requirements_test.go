@@ -40,15 +40,15 @@ func hints(in ...Hint) []Hint {
 }
 
 func tool(r []ProcessRequirement, h []Hint) *CommandLineTool {
-	return &CommandLineTool{ProcessBase: ProcessBase{ID: "#tool", Requirements: r, Hints: h}}
+	return &CommandLineTool{ID: "#tool", Requirements: r, Hints: h}
 }
 
 func workflow(r []ProcessRequirement, h []Hint) *Workflow {
-	return &Workflow{ProcessBase: ProcessBase{ID: "#wf", Requirements: r, Hints: h}}
+	return &Workflow{ID: "#wf", Requirements: r, Hints: h}
 }
 
 func operation(r []ProcessRequirement) *Operation {
-	return &Operation{ProcessBase: ProcessBase{ID: "#op", Requirements: r}}
+	return &Operation{ID: "#op", Requirements: r}
 }
 
 // classesOf renders a resolved list as its class names, which is what every

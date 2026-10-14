@@ -1,6 +1,6 @@
 module github.com/yardrail/cwl-go
 
-go 1.26.6
+go 1.27.1
 
 require (
 	github.com/dop251/goja v0.0.0-20260822123354-58e940e0d230

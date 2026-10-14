@@ -371,8 +371,8 @@ func shortName(id string) string {
 
 // lastSegment returns the text after the final "/", or all of s if it has none.
 func lastSegment(s string) string {
-	if i := strings.LastIndexByte(s, '/'); i >= 0 {
-		return s[i+1:]
+	if _, after, ok := strings.CutLast(s, "/"); ok {
+		return after
 	}
 
 	return s

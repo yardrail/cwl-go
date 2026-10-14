@@ -212,7 +212,7 @@ func TestArrayOfFilesInheritsLoadContents(t *testing.T) {
 	typ := cwlcore.NewArrayType(&cwlcore.ArraySchema{Items: jobTypeFile})
 
 	tool := jobTool(cwlcore.CommandInputParameter{
-		ParameterBase: cwlcore.ParameterBase{IDField: "v", Type: typ, LoadContents: true},
+		IDField: "v", Type: typ, LoadContents: true,
 	})
 
 	values := jobMustParse(t, fixtures, "v: [{class: File, location: files/hello.txt}]", tool)

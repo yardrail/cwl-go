@@ -21,10 +21,8 @@ const extensionClass = "http://example.org/ext#Magic"
 // itself is still the specification's, and still worth holding to.
 func processWithUnknownRequirement() cwlcore.Process {
 	return &cwlcore.Operation{
-		ProcessBase: cwlcore.ProcessBase{
-			ID:           "#op",
-			Requirements: []cwlcore.ProcessRequirement{&cwlcore.RawRequirement{ClassIRI: extensionClass}},
-		},
+		ID:           "#op",
+		Requirements: []cwlcore.ProcessRequirement{&cwlcore.RawRequirement{ClassIRI: extensionClass}},
 	}
 }
 
@@ -85,10 +83,8 @@ func TestCheckRequirementsAcceptsCoreRequirements(t *testing.T) {
 	var stderr bytes.Buffer
 
 	process := &cwlcore.Operation{
-		ProcessBase: cwlcore.ProcessBase{
-			ID:           "#op",
-			Requirements: []cwlcore.ProcessRequirement{&cwlcore.InlineJavascriptRequirement{}},
-		},
+		ID:           "#op",
+		Requirements: []cwlcore.ProcessRequirement{&cwlcore.InlineJavascriptRequirement{}},
 	}
 	cfg := &config{documents: nil, quiet: false, strict: true, verbose: false, version: false, help: false}
 

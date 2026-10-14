@@ -10,18 +10,14 @@ import (
 // shellScope returns the requirement scope of a tool declaring a ShellCommandRequirement.
 func cltShellScope() *cwlcore.RequirementScope {
 	return cwlcore.NewScope(&cwlcore.CommandLineTool{
-		ProcessBase: cwlcore.ProcessBase{
-			Requirements: []cwlcore.ProcessRequirement{&cwlcore.ShellCommandRequirement{}},
-		},
+		Requirements: []cwlcore.ProcessRequirement{&cwlcore.ShellCommandRequirement{}},
 	})
 }
 
 // hintScope returns the scope of a tool declaring a ShellCommandRequirement only as a hint.
 func cltHintScope() *cwlcore.RequirementScope {
 	return cwlcore.NewScope(&cwlcore.CommandLineTool{
-		ProcessBase: cwlcore.ProcessBase{
-			Hints: []cwlcore.Hint{&cwlcore.ShellCommandRequirement{}},
-		},
+		Hints: []cwlcore.Hint{&cwlcore.ShellCommandRequirement{}},
 	})
 }
 

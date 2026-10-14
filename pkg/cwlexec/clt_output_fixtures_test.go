@@ -113,7 +113,7 @@ func outTestParam(
 	binding *cwlcore.CommandOutputBinding,
 ) cwlcore.CommandOutputParameter {
 	return cwlcore.CommandOutputParameter{
-		ParameterBase: cwlcore.ParameterBase{IDField: id, Type: declared},
+		IDField: id, Type: declared,
 		OutputBinding: binding,
 	}
 }
@@ -131,8 +131,8 @@ func outGlobBinding(patterns ...string) *cwlcore.CommandOutputBinding {
 // outTestTool builds a CommandLineTool declaring the given output parameters.
 func outTestTool(params ...cwlcore.CommandOutputParameter) *cwlcore.CommandLineTool {
 	return &cwlcore.CommandLineTool{
-		ProcessBase: cwlcore.ProcessBase{ID: outToolID},
-		Outputs:     params,
+		ID:      outToolID,
+		Outputs: params,
 	}
 }
 

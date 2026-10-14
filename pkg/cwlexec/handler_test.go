@@ -37,8 +37,9 @@ func newExpressionTool(expr string, outIDs ...string) *cwlcore.ExpressionTool {
 	tool.Outputs = make([]cwlcore.ExpressionToolOutputParameter, 0, len(outIDs))
 
 	for _, id := range outIDs {
-		out := cwlcore.ExpressionToolOutputParameter{}
-		out.IDField = id
+		out := cwlcore.ExpressionToolOutputParameter{
+			IDField: id,
+		}
 		tool.Outputs = append(tool.Outputs, out)
 	}
 

@@ -15,8 +15,8 @@ func validationProc(params ...cwlcore.WorkflowInputParameter) cwlcore.Process {
 
 func validationParam(name string, typ cwlcore.TypeRef, def salad.Node) cwlcore.WorkflowInputParameter {
 	return cwlcore.WorkflowInputParameter{
-		ParameterBase: cwlcore.ParameterBase{IDField: name, Type: typ},
-		Default:       def,
+		IDField: name, Type: typ,
+		Default: def,
 	}
 }
 
@@ -136,8 +136,8 @@ func TestValidateInputsMultipleErrorsMentionsBothInputs(t *testing.T) {
 	t.Parallel()
 
 	process := &cwlcore.ExpressionTool{Inputs: []cwlcore.WorkflowInputParameter{
-		{ParameterBase: cwlcore.ParameterBase{IDField: "a", Type: primitive(cwlcore.PrimitiveString)}},
-		{ParameterBase: cwlcore.ParameterBase{IDField: "b", Type: primitive(cwlcore.PrimitiveInt)}},
+		{IDField: "a", Type: primitive(cwlcore.PrimitiveString)},
+		{IDField: "b", Type: primitive(cwlcore.PrimitiveInt)},
 	}}
 
 	_, err := ValidateInputs(process, make(map[string]any))

@@ -65,6 +65,47 @@ func schemaFor(version string) (*salad.LoadedSchema, error) {
 	}
 }
 
+// resolveSchema returns the schema for a Load call: either a premerged
+// schema (fast path) or the base schema merged with each extension.
+func resolveSchema(version string, cfg *loadConfig) (*salad.LoadedSchema, error) {
+	if cfg.premerged != nil {
+		return cfg.premerged, nil
+	}
+
+	loaded, err := schemaFor(version)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ext := range cfg.extensions {
+		loaded, err = salad.MergeSchemas(loaded, ext)
+		if err != nil {
+			return nil, fmt.Errorf("merging extension schema: %w", err)
+		}
+	}
+
+	return loaded, nil
+}
+
+// MergeExtensionSchemas merges a set of extension schemas onto the CWL v1.2
+// base schema and returns the combined result. The result can be passed to
+// [WithPremergedSchema] so that [Load] skips per-call merging.
+func MergeExtensionSchemas(extensions []*salad.LoadedSchema) (*salad.LoadedSchema, error) {
+	loaded, err := schemaFor(CWLVersionV12)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ext := range extensions {
+		loaded, err = salad.MergeSchemas(loaded, ext)
+		if err != nil {
+			return nil, fmt.Errorf("merging extension schema: %w", err)
+		}
+	}
+
+	return loaded, nil
+}
+
 // loadEmbeddedSchema loads and flattens one vendored schema from its [embed.FS].
 func loadEmbeddedSchema(set schemaSet) (*salad.LoadedSchema, error) {
 	return salad.LoadSchema(

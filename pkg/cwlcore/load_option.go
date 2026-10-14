@@ -6,6 +6,7 @@ import "github.com/yardrail/cwl-go/pkg/salad"
 type loadConfig struct {
 	validateOpts []salad.ValidateOption
 	extensions   []*salad.LoadedSchema
+	premerged    *salad.LoadedSchema
 }
 
 // LoadOption configures a Load call.
@@ -33,6 +34,16 @@ func Strict(strict bool) LoadOption {
 func WithExtensionSchema(ext *salad.LoadedSchema) LoadOption {
 	return func(c *loadConfig) {
 		c.extensions = append(c.extensions, ext)
+	}
+}
+
+// WithPremergedSchema supplies a schema that already includes the CWL base
+// merged with all extension schemas. When set, Load skips schemaFor and the
+// per-extension MergeSchemas loop entirely, using this schema directly.
+// Build one with [MergeExtensionSchemas].
+func WithPremergedSchema(merged *salad.LoadedSchema) LoadOption {
+	return func(c *loadConfig) {
+		c.premerged = merged
 	}
 }
 

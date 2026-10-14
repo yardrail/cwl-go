@@ -160,16 +160,9 @@ type resolvedDocument struct {
 func resolveDocument(parsed salad.Node, baseURI string, cfg *loadConfig) (resolvedDocument, error) {
 	version := DeclaredVersion(parsed)
 
-	loaded, err := schemaFor(version)
+	loaded, err := resolveSchema(version, cfg)
 	if err != nil {
 		return resolvedDocument{}, err
-	}
-
-	for _, ext := range cfg.extensions {
-		loaded, err = salad.MergeSchemas(loaded, ext)
-		if err != nil {
-			return resolvedDocument{}, fmt.Errorf("merging extension schema: %w", err)
-		}
 	}
 
 	doc, err := loaded.Loader.LoadNode(parsed, baseURI)

@@ -96,6 +96,8 @@ func (ls *LoadedSchema) LoadAndValidate(ref string, opts ...ValidateOption) (*Do
 }
 
 // LoadExtensionSchema loads a schema without flattening, for use with [MergeSchemas].
+// Validation uses non-strict mode so that extensions referencing types from
+// other schemas (e.g. extends: cwl:Process) produce warnings, not errors.
 func LoadExtensionSchema(ref string, opts ...LoaderOption) (*LoadedSchema, error) {
 	meta, metaCtx, err := Metaschema()
 	if err != nil {

@@ -53,7 +53,13 @@ func (r *Runner) newLoop(state *RunState) *runLoop {
 func (l *runLoop) run(ctx context.Context) (RunResult, error) {
 	defer close(l.finished)
 
-	err := l.execute(ctx)
+	var err error
+	if l.runner.cfg.ExecuteFunc != nil {
+		err = l.runner.cfg.ExecuteFunc(&DispatchLoop{l: l, dispatched: nil, nextID: 0})
+	} else {
+		err = l.execute(ctx)
+	}
+
 	if err != nil {
 		return RunResult{Outputs: nil, Status: StatusPermanentFail, Suspensions: nil, State: l.state.clone()}, err
 	}

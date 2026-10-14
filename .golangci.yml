@@ -186,6 +186,13 @@ linters:
       - linters:
           - gosec
         text: "G704"
+      # A CWL runtime intentionally operates on user-specified file paths --
+      # that is its core job. G703 (path traversal via taint) fires on every
+      # os.Stat / os.Open / os.MkdirAll call that touches a CWL File.path or
+      # a CLI-provided directory, all of which are expected behaviour.
+      - linters:
+          - gosec
+        text: "G703"
       # CWL mandates sha1 as the File.checksum content digest ("sha1$<hex>"),
       # and the cwltest conformance harness re-verifies it from disk -- so the
       # algorithm is fixed by the spec, not chosen by us. It is a content

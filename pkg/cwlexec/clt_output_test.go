@@ -445,9 +445,9 @@ func TestStreamFile(t *testing.T) {
 	t.Parallel()
 
 	named := &cwlcore.CommandLineTool{
-		ProcessBase: cwlcore.ProcessBase{ID: outToolID},
-		Stdout:      "out.log",
-		Stderr:      "err.log",
+		ID:     outToolID,
+		Stdout: "out.log",
+		Stderr: "err.log",
 	}
 
 	name, err := StreamFile(named, StreamStdout, nil, nil, cwlcore.RuntimeContext{})
@@ -482,8 +482,8 @@ func TestStreamFileEvaluatesAnExpression(t *testing.T) {
 func TestStreamFileGeneratesAStableNamePerStream(t *testing.T) {
 	t.Parallel()
 
-	tool := &cwlcore.CommandLineTool{ProcessBase: cwlcore.ProcessBase{ID: outToolID}}
-	other := &cwlcore.CommandLineTool{ProcessBase: cwlcore.ProcessBase{ID: outToolID + "-other"}}
+	tool := &cwlcore.CommandLineTool{ID: outToolID}
+	other := &cwlcore.CommandLineTool{ID: outToolID + "-other"}
 
 	out := outGeneratedStreamFile(tool, StreamStdout)
 	err := outGeneratedStreamFile(tool, StreamStderr)

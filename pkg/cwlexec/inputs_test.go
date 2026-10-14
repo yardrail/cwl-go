@@ -276,8 +276,10 @@ func TestResolveInputsAppliesProcessDefaultForAnUnwiredParameter(t *testing.T) {
 	t.Parallel()
 
 	run := newOperation(wfID("s1")+"/run", make([]string, 0), []string{portA}, nil)
-	extra := cwlcore.OperationInputParameter{Default: mustNode("from the tool")}
-	extra.IDField = run.ID + "/" + sinkPort
+	extra := cwlcore.OperationInputParameter{
+		Default: mustNode("from the tool"),
+		IDField: run.ID + "/" + sinkPort,
+	}
 	run.Inputs = append(run.Inputs, extra)
 
 	spec := wfSpec{

@@ -48,8 +48,8 @@ var (
 // cltInput builds one CommandInputParameter with a resolved identifier.
 func cltInput(name string, typ cwlcore.TypeRef, binding *cwlcore.CommandLineBinding) cwlcore.CommandInputParameter {
 	return cwlcore.CommandInputParameter{
-		ParameterBase: cwlcore.ParameterBase{IDField: cltToolID + name, Type: typ},
-		InputBinding:  binding,
+		IDField: cltToolID + name, Type: typ,
+		InputBinding: binding,
 	}
 }
 
@@ -97,10 +97,8 @@ func cltSchemaDefScope(t *testing.T, src string) *cwlcore.RequirementScope {
 	}
 
 	return cwlcore.NewScope(&cwlcore.CommandLineTool{
-		ProcessBase: cwlcore.ProcessBase{
-			Requirements: []cwlcore.ProcessRequirement{
-				&cwlcore.SchemaDefRequirement{Types: declarations.Items()},
-			},
+		Requirements: []cwlcore.ProcessRequirement{
+			&cwlcore.SchemaDefRequirement{Types: declarations.Items()},
 		},
 	})
 }

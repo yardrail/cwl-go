@@ -154,15 +154,17 @@ func stepTool(step string, ins, outs []string) *cwlcore.CommandLineTool {
 
 	tool.Inputs = make([]cwlcore.CommandInputParameter, 0, len(ins))
 	for _, name := range ins {
-		param := cwlcore.CommandInputParameter{}
-		param.IDField = tool.ID + "/" + name
+		param := cwlcore.CommandInputParameter{
+			IDField: tool.ID + "/" + name,
+		}
 		tool.Inputs = append(tool.Inputs, param)
 	}
 
 	tool.Outputs = make([]cwlcore.CommandOutputParameter, 0, len(outs))
 	for _, name := range outs {
-		param := cwlcore.CommandOutputParameter{}
-		param.IDField = tool.ID + "/" + name
+		param := cwlcore.CommandOutputParameter{
+			IDField: tool.ID + "/" + name,
+		}
 		tool.Outputs = append(tool.Outputs, param)
 	}
 

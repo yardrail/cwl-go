@@ -3,8 +3,10 @@ package conformance
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 	"github.com/yardrail/cwl-go/pkg/cwlexec"
@@ -74,10 +76,27 @@ func TestExecutePropagatesARunError(t *testing.T) {
 		t.Fatalf("loading the fixture: %v", err)
 	}
 
+	// Use os.MkdirTemp instead of t.TempDir: the cancelled context makes
+	// runner.Run return immediately, but the step goroutine may still be
+	// touching the directory — t.TempDir's automatic cleanup races with it.
+	//nolint:usetesting // t.TempDir cleanup races with the step goroutine
+	outDir, mkErr := os.MkdirTemp("", "cwl-run-error-*")
+	if mkErr != nil {
+		t.Fatalf("create temp dir: %v", mkErr)
+	}
+
+	t.Cleanup(func() {
+		// The step goroutine exits via <-l.finished shortly after run()
+		// returns, but there's a small window. Give it time to drain.
+		time.Sleep(50 * time.Millisecond)
+
+		_ = os.RemoveAll(outDir)
+	})
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err = execute(ctx, process, map[string]any{"message": "hi"}, t.TempDir())
+	_, err = execute(ctx, process, map[string]any{"message": "hi"}, outDir)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("execute = %v, want it to wrap context.Canceled", err)
 	}

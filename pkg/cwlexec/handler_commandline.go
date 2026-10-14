@@ -377,16 +377,12 @@ func (i *invocation) execute(ctx context.Context) (Result, error) {
 
 	status := ClassifyExit(i.tool, code)
 	if status != StatusSuccess {
-		return Result{
-				Status:     status,
-				Outputs:    nil,
-				Suspension: nil,
-			}, fmt.Errorf(
-				"%s: %w: %d",
-				describe(i.call),
-				ErrToolExit,
-				code,
-			)
+		return Result{Status: status, Outputs: nil, Suspension: nil}, fmt.Errorf(
+			"%s: %w: %d",
+			describe(i.call),
+			ErrToolExit,
+			code,
+		)
 	}
 
 	outputs, err := i.collect(code)

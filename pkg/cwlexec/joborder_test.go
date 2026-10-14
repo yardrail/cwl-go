@@ -70,7 +70,7 @@ func jobOptionalOf(typ cwlcore.TypeRef) cwlcore.TypeRef {
 // jobParam builds a CommandLineTool input parameter.
 func jobParam(id string, typ cwlcore.TypeRef) cwlcore.CommandInputParameter {
 	return cwlcore.CommandInputParameter{
-		ParameterBase: cwlcore.ParameterBase{IDField: id, Type: typ},
+		IDField: id, Type: typ,
 	}
 }
 
@@ -339,8 +339,8 @@ func TestDefaultsFillInForAbsentAndExplicitlyNullInputs(t *testing.T) {
 	def := salad.NewStringNode(salad.SourceLine{}, jobFallback)
 
 	tool := jobTool(cwlcore.CommandInputParameter{
-		ParameterBase: cwlcore.ParameterBase{IDField: jobGreeting, Type: jobTypeString},
-		Default:       def,
+		IDField: jobGreeting, Type: jobTypeString,
+		Default: def,
 	})
 
 	for name, src := range map[string]string{
@@ -521,15 +521,15 @@ func TestDefaultsResolveAgainstTheProcessDocument(t *testing.T) {
 	}
 
 	param := cwlcore.CommandInputParameter{
-		ParameterBase: cwlcore.ParameterBase{IDField: "message", Type: jobTypeFile},
-		Default:       def,
+		IDField: "message", Type: jobTypeFile,
+		Default: def,
 	}
 
 	// The job order lives somewhere else entirely; the default is written in the process
 	// document, so it is that document's directory the relative location resolves against.
 	tool := &cwlcore.CommandLineTool{
-		ProcessBase: cwlcore.ProcessBase{ID: "file://" + filepath.Join(fixtures, "tool.cwl")},
-		Inputs:      []cwlcore.CommandInputParameter{param},
+		ID:     "file://" + filepath.Join(fixtures, "tool.cwl"),
+		Inputs: []cwlcore.CommandInputParameter{param},
 	}
 
 	values := jobMustParse(t, t.TempDir(), "{}", tool)
@@ -559,7 +559,7 @@ func TestProcessDirectory(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			tool := &cwlcore.CommandLineTool{ProcessBase: cwlcore.ProcessBase{ID: tc.id}}
+			tool := &cwlcore.CommandLineTool{ID: tc.id}
 			if got := joProcessDir(tool, jobFallback); got != tc.want {
 				t.Errorf("joProcessDir(%q) = %q, want %q", tc.id, got, tc.want)
 			}

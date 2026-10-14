@@ -56,8 +56,9 @@ func subWorkflow(base string, run cwlcore.Process) *cwlcore.Workflow {
 	workflow := &cwlcore.Workflow{}
 	workflow.ID = base
 
-	input := cwlcore.WorkflowInputParameter{}
-	input.IDField = base + "/" + subIn
+	input := cwlcore.WorkflowInputParameter{
+		IDField: base + "/" + subIn,
+	}
 	workflow.Inputs = []cwlcore.WorkflowInputParameter{input}
 
 	workflow.Steps = []cwlcore.WorkflowStep{{
@@ -70,8 +71,10 @@ func subWorkflow(base string, run cwlcore.Process) *cwlcore.Workflow {
 		Out: []cwlcore.WorkflowStepOutput{{ID: base + "/" + subStep + "/" + port}},
 	}}
 
-	output := cwlcore.WorkflowOutputParameter{OutputSource: []string{base + "/" + subStep + "/" + port}}
-	output.IDField = base + "/" + port
+	output := cwlcore.WorkflowOutputParameter{
+		OutputSource: []string{base + "/" + subStep + "/" + port},
+		IDField:      base + "/" + port,
+	}
 	workflow.Outputs = []cwlcore.WorkflowOutputParameter{output}
 
 	return workflow

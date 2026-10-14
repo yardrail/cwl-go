@@ -117,8 +117,9 @@ func buildWorkflow(spec *wfSpec) *cwlcore.Workflow {
 	workflow.Inputs = make([]cwlcore.WorkflowInputParameter, 0, len(spec.inputs))
 
 	for _, name := range spec.inputs {
-		param := cwlcore.WorkflowInputParameter{}
-		param.IDField = wfID(name)
+		param := cwlcore.WorkflowInputParameter{
+			IDField: wfID(name),
+		}
 		workflow.Inputs = append(workflow.Inputs, param)
 	}
 
@@ -141,8 +142,9 @@ func buildWorkflowOutputs(specs []outSpec) []cwlcore.WorkflowOutputParameter {
 			OutputSource: absoluteIDs(spec.sources),
 			LinkMerge:    spec.linkMerge,
 			PickValue:    spec.pickValue,
+
+			IDField: wfID(spec.name),
 		}
-		param.IDField = wfID(spec.name)
 		outputs = append(outputs, param)
 	}
 
@@ -225,15 +227,17 @@ func newOperation(id string, ins, outs []string, types map[string]cwlcore.TypeRe
 	operation.Outputs = make([]cwlcore.OperationOutputParameter, 0, len(outs))
 
 	for _, name := range ins {
-		param := cwlcore.OperationInputParameter{}
-		param.IDField = id + "/" + name
+		param := cwlcore.OperationInputParameter{
+			IDField: id + "/" + name,
+		}
 		operation.Inputs = append(operation.Inputs, param)
 	}
 
 	for _, name := range outs {
-		param := cwlcore.OperationOutputParameter{}
-		param.IDField = id + "/" + name
-		param.Type = types[name]
+		param := cwlcore.OperationOutputParameter{
+			IDField: id + "/" + name,
+			Type:    types[name],
+		}
 		operation.Outputs = append(operation.Outputs, param)
 	}
 

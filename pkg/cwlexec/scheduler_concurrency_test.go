@@ -183,3 +183,163 @@ func TestRunReturnsContextErrorWithUsableState(t *testing.T) {
 		t.Fatalf("state records steps %v, want an entry for s1", restored.steps)
 	}
 }
+
+// identityHandler echoes each input value as the output, preserving the original type.
+func identityHandler() func(context.Context, *StepCall) (Result, error) {
+	return func(_ context.Context, call *StepCall) (Result, error) {
+		return Success(object(portA, call.Inputs[portIn]))
+	}
+}
+
+type invocationResult struct {
+	id     int
+	result Result
+	err    error
+}
+
+func serialExecutor() func(*DispatchLoop) error {
+	return func(loop *DispatchLoop) error {
+		for {
+			pending := loop.Pending()
+			if len(pending) == 0 && loop.InFlight() == 0 {
+				return nil
+			}
+
+			for _, inv := range pending {
+				result, err := inv.Run(context.Background())
+				loop.Complete(inv.ID(), result, err)
+			}
+		}
+	}
+}
+
+func TestExecuteFuncRoutesStepExecution(t *testing.T) {
+	t.Parallel()
+
+	var executed atomic.Int64
+
+	cfg := &Config{
+		ExecuteFunc: func(loop *DispatchLoop) error {
+			for {
+				pending := loop.Pending()
+				if len(pending) == 0 && loop.InFlight() == 0 {
+					return nil
+				}
+
+				for _, inv := range pending {
+					executed.Add(1)
+
+					result, err := inv.Run(context.Background())
+					loop.Complete(inv.ID(), result, err)
+				}
+			}
+		},
+	}
+
+	runner := mustRunner(t, scatterOverInput(), testRegistry(identityHandler()), cfg)
+	result := mustRun(t, runner, object("xs", elements()))
+
+	assertDeepEqual(t, "gathered", result.Outputs[portFinal], elements())
+
+	if got := executed.Load(); got != int64(scatterWidth) {
+		t.Fatalf("executed %d invocations, want %d", got, scatterWidth)
+	}
+}
+
+func goroutineExecutor(probe *concurrencyProbe) func(*DispatchLoop) error {
+	return func(loop *DispatchLoop) error {
+		done := make(chan invocationResult)
+		dispatch := func(inv StepInvocation) {
+			go func() {
+				probe.enter()
+
+				time.Sleep(20 * time.Millisecond)
+
+				result, err := inv.Run(context.Background())
+
+				probe.leave()
+
+				done <- invocationResult{inv.ID(), result, err}
+			}()
+		}
+
+		for {
+			for _, inv := range loop.Pending() {
+				dispatch(inv)
+			}
+
+			if loop.InFlight() == 0 {
+				return nil
+			}
+
+			c := <-done
+			loop.Complete(c.id, c.result, c.err)
+		}
+	}
+}
+
+func TestExecuteFuncWithGoroutines(t *testing.T) {
+	t.Parallel()
+
+	probe := &concurrencyProbe{}
+	cfg := &Config{ExecuteFunc: goroutineExecutor(probe)}
+
+	runner := mustRunner(t, scatterOverInput(), testRegistry(identityHandler()), cfg)
+	result := mustRun(t, runner, object("xs", elements()))
+
+	assertDeepEqual(t, "gathered", result.Outputs[portFinal], elements())
+
+	if peak := probe.observed(); peak < 2 {
+		t.Fatalf("observed peak concurrency %d, want >1", peak)
+	}
+}
+
+func TestExecuteFuncNilUsesDefault(t *testing.T) {
+	t.Parallel()
+
+	runner := mustRunner(t, scatterOverInput(), testRegistry(identityHandler()), nil)
+	result := mustRun(t, runner, object("xs", elements()))
+
+	assertDeepEqual(t, "gathered", result.Outputs[portFinal], elements())
+}
+
+func TestExecuteFuncRespectsMaxParallel(t *testing.T) {
+	t.Parallel()
+
+	probe := &concurrencyProbe{}
+
+	cfg := &Config{
+		MaxParallel: 2,
+		ExecuteFunc: goroutineExecutor(probe),
+	}
+
+	runner := mustRunner(t, scatterOverInput(), testRegistry(identityHandler()), cfg)
+	result := mustRun(t, runner, object("xs", elements()))
+
+	assertDeepEqual(t, "gathered", result.Outputs[portFinal], elements())
+
+	if peak := probe.observed(); peak > 2 {
+		t.Fatalf("observed peak concurrency %d, want at most 2", peak)
+	}
+}
+
+func TestExecuteFuncHandlerError(t *testing.T) {
+	t.Parallel()
+
+	registry := testRegistry(func(_ context.Context, _ *StepCall) (Result, error) {
+		return PermanentFail(errBoom)
+	})
+
+	cfg := &Config{ExecuteFunc: serialExecutor()}
+
+	runner := mustRunner(t, linearWorkflow(), registry, cfg)
+
+	result, err := runner.Run(t.Context(), object("x", "seed"))
+	if err == nil {
+		t.Fatal("expected error from handler")
+	}
+
+	if result.Status != StatusPermanentFail {
+		t.Fatalf("status = %q, want %q", result.Status, StatusPermanentFail)
+	}
+}

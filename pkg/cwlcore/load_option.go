@@ -48,7 +48,7 @@ func WithPremergedSchema(merged *salad.LoadedSchema) LoadOption {
 }
 
 func buildLoadConfig(opts []LoadOption) *loadConfig {
-	cfg := &loadConfig{validateOpts: nil, extensions: nil}
+	cfg := &loadConfig{validateOpts: nil, extensions: nil, premerged: nil}
 	for _, o := range opts {
 		o(cfg)
 	}

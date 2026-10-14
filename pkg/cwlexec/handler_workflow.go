@@ -62,19 +62,23 @@ func (e subworkflowEnv) descend(sc cwlcore.StepContainer, cfg *Config) subworkfl
 // from the call.
 func (e subworkflowEnv) childConfig(call *StepCall) *Config {
 	cfg := Config{
-		Logger:              nil,
-		SelectResources:     nil,
-		AllowRequirements:   nil,
-		OutDir:              "",
-		TmpDirPrefix:        "",
-		OnError:             "",
-		ContainerExecutor:   nil,
-		OutputResolver:      nil,
-		Containers:          ContainerPolicy{Disabled: false, NoMatchUser: false, NoReadOnly: false, Keep: false},
+		Logger:            nil,
+		SelectResources:   nil,
+		AllowRequirements: nil,
+		OutDir:            "",
+		TmpDirPrefix:      "",
+		OnError:           "",
+		ContainerExecutor: nil,
+		OutputResolver:    nil,
+		Containers: ContainerPolicy{
+			Disabled: false, NoMatchUser: false, NoReadOnly: false,
+			Keep: false, NoBindMount: false,
+		},
 		Resources:           ResourceBudget{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
 		EvalTimeout:         0,
 		MaxParallel:         0,
 		LenientRequirements: false,
+		ExecuteFunc:         nil,
 	}
 	if e.cfg != nil {
 		cfg = *e.cfg

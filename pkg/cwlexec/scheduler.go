@@ -48,6 +48,12 @@ type Config struct {
 	EvalTimeout         time.Duration  // Per-expression timeout; zero means default.
 	MaxParallel         int            // Max concurrent handlers; 0 = unbounded.
 	LenientRequirements bool           // Bypass unknown-requirement gate.
+	// ExecuteFunc replaces the default goroutine-based execution loop. When
+	// nil, the runner uses goroutines and Go channels. The function must
+	// call loop.Pending() to get ready work, run each invocation, and feed
+	// results back via loop.Complete(). It returns when there is no more
+	// work (loop.Pending() returns nil and loop.InFlight() == 0) or on error.
+	ExecuteFunc func(loop *DispatchLoop) error
 }
 
 // ResumedStep supplies the outcome of a previously suspended invocation.
@@ -81,19 +87,23 @@ func NewRunner(ctx context.Context, process cwlcore.Process, registry *Registry,
 	}
 
 	settings := Config{
-		Logger:              nil,
-		SelectResources:     nil,
-		AllowRequirements:   nil,
-		OutDir:              "",
-		TmpDirPrefix:        "",
-		OnError:             "",
-		ContainerExecutor:   nil,
-		OutputResolver:      nil,
-		Containers:          ContainerPolicy{Disabled: false, NoMatchUser: false, NoReadOnly: false, Keep: false},
+		Logger:            nil,
+		SelectResources:   nil,
+		AllowRequirements: nil,
+		OutDir:            "",
+		TmpDirPrefix:      "",
+		OnError:           "",
+		ContainerExecutor: nil,
+		OutputResolver:    nil,
+		Containers: ContainerPolicy{
+			Disabled: false, NoMatchUser: false, NoReadOnly: false,
+			Keep: false, NoBindMount: false,
+		},
 		Resources:           ResourceBudget{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
 		EvalTimeout:         0,
 		MaxParallel:         0,
 		LenientRequirements: false,
+		ExecuteFunc:         nil,
 	}
 	if cfg != nil {
 		settings = *cfg

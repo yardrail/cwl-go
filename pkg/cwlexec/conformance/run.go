@@ -79,11 +79,13 @@ func execute(
 			NoMatchUser: false,
 			NoReadOnly:  false,
 			Keep:        false,
+			NoBindMount: false,
 		},
 		Resources:           cwlexec.ResourceBudget{Cores: 0, RAMMiB: 0, TmpDirMiB: 0, OutDirMiB: 0},
 		EvalTimeout:         0,
 		MaxParallel:         0,
 		LenientRequirements: false,
+		ExecuteFunc:         nil,
 	}
 	registry := cwlexec.NewRegistry()
 

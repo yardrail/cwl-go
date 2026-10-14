@@ -155,6 +155,7 @@ func (c *config) execConfig(stderr io.Writer) (*cwlexec.Config, error) {
 		EvalTimeout:         0,
 		MaxParallel:         0,
 		LenientRequirements: false,
+		ExecuteFunc:         nil,
 	}, nil
 }
 
@@ -165,6 +166,7 @@ func (c *config) containerPolicy() cwlexec.ContainerPolicy {
 		NoMatchUser: c.noMatchUser,
 		NoReadOnly:  c.noReadOnly,
 		Keep:        c.leaveContainer,
+		NoBindMount: false,
 	}
 }
 

@@ -93,6 +93,7 @@ func NewPathMap(workdir, staging string) *PathMap {
 		inplace:     false,
 		contained:   false,
 		absolute:    false,
+		noBindMount: false,
 	}
 }
 

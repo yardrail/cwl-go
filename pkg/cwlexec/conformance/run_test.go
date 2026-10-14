@@ -89,7 +89,7 @@ func TestExecutePropagatesARunError(t *testing.T) {
 		// The step goroutine exits via <-l.finished shortly after run()
 		// returns, but there's a small window. Give it time to drain.
 		time.Sleep(50 * time.Millisecond)
-		os.RemoveAll(outDir)
+		_ = os.RemoveAll(outDir)
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())

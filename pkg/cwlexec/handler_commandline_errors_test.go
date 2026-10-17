@@ -200,15 +200,14 @@ func TestCommandLineToolMaterializesALiteralInsideARecord(t *testing.T) {
 	execWantContent(t, execSucceed(t, call), execGreeting)
 }
 
-func TestCommandLineToolPlansARemoteInput(t *testing.T) {
+func TestCommandLineToolRejectsAnUnreachableInput(t *testing.T) {
 	t.Parallel()
-	execSkipUnless(t, execTrue)
 
-	remote := &cwlcore.File{Basename: execGreetName, Location: "s3://bucket/greet.txt"}
+	unreachable := &cwlcore.File{Basename: execGreetName, Location: "s3://bucket/greet.txt"}
 
 	cases := map[string]any{
-		"in a record": map[string]any{"f": remote},
-		"in an array": []any{remote},
+		"in a record": map[string]any{"f": unreachable},
+		"in an array": []any{unreachable},
 	}
 
 	for name, value := range cases {
@@ -218,14 +217,7 @@ func TestCommandLineToolPlansARemoteInput(t *testing.T) {
 			call := execCall(t, execTool([]string{execTrue}))
 			call.Inputs["holder"] = value
 
-			result, err := execRun(t, call)
-			if err != nil {
-				t.Fatalf("Execute: %v", err)
-			}
-
-			if result.Status != StatusSuccess {
-				t.Fatalf("status = %s, want success", result.Status)
-			}
+			execFail(t, call, ErrUnsupportedFeature)
 		})
 	}
 }

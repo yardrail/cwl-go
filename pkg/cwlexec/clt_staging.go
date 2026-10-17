@@ -6,7 +6,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
@@ -508,7 +507,7 @@ func (m *PathMap) copyTreeFS(source string, dst WriteFS, rel string) error {
 // Tries [CopyOptimizer] with the original source URI for server-side copy,
 // then falls back to streaming from the walked FS.
 func (m *PathMap) copyWalkedFile(dirFS fs.FS, name, sourceDir string, dst WriteFS, rel string) error {
-	childSrc := path.Join(sourceDir, name)
+	childSrc := sourceDir + "/" + name
 
 	done, err := m.tryCopyDirect(childSrc, dst, rel)
 	if done || err != nil {

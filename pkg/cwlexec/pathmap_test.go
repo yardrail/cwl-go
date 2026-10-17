@@ -34,7 +34,42 @@ func pmMap() *PathMap {
 
 // pmHostFile returns a File that names a host path and nothing else.
 func pmHostFile(local string) *cwlcore.File {
-	return &cwlcore.File{Path: local, Basename: filepath.Base(local)}
+	f := &cwlcore.File{Basename: filepath.Base(local)}
+	f.SetPath(local)
+
+	return f
+}
+
+// pmFileWithLocation returns a File with only Location set (no Path).
+func pmFileWithLocation(loc string) *cwlcore.File {
+	f := &cwlcore.File{}
+	f.SetLocation(loc)
+
+	return f
+}
+
+// pmFileWithPathAndLocation returns a File with both Path and Location set independently.
+func pmFileWithPathAndLocation(path, loc string) *cwlcore.File {
+	f := &cwlcore.File{}
+	f.SetPathAndLocation(path, loc)
+
+	return f
+}
+
+// pmDirWithLocation returns a Directory with only Location set (no Path).
+func pmDirWithLocation(loc string) *cwlcore.Directory {
+	d := &cwlcore.Directory{}
+	d.SetLocation(loc)
+
+	return d
+}
+
+// pmDirWithPath returns a Directory with Path set and a custom Basename.
+func pmDirWithPath(path, basename string) *cwlcore.Directory {
+	d := &cwlcore.Directory{Basename: basename}
+	d.SetPath(path)
+
+	return d
 }
 
 func TestPathMapStagesAFileAndItsSecondaryFiles(t *testing.T) {
@@ -111,7 +146,10 @@ func TestPathMapStagesADirectoryByPath(t *testing.T) {
 
 	mapper := pmMap()
 
-	err := mapper.Stage(&cwlcore.Directory{Path: stgHostTree, Basename: stgTreeName}, stgTreeName, false)
+	dir := cwlcore.NewDirectoryAtPath(stgHostTree)
+	dir.Basename = stgTreeName
+
+	err := mapper.Stage(dir, stgTreeName, false)
 	if err != nil {
 		t.Fatalf("Stage: %v", err)
 	}
@@ -126,10 +164,10 @@ func TestPathMapStagesAFileWithRemoteURI(t *testing.T) {
 
 	mapper := pmMap()
 
-	err := mapper.Stage(&cwlcore.File{
-		Basename: pmName,
-		Path:     "s3://bucket/prefix/named.txt",
-	}, pmName, false)
+	f := &cwlcore.File{Basename: pmName}
+	f.SetPath("s3://bucket/prefix/named.txt")
+
+	err := mapper.Stage(f, pmName, false)
 	if err != nil {
 		t.Fatalf("Stage: %v", err)
 	}
@@ -144,10 +182,10 @@ func TestPathMapStagesADirectoryWithRemoteURI(t *testing.T) {
 
 	mapper := pmMap()
 
-	err := mapper.Stage(&cwlcore.Directory{
-		Basename: stgTreeName,
-		Path:     "s3://bucket/prefix/tree",
-	}, stgTreeName, false)
+	d := &cwlcore.Directory{Basename: stgTreeName}
+	d.SetPath("s3://bucket/prefix/tree")
+
+	err := mapper.Stage(d, stgTreeName, false)
 	if err != nil {
 		t.Fatalf("Stage: %v", err)
 	}
@@ -162,10 +200,10 @@ func TestPathMapStagesAFileWithRemoteLocation(t *testing.T) {
 
 	mapper := pmMap()
 
-	err := mapper.Stage(&cwlcore.File{
-		Basename: pmName,
-		Location: "https://example.com/data.csv",
-	}, pmName, false)
+	f := &cwlcore.File{Basename: pmName}
+	f.SetLocation("https://example.com/data.csv")
+
+	err := mapper.Stage(f, pmName, false)
 	if err != nil {
 		t.Fatalf("Stage: %v", err)
 	}
@@ -325,7 +363,8 @@ func TestPathMapRewriteInputs(t *testing.T) {
 	staged := pmHostFile(pmHostPath)
 	literal := execLiteralFile("lit.txt", execGreeting)
 	untouched := pmHostFile("/data/left-alone.txt")
-	tree := &cwlcore.Directory{Path: stgHostTree, Basename: stgTreeName}
+	tree := cwlcore.NewDirectoryAtPath(stgHostTree)
+	tree.Basename = stgTreeName
 
 	mapper := pmMap()
 	pmPlanAll(t, mapper, staged, literal, tree)
@@ -351,8 +390,8 @@ func TestPathMapRewriteInputs(t *testing.T) {
 
 	// The original object must be untouched: it is shared with the scheduler and with a
 	// scattered step's sibling sub-jobs.
-	if staged.Path != pmHostPath {
-		t.Errorf("the input value was modified in place: path = %q", staged.Path)
+	if staged.Path() != pmHostPath {
+		t.Errorf("the input value was modified in place: path = %q", staged.Path())
 	}
 }
 
@@ -436,9 +475,9 @@ func TestPathMapRelocationMovesTheWholeValue(t *testing.T) {
 			moved.Basename, moved.Nameroot, moved.Nameext)
 	}
 
-	if moved.Dirname != pmWork || moved.Location != outFileURI("/work/renamed.bam") {
+	if moved.Dirname() != pmWork || moved.Location() != outFileURI("/work/renamed.bam") {
 		t.Errorf("dirname = %q, location = %q; want both derived from the target",
-			moved.Dirname, moved.Location)
+			moved.Dirname(), moved.Location())
 	}
 
 	if moved.Checksum != outSumAlpha || moved.Size.Int() != 5 {
@@ -452,9 +491,9 @@ func TestPathMapRelocationMovesADirectoryListing(t *testing.T) {
 	t.Parallel()
 
 	dir := &cwlcore.Directory{
-		Path:    stgHostTree,
 		Listing: []cwlcore.FileOrDirectory{pmHostFile("/data/tree/inner.txt")},
 	}
+	dir.SetPath(stgHostTree)
 
 	relocated, ok := relocate(dir, stgWorkTree).(*cwlcore.Directory)
 	if !ok {
@@ -482,13 +521,13 @@ func TestPathMapValueHelpers(t *testing.T) {
 		{name: "a File naming its own basename", value: pmHostFile(pmHostPath), basename: "x.txt", local: pmHostPath},
 		{
 			name:     "a File with only a path",
-			value:    &cwlcore.File{Path: "/data/derived.txt"},
+			value:    cwlcore.NewFileAtPath("/data/derived.txt"),
 			basename: "derived.txt",
 			local:    "/data/derived.txt",
 		},
 		{
 			name:     "a Directory with only a path",
-			value:    &cwlcore.Directory{Path: stgHostTree},
+			value:    cwlcore.NewDirectoryAtPath(stgHostTree),
 			basename: stgTreeName,
 			local:    stgHostTree,
 		},
@@ -496,19 +535,19 @@ func TestPathMapValueHelpers(t *testing.T) {
 			// A document-loaded value with only Location has no Path yet — pathOf returns "".
 			// Call NormalizeValuePaths to derive Path from Location before staging.
 			name:     "a File with only a file: location",
-			value:    &cwlcore.File{Location: "file:///data/x.txt"},
+			value:    pmFileWithLocation("file:///data/x.txt"),
 			basename: "x.txt",
 			local:    "",
 		},
 		{
 			name:     "a Directory with only a file: location",
-			value:    &cwlcore.Directory{Location: stgTreeLocation},
+			value:    pmDirWithLocation(stgTreeLocation),
 			basename: stgTreeName,
 			local:    "",
 		},
 		{
 			name:     "a location carrying an escape",
-			value:    &cwlcore.File{Location: "file:///data/a%20b.txt"},
+			value:    pmFileWithLocation("file:///data/a%20b.txt"),
 			basename: "a b.txt",
 			local:    "",
 		},
@@ -516,7 +555,7 @@ func TestPathMapValueHelpers(t *testing.T) {
 			// Named, so an entryname is not needed, but not readable: staging reports it as
 			// the feature this engine lacks rather than as a value with nothing in it.
 			name:     "a File on storage this engine cannot read",
-			value:    &cwlcore.File{Location: "s3://bucket/remote.txt"},
+			value:    pmFileWithLocation("s3://bucket/remote.txt"),
 			basename: "remote.txt",
 			local:    "",
 		},
@@ -524,19 +563,19 @@ func TestPathMapValueHelpers(t *testing.T) {
 			// Locations are absolutized when a document is loaded, so one that is still
 			// relative here has no base left to resolve against.
 			name:     "a location that is still relative",
-			value:    &cwlcore.File{Location: "sub/rel.txt"},
+			value:    pmFileWithLocation("sub/rel.txt"),
 			basename: "rel.txt",
 			local:    "",
 		},
 		{
 			name:     "a location that is not an IRI at all",
-			value:    &cwlcore.File{Location: ":"},
+			value:    pmFileWithLocation(":"),
 			basename: "",
 			local:    "",
 		},
 		{
 			name:     "a location naming no path",
-			value:    &cwlcore.File{Location: "https://example.com"},
+			value:    pmFileWithLocation("https://example.com"),
 			basename: "",
 			local:    "",
 		},
@@ -603,7 +642,10 @@ func pmWantPath(t *testing.T, value any, want string) {
 // pmRenamed returns a File whose declared basename is not the final component of its host path,
 // which is the shape Process.yml permits an ExpressionTool to produce and a job order to write.
 func pmRenamed(local, basename string) *cwlcore.File {
-	return &cwlcore.File{Path: local, Basename: basename}
+	f := &cwlcore.File{Basename: basename}
+	f.SetPath(local)
+
+	return f
 }
 
 func TestPathMapMaterializeStagesAValueNotAlreadyUnderItsBasename(t *testing.T) {
@@ -614,7 +656,7 @@ func TestPathMapMaterializeStagesAValueNotAlreadyUnderItsBasename(t *testing.T) 
 	// A Directory in the same shape: the value is placed whole, under the name it declares.
 	values := []cwlcore.FileOrDirectory{
 		pmRenamed("/data/whale.txt", "badger.txt"),
-		&cwlcore.Directory{Path: pmTestdir, Basename: "xtestdir"},
+		pmDirWithPath(pmTestdir, "xtestdir"),
 	}
 
 	for index, value := range values {
@@ -635,7 +677,7 @@ func TestPathMapMaterializeLeavesADirectoryAlreadyInPlace(t *testing.T) {
 
 	mapper := pmMap()
 
-	err := mapper.Materialize(&cwlcore.Directory{Path: pmTestdir, Basename: "testdir"})
+	err := mapper.Materialize(pmDirWithPath(pmTestdir, "testdir"))
 	if err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}
@@ -652,7 +694,7 @@ func TestPathMapMaterializeGathersScatteredSecondaryFiles(t *testing.T) {
 	primary.SecondaryFiles = []cwlcore.FileOrDirectory{
 		pmHostFile("/data/index.py"),
 		pmHostFile("/data/sub/hello.py"),
-		&cwlcore.Directory{Path: pmTestdir, Basename: "xtestdir"},
+		pmDirWithPath(pmTestdir, "xtestdir"),
 	}
 
 	mapper := pmMap()
@@ -696,17 +738,17 @@ func TestPathOfIgnoresLocation(t *testing.T) {
 	}{
 		{
 			name:  "remote Path with stale Location",
-			value: &cwlcore.File{Path: "s3://bucket/key.txt", Location: "file:///tmp/stale/key.txt"},
+			value: pmFileWithPathAndLocation("s3://bucket/key.txt", "file:///tmp/stale/key.txt"),
 			want:  "",
 		},
 		{
 			name:  "local Path with stale Location",
-			value: &cwlcore.File{Path: "/local/path.txt", Location: "file:///stale/path.txt"},
+			value: pmFileWithPathAndLocation("/local/path.txt", "file:///stale/path.txt"),
 			want:  "/local/path.txt",
 		},
 		{
 			name:  "Location only without Path",
-			value: &cwlcore.File{Location: "file:///data/file.txt"},
+			value: pmFileWithLocation("file:///data/file.txt"),
 			want:  "",
 		},
 	}
@@ -728,104 +770,114 @@ func TestNormalizeValuePaths(t *testing.T) {
 	t.Run("File with Location only gets Path set", func(t *testing.T) {
 		t.Parallel()
 
-		f := &cwlcore.File{Location: "file:///data/x.txt", Basename: "x.txt"}
+		f := &cwlcore.File{Basename: "x.txt"}
+		f.SetLocation("file:///data/x.txt")
 		NormalizeValuePaths(f)
 
-		if f.Path != "/data/x.txt" {
-			t.Errorf("Path = %q, want /data/x.txt", f.Path)
+		if f.Path() != "/data/x.txt" {
+			t.Errorf("Path = %q, want /data/x.txt", f.Path())
 		}
 	})
 
 	t.Run("File with Path already set is unchanged", func(t *testing.T) {
 		t.Parallel()
 
-		f := &cwlcore.File{Path: "/existing/path.txt", Location: "file:///other/path.txt"}
+		f := &cwlcore.File{}
+		f.SetPathAndLocation("/existing/path.txt", "file:///other/path.txt")
 		NormalizeValuePaths(f)
 
-		if f.Path != "/existing/path.txt" {
-			t.Errorf("Path = %q, want /existing/path.txt", f.Path)
+		if f.Path() != "/existing/path.txt" {
+			t.Errorf("Path = %q, want /existing/path.txt", f.Path())
 		}
 	})
 
 	t.Run("File with remote Location keeps empty Path", func(t *testing.T) {
 		t.Parallel()
 
-		f := &cwlcore.File{Location: "s3://bucket/remote.txt"}
+		f := &cwlcore.File{}
+		f.SetLocation("s3://bucket/remote.txt")
 		NormalizeValuePaths(f)
 
-		if f.Path != "" {
-			t.Errorf("Path = %q, want empty", f.Path)
+		if f.Path() != "" {
+			t.Errorf("Path = %q, want empty", f.Path())
 		}
 	})
 
 	t.Run("Directory with Location only gets Path set", func(t *testing.T) {
 		t.Parallel()
 
-		d := &cwlcore.Directory{Location: "file:///data/dir"}
+		d := &cwlcore.Directory{}
+		d.SetLocation("file:///data/dir")
 		NormalizeValuePaths(d)
 
-		if d.Path != "/data/dir" {
-			t.Errorf("Path = %q, want /data/dir", d.Path)
+		if d.Path() != "/data/dir" {
+			t.Errorf("Path = %q, want /data/dir", d.Path())
 		}
 	})
 
 	t.Run("nested values are normalized recursively", func(t *testing.T) {
 		t.Parallel()
 
-		secondary := &cwlcore.File{Location: "file:///data/sec.bai"}
+		secondary := &cwlcore.File{}
+		secondary.SetLocation("file:///data/sec.bai")
+
 		primary := &cwlcore.File{
-			Location:       "file:///data/reads.bam",
 			SecondaryFiles: []cwlcore.FileOrDirectory{secondary},
 		}
+		primary.SetLocation("file:///data/reads.bam")
 		NormalizeValuePaths(primary)
 
-		if primary.Path != "/data/reads.bam" {
-			t.Errorf("primary.Path = %q", primary.Path)
+		if primary.Path() != "/data/reads.bam" {
+			t.Errorf("primary.Path = %q", primary.Path())
 		}
 
-		if secondary.Path != "/data/sec.bai" {
-			t.Errorf("secondary.Path = %q", secondary.Path)
+		if secondary.Path() != "/data/sec.bai" {
+			t.Errorf("secondary.Path = %q", secondary.Path())
 		}
 	})
 
 	t.Run("directory listing entries are normalized", func(t *testing.T) {
 		t.Parallel()
 
-		inner := &cwlcore.File{Location: "file:///data/dir/inner.txt"}
+		inner := &cwlcore.File{}
+		inner.SetLocation("file:///data/dir/inner.txt")
+
 		dir := &cwlcore.Directory{
-			Location: "file:///data/dir",
-			Listing:  []cwlcore.FileOrDirectory{inner},
+			Listing: []cwlcore.FileOrDirectory{inner},
 		}
+		dir.SetLocation("file:///data/dir")
 		NormalizeValuePaths(dir)
 
-		if dir.Path != "/data/dir" {
-			t.Errorf("dir.Path = %q", dir.Path)
+		if dir.Path() != "/data/dir" {
+			t.Errorf("dir.Path = %q", dir.Path())
 		}
 
-		if inner.Path != "/data/dir/inner.txt" {
-			t.Errorf("inner.Path = %q", inner.Path)
+		if inner.Path() != "/data/dir/inner.txt" {
+			t.Errorf("inner.Path = %q", inner.Path())
 		}
 	})
 
 	t.Run("array values are normalized", func(t *testing.T) {
 		t.Parallel()
 
-		f := &cwlcore.File{Location: "file:///data/a.txt"}
+		f := &cwlcore.File{}
+		f.SetLocation("file:///data/a.txt")
 		NormalizeValuePaths([]any{f})
 
-		if f.Path != "/data/a.txt" {
-			t.Errorf("Path = %q", f.Path)
+		if f.Path() != "/data/a.txt" {
+			t.Errorf("Path = %q", f.Path())
 		}
 	})
 
 	t.Run("map values are normalized", func(t *testing.T) {
 		t.Parallel()
 
-		f := &cwlcore.File{Location: "file:///data/a.txt"}
+		f := &cwlcore.File{}
+		f.SetLocation("file:///data/a.txt")
 		NormalizeValuePaths(map[string]any{"file": f})
 
-		if f.Path != "/data/a.txt" {
-			t.Errorf("Path = %q", f.Path)
+		if f.Path() != "/data/a.txt" {
+			t.Errorf("Path = %q", f.Path())
 		}
 	})
 
@@ -840,11 +892,12 @@ func TestNormalizeValuePaths(t *testing.T) {
 	t.Run("percent-encoded location is decoded", func(t *testing.T) {
 		t.Parallel()
 
-		f := &cwlcore.File{Location: "file:///data/a%20b.txt"}
+		f := &cwlcore.File{}
+		f.SetLocation("file:///data/a%20b.txt")
 		NormalizeValuePaths(f)
 
-		if f.Path != "/data/a b.txt" {
-			t.Errorf("Path = %q, want /data/a b.txt", f.Path)
+		if f.Path() != "/data/a b.txt" {
+			t.Errorf("Path = %q, want /data/a b.txt", f.Path())
 		}
 	})
 }
@@ -863,7 +916,7 @@ func TestPathMapInplaceUpdateLinksAWritableEntry(t *testing.T) {
 		t.Fatalf("Stage: %v", err)
 	}
 
-	err = mapper.Stage(&cwlcore.Directory{Path: "/data/d", Basename: "d"}, "d", true)
+	err = mapper.Stage(pmDirWithPath("/data/d", "d"), "d", true)
 	if err != nil {
 		t.Fatalf("Stage directory: %v", err)
 	}

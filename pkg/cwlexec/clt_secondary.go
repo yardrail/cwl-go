@@ -186,7 +186,7 @@ func outStat(local string) (fs.FileInfo, bool) {
 func (c *outputCollector) secondaryPath(candidate any, primary *cwlcore.File) (string, error) {
 	switch typed := candidate.(type) {
 	case string:
-		return filepath.Join(outDirname(primary.Path), typed), nil
+		return filepath.Join(outDirname(primary.Path()), typed), nil
 	case map[string]any:
 		return c.deriveRef(typed).local, nil
 	default:

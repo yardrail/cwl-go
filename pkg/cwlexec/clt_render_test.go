@@ -53,8 +53,8 @@ func TestArgText(t *testing.T) {
 		{name: "int", value: 12, want: "12"},
 		{name: "uint8", value: uint8(200), want: "200"},
 		{name: "float", value: 1.25, want: "1.25"},
-		{name: "typed File", value: &cwlcore.File{Path: "/a"}, want: "/a"},
-		{name: "typed Directory", value: &cwlcore.Directory{Path: "/d"}, want: "/d"},
+		{name: "typed File", value: cwlcore.NewFileAtPath("/a"), want: "/a"},
+		{name: "typed Directory", value: cwlcore.NewDirectoryAtPath("/d"), want: "/d"},
 		{
 			name:  "mapped File",
 			value: map[string]any{fileClassField: cwlcore.ClassFile, filePathField: "/m"},
@@ -67,7 +67,7 @@ func TestArgText(t *testing.T) {
 		},
 		{
 			name:    "typed File with no path",
-			value:   &cwlcore.File{Location: "file:///a"},
+			value:   pmFileWithLocation("file:///a"),
 			wantErr: ErrBindingValue,
 		},
 		{
@@ -308,7 +308,7 @@ func TestIsRecordValue(t *testing.T) {
 	}{
 		{name: "plain object", value: map[string]any{"a": 1}, want: true},
 		{name: "File map", value: map[string]any{fileClassField: cwlcore.ClassFile, filePathField: "/a"}, want: false},
-		{name: "typed File", value: &cwlcore.File{Path: "/a"}, want: false},
+		{name: "typed File", value: cwlcore.NewFileAtPath("/a"), want: false},
 		{name: "a bare string", value: "s", want: false},
 		{name: "a nil value", value: nil, want: false},
 	}

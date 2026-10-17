@@ -246,9 +246,9 @@ func (m *PathMap) stageFile(file *cwlcore.File, target string, writable bool) er
 			Resolved: remoteURI(file), Target: target, Host: "", Contents: "",
 			Action: stageActions[m.isolate(writable)], Writable: writable,
 		}, file)
-	case file.Location != "":
+	case file.Location() != "":
 		return fmt.Errorf("%w: %s is not on a filesystem this engine can read",
-			ErrUnsupportedLocationScheme, file.Location)
+			ErrUnsupportedLocationScheme, file.Location())
 	default:
 		return fmt.Errorf("%w: File %q has neither a path nor contents", ErrStageValue, file.Basename)
 	}
@@ -290,9 +290,9 @@ func (m *PathMap) stageDirectory(dir *cwlcore.Directory, target string, writable
 	}
 
 	if dir.Listing == nil {
-		if dir.Location != "" {
+		if dir.Location() != "" {
 			return fmt.Errorf("%w: %s is not on a filesystem this engine can read",
-				ErrUnsupportedLocationScheme, dir.Location)
+				ErrUnsupportedLocationScheme, dir.Location())
 		}
 
 		return fmt.Errorf("%w: Directory %q has neither a path nor a listing", ErrStageValue, dir.Basename)
@@ -422,11 +422,11 @@ type stageFields struct {
 // fieldsOf reads the naming fields of a File or Directory.
 func fieldsOf(value cwlcore.FileOrDirectory) stageFields {
 	if file, ok := value.(*cwlcore.File); ok && file != nil {
-		return stageFields{basename: file.Basename, path: file.Path, location: file.Location}
+		return stageFields{basename: file.Basename, path: file.Path(), location: file.Location()}
 	}
 
 	if dir, ok := value.(*cwlcore.Directory); ok && dir != nil {
-		return stageFields{basename: dir.Basename, path: dir.Path, location: dir.Location}
+		return stageFields{basename: dir.Basename, path: dir.Path(), location: dir.Location()}
 	}
 
 	return stageFields{basename: "", path: "", location: ""}
@@ -467,9 +467,7 @@ func (f stageFields) ref() stageRef {
 
 // hasRemoteScheme reports whether p begins with a non-file URI scheme.
 func hasRemoteScheme(p string) bool {
-	parsed, err := url.Parse(p)
-
-	return err == nil && parsed.Scheme != "" && parsed.Scheme != joSchemeFile
+	return cwlcore.IsRemoteScheme(p)
 }
 
 // remoteURI returns the remote URI from a File or Directory's Path or Location,
@@ -506,19 +504,16 @@ func relocateFile(file *cwlcore.File, target string) *cwlcore.File {
 	parts := outSplitName(basename)
 
 	moved := &cwlcore.File{
-		Node:           file.Node,
-		Location:       outFileURI(target),
-		Path:           target,
-		Basename:       basename,
-		Dirname:        outDirname(target),
-		Nameroot:       parts.root,
-		Nameext:        parts.ext,
-		Checksum:       file.Checksum,
-		Format:         file.Format,
-		Size:           file.Size,
-		Contents:       file.Contents,
-		SecondaryFiles: nil,
+		Node:     file.Node,
+		Basename: basename,
+		Nameroot: parts.root,
+		Nameext:  parts.ext,
+		Checksum: file.Checksum,
+		Format:   file.Format,
+		Size:     file.Size,
+		Contents: file.Contents,
 	}
+	moved.SetPath(target)
 
 	beside := filepath.Dir(target)
 
@@ -556,12 +551,12 @@ func NormalizeValuePaths(value any) {
 }
 
 func normalizeFilePath(f *cwlcore.File) {
-	if f == nil || f.Path != "" {
+	if f == nil || f.Path() != "" {
 		return
 	}
 
-	if local := localFromURI(f.Location); local != "" {
-		f.Path = local
+	if local := localFromURI(f.Location()); local != "" {
+		f.SetPath(local)
 	}
 
 	for _, sec := range f.SecondaryFiles {
@@ -570,12 +565,12 @@ func normalizeFilePath(f *cwlcore.File) {
 }
 
 func normalizeDirPath(d *cwlcore.Directory) {
-	if d == nil || d.Path != "" {
+	if d == nil || d.Path() != "" {
 		return
 	}
 
-	if local := localFromURI(d.Location); local != "" {
-		d.Path = local
+	if local := localFromURI(d.Location()); local != "" {
+		d.SetPath(local)
 	}
 
 	for _, entry := range d.Listing {
@@ -606,11 +601,9 @@ func localFromURI(uri string) string {
 func relocateDirectory(dir *cwlcore.Directory, target string) *cwlcore.Directory {
 	moved := &cwlcore.Directory{
 		Node:     dir.Node,
-		Location: outFileURI(target),
-		Path:     target,
 		Basename: filepath.Base(target),
-		Listing:  nil,
 	}
+	moved.SetPath(target)
 
 	for _, entry := range dir.Listing {
 		moved.Listing = append(moved.Listing, relocate(entry, filepath.Join(target, basenameOf(entry))))

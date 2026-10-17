@@ -44,10 +44,10 @@ func (d *decoder) fileOrDirectory(node salad.Node) FileOrDirectory {
 func (d *decoder) file(m *salad.MapNode) *File {
 	return &File{
 		Node:           m,
-		Location:       d.text(m, keyLocation),
-		Path:           d.text(m, keyPath),
+		location:       d.text(m, keyLocation),
+		path:           d.text(m, keyPath),
 		Basename:       d.text(m, keyBasename),
-		Dirname:        d.text(m, keyDirname),
+		dirname:        d.text(m, keyDirname),
 		Nameroot:       d.text(m, keyNameroot),
 		Nameext:        d.text(m, keyNameext),
 		Checksum:       d.text(m, keyChecksum),
@@ -62,8 +62,8 @@ func (d *decoder) file(m *salad.MapNode) *File {
 func (d *decoder) directory(m *salad.MapNode) *Directory {
 	return &Directory{
 		Node:     m,
-		Location: d.text(m, keyLocation),
-		Path:     d.text(m, keyPath),
+		location: d.text(m, keyLocation),
+		path:     d.text(m, keyPath),
 		Basename: d.text(m, keyBasename),
 		Listing:  decodeEach(d.listItems(m, keyListing, "", ""), d.fileOrDirectory),
 	}

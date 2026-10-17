@@ -114,31 +114,28 @@ func (l *joLoader) fileShell(m *salad.MapNode, v *joValueCtx) (*cwlcore.File, *s
 
 	parts := outSplitName(basename)
 
-	return &cwlcore.File{
-		Node:           m,
-		Location:       ref.location,
-		Path:           ref.local,
-		Basename:       basename,
-		Dirname:        outDirname(ref.local),
-		Nameroot:       parts.root,
-		Nameext:        parts.ext,
-		Checksum:       "",
-		Format:         format,
-		Size:           cwlcore.OptInt{},
-		Contents:       contents,
-		SecondaryFiles: nil,
-	}, nil
+	file := &cwlcore.File{
+		Node:     m,
+		Basename: basename,
+		Nameroot: parts.root,
+		Nameext:  parts.ext,
+		Format:   format,
+		Contents: contents,
+	}
+	file.SetPathAndLocation(ref.local, ref.location)
+
+	return file, nil
 }
 
 // joMeasure fills in a File's size, checksum, and optionally contents from disk.
 func joMeasure(file *cwlcore.File, m *salad.MapNode, v *joValueCtx) *salad.Error {
-	if file.Path == "" {
+	if file.Path() == "" {
 		outMeasureLiteral(file)
 
 		return nil
 	}
 
-	stats, err := outDigest(file.Path)
+	stats, err := outDigest(file.Path())
 	if err != nil {
 		return salad.Errorf(m.Loc(), "%s: cannot read file: %v", v.path, err)
 	}
@@ -212,9 +209,12 @@ func (l *joLoader) normalizeDirectory(
 		basename = ref.name
 	}
 
-	return &cwlcore.Directory{
-		Node: m, Location: ref.location, Path: ref.local, Basename: basename, Listing: listing,
-	}, nil
+	dir := &cwlcore.Directory{
+		Node: m, Basename: basename, Listing: listing,
+	}
+	dir.SetPathAndLocation(ref.local, ref.location)
+
+	return dir, nil
 }
 
 // directoryListing resolves a Directory's listing from the supplied value or disk.

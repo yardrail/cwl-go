@@ -133,7 +133,7 @@ func TestContainerOutputsNameInputsWhereTheyOutliveTheStep(t *testing.T) {
 	pmWantPath(t, run.inputs[execInPort], containerStagedir+"/"+execSourceName)
 
 	// ...and output collection is told the bytes' own path, not the placement under TmpDir.
-	pmWantPath(t, run.hostInputs()[execInPort], source.Path)
+	pmWantPath(t, run.hostInputs()[execInPort], source.Path())
 }
 
 // TestContainerStdinOpensTheBytesRatherThanTheMountPoint pins when a redirection is resolved

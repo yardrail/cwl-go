@@ -25,8 +25,8 @@ func TestFilePathWrittenAsAFileIRIResolvesToTheSameFile(t *testing.T) {
 	values := jobMustParse(t, t.TempDir(), src, jobFileTool())
 
 	file := jobFileValue(t, values, "f")
-	if file.Path != want {
-		t.Errorf("path = %q, want %q", file.Path, want)
+	if file.Path() != want {
+		t.Errorf("path = %q, want %q", file.Path(), want)
 	}
 
 	if file.Checksum != jobSumHello {

@@ -22,9 +22,9 @@ func TestCollectOutputsSingleFileGlob(t *testing.T) {
 
 	assertDeepEqual(t, "nameroot", file.Nameroot, "out")
 	assertDeepEqual(t, "nameext", file.Nameext, ".txt")
-	assertDeepEqual(t, "path", file.Path, filepath.Join(dir, "out.txt"))
-	assertDeepEqual(t, "dirname", file.Dirname, dir)
-	assertDeepEqual(t, "location", file.Location, outFileURI(filepath.Join(dir, "out.txt")))
+	assertDeepEqual(t, "path", file.Path(), filepath.Join(dir, "out.txt"))
+	assertDeepEqual(t, "dirname", file.Dirname(), dir)
+	assertDeepEqual(t, "location", file.Location(), outFileURI(filepath.Join(dir, "out.txt")))
 
 	if file.Contents.IsSet() {
 		t.Errorf("contents = %s, want unset without loadContents", file.Contents)
@@ -184,7 +184,7 @@ func TestCollectOutputsGlobDotIsTheOutputDirectory(t *testing.T) {
 		t.Fatalf("whole = %#v, want a *cwlcore.Directory", outputs["whole"])
 	}
 
-	assertDeepEqual(t, "path", value.Path, dir)
+	assertDeepEqual(t, "path", value.Path(), dir)
 }
 
 func TestCollectOutputsEmptyGlobPatternMatchesNothing(t *testing.T) {

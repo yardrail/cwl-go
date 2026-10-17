@@ -459,7 +459,8 @@ func TestWorkflowOutputChecksItsDeclaredType(t *testing.T) {
 	t.Parallel()
 
 	str := cwlcore.NewPrimitiveType(cwlcore.PrimitiveString)
-	file := &cwlcore.File{Basename: "out.txt", Path: "/w/out.txt", Contents: cwlcore.NewOptString("x")}
+	file := &cwlcore.File{Basename: "out.txt", Contents: cwlcore.NewOptString("x")}
+	file.SetPath("/w/out.txt")
 
 	cases := []struct {
 		values  map[string]any

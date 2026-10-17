@@ -126,19 +126,14 @@ func (c *outputCollector) retypeFile(object map[string]any) (*cwlcore.File, erro
 	parts := outSplitName(ref.basename)
 
 	file := &cwlcore.File{
-		Node:           nil,
-		Location:       ref.location,
-		Path:           ref.local,
-		Basename:       ref.basename,
-		Dirname:        outDirname(ref.local),
-		Nameroot:       parts.root,
-		Nameext:        parts.ext,
-		Checksum:       outTextField(object, outKeyChecksum),
-		Format:         outTextField(object, outKeyFormat),
-		Size:           cwlcore.OptInt{},
-		Contents:       cwlcore.OptString{},
-		SecondaryFiles: nil,
+		Node:     nil,
+		Basename: ref.basename,
+		Nameroot: parts.root,
+		Nameext:  parts.ext,
+		Checksum: outTextField(object, outKeyChecksum),
+		Format:   outTextField(object, outKeyFormat),
 	}
+	file.SetPathAndLocation(ref.local, ref.location)
 
 	if contents, ok := object[outKeyContents].(string); ok {
 		file.Contents = cwlcore.NewOptString(contents)
@@ -165,13 +160,13 @@ func outRemeasure(file *cwlcore.File, fsys fs.FS, outdir string) {
 		return
 	}
 
-	if file.Path == "" {
+	if file.Path() == "" {
 		outMeasureLiteral(file)
 
 		return
 	}
 
-	rel, relErr := filepath.Rel(outdir, file.Path)
+	rel, relErr := filepath.Rel(outdir, file.Path())
 	if relErr != nil || !filepath.IsLocal(rel) {
 		return
 	}
@@ -194,13 +189,14 @@ func (c *outputCollector) retypeDirectory(object map[string]any) (*cwlcore.Direc
 		return nil, err
 	}
 
-	return &cwlcore.Directory{
+	dir := &cwlcore.Directory{
 		Node:     nil,
-		Location: ref.location,
-		Path:     ref.local,
 		Basename: ref.basename,
 		Listing:  listing,
-	}, nil
+	}
+	dir.SetPathAndLocation(ref.local, ref.location)
+
+	return dir, nil
 }
 
 // retypeEntries re-types a secondaryFiles or listing array. Nil stays nil.
@@ -416,9 +412,9 @@ func (c *outputCollector) relocateEntries(entries []cwlcore.FileOrDirectory) err
 
 // relocateFile moves a File to its declared basename, then relocates its secondary files.
 func (c *outputCollector) relocateFile(file *cwlcore.File) error {
-	target := outMisnamed(file.Path, file.Basename)
+	target := outMisnamed(file.Path(), file.Basename)
 	if target != "" {
-		local, err := c.moveTo(file.Path, target)
+		local, err := c.moveTo(file.Path(), target)
 		if err != nil {
 			return err
 		}
@@ -431,15 +427,15 @@ func (c *outputCollector) relocateFile(file *cwlcore.File) error {
 
 // relocateDirectory moves a Directory to its declared basename, rebasing its listing paths.
 func (c *outputCollector) relocateDirectory(dir *cwlcore.Directory) error {
-	target := outMisnamed(dir.Path, dir.Basename)
+	target := outMisnamed(dir.Path(), dir.Basename)
 	if target != "" {
-		local, err := c.moveTo(dir.Path, target)
+		local, err := c.moveTo(dir.Path(), target)
 		if err != nil {
 			return err
 		}
 
-		outRebaseEntries(dir.Listing, dir.Path, local)
-		dir.Location, dir.Path = outFileURI(local), local
+		outRebaseEntries(dir.Listing, dir.Path(), local)
+		dir.SetPath(local)
 	}
 
 	return c.relocateEntries(dir.Listing)
@@ -482,9 +478,7 @@ func outMoveError(err error, source, target string) error {
 func outRepath(file *cwlcore.File, local string) {
 	parts := outSplitName(file.Basename)
 
-	file.Location = outFileURI(local)
-	file.Path = local
-	file.Dirname = outDirname(local)
+	file.SetPath(local)
 	file.Nameroot = parts.root
 	file.Nameext = parts.ext
 }
@@ -499,7 +493,7 @@ func outRebaseEntries(entries []cwlcore.FileOrDirectory, from, to string) {
 // outRebaseEntry rewrites one entry's path and recurses into its children.
 func outRebaseEntry(entry cwlcore.FileOrDirectory, from, to string) {
 	if file, ok := entry.(*cwlcore.File); ok && file != nil {
-		local, moved := outRebasePath(file.Path, from, to)
+		local, moved := outRebasePath(file.Path(), from, to)
 		if moved {
 			outRepath(file, local)
 		}
@@ -514,9 +508,9 @@ func outRebaseEntry(entry cwlcore.FileOrDirectory, from, to string) {
 		return
 	}
 
-	local, moved := outRebasePath(dir.Path, from, to)
+	local, moved := outRebasePath(dir.Path(), from, to)
 	if moved {
-		dir.Location, dir.Path = outFileURI(local), local
+		dir.SetPath(local)
 	}
 
 	outRebaseEntries(dir.Listing, from, to)

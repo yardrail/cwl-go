@@ -291,7 +291,7 @@ func asFormatValue(file any) (formatValue, bool, error) {
 func fileFormatValue(file *File) formatValue {
 	return formatValue{
 		iri:   file.Format,
-		label: filesystemLabel(file.Location, file.Path, file.Basename),
+		label: filesystemLabel(file.location, file.path, file.Basename),
 	}
 }
 

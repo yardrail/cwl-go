@@ -121,7 +121,7 @@ func (s *stepSecondaryPass) record(values map[string]any, typ cwlcore.TypeRef, p
 
 // file checks every pattern against one primary File. Skips nil files and those with no path.
 func (s *stepSecondaryPass) file(primary *cwlcore.File, schemas []cwlcore.SecondaryFileSchema, path string) error {
-	if primary == nil || len(schemas) == 0 || primary.Path == "" {
+	if primary == nil || len(schemas) == 0 || primary.Path() == "" {
 		return nil
 	}
 

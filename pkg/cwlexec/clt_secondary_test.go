@@ -109,7 +109,7 @@ func TestCollectOutputsSecondaryFilesCaretRule(t *testing.T) {
 	// A secondary file is measured like any other: the conformance harness checks its checksum
 	// from disk too.
 	assertDeepEqual(t, "secondary checksum", index.Checksum, outSumIndex)
-	assertDeepEqual(t, "secondary path", index.Path, filepath.Join(dir, outBaiName))
+	assertDeepEqual(t, "secondary path", index.Path(), filepath.Join(dir, outBaiName))
 }
 
 func TestCollectOutputsMissingOptionalSecondaryFile(t *testing.T) {

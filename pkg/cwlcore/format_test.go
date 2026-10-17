@@ -415,7 +415,7 @@ func mapFile(format any) map[string]any {
 
 // typedFile builds a File in the typed representation.
 func typedFile(format string) *File {
-	return &File{Location: testFileLocation, Format: format}
+	return &File{location: testFileLocation, Format: format}
 }
 
 func TestCheckFormat(t *testing.T) {
@@ -537,13 +537,13 @@ func TestCheckFormatTypedValues(t *testing.T) {
 		},
 		{
 			name:    "file without a format fails a parameter that requires one",
-			file:    &File{Location: testFileLocation},
+			file:    &File{location: testFileLocation},
 			allowed: []string{iriCSV},
 			wantErr: ErrFormatMissing,
 		},
 		{
 			name:    "parameter without a format accepts a file without one",
-			file:    &File{Location: testFileLocation},
+			file:    &File{location: testFileLocation},
 			allowed: nil,
 		},
 		{name: "File passed by value", file: *typedFile(iriCSV), allowed: []string{iriCSV}},
@@ -557,12 +557,12 @@ func TestCheckFormatTypedValues(t *testing.T) {
 		{name: "typed nil File", file: (*File)(nil), allowed: []string{iriCSV}},
 		{
 			name:    "a Directory carries no format and is skipped",
-			file:    &Directory{Location: testDirLocation},
+			file:    &Directory{location: testDirLocation},
 			allowed: []string{iriCSV},
 		},
 		{
 			name:    "a Directory passed by value is skipped",
-			file:    Directory{Location: testDirLocation},
+			file:    Directory{location: testDirLocation},
 			allowed: []string{iriCSV},
 		},
 	})
@@ -576,7 +576,7 @@ func TestCheckFormatTypedSlices(t *testing.T) {
 			name: "FileOrDirectory slice, all compatible",
 			file: []FileOrDirectory{
 				typedFile(iriCSV),
-				&Directory{Location: testDirLocation},
+				&Directory{location: testDirLocation},
 				typedFile(iriTSV),
 			},
 			allowed:      []string{iriText},
@@ -597,7 +597,7 @@ func TestCheckFormatTypedSlices(t *testing.T) {
 		},
 		{
 			name:    "pointer slice, one missing its format",
-			file:    []*File{typedFile(iriCSV), {Location: "other.txt"}},
+			file:    []*File{typedFile(iriCSV), {location: "other.txt"}},
 			allowed: []string{iriCSV},
 			wantErr: ErrFormatMissing,
 		},
@@ -621,7 +621,7 @@ func TestCheckFormatTypedSlices(t *testing.T) {
 		},
 		{
 			name:         "mixed typed and raw values",
-			file:         []any{typedFile(iriCSV), mapFile(iriTSV), &Directory{Location: testDirLocation}, nil},
+			file:         []any{typedFile(iriCSV), mapFile(iriTSV), &Directory{location: testDirLocation}, nil},
 			allowed:      []string{iriText},
 			withOntology: true,
 		},
@@ -635,13 +635,13 @@ func TestCheckFormatIgnoresSecondaryFiles(t *testing.T) {
 
 	ontology := loadFormatFixture(t, fixtureSimple)
 	nested := typedFile(iriBinary)
-	nested.SecondaryFiles = []FileOrDirectory{typedFile(iriBinary), &Directory{Location: "nested-dir"}}
+	nested.SecondaryFiles = []FileOrDirectory{typedFile(iriBinary), &Directory{location: "nested-dir"}}
 
 	primary := typedFile(iriCSV)
 	primary.SecondaryFiles = []FileOrDirectory{
 		nested,
-		&File{Location: "no-format.idx"},
-		&Directory{Location: "aux"},
+		&File{location: "no-format.idx"},
+		&Directory{location: "aux"},
 	}
 
 	err := CheckFormat(primary, []string{iriText}, ontology)

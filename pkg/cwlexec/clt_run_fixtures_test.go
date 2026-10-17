@@ -223,7 +223,7 @@ func execWantContent(t *testing.T, outputs map[string]any, want string) {
 
 	file := execOutFile(t, outputs)
 
-	if got := execRead(t, file.Path); got != want {
+	if got := execRead(t, file.Path()); got != want {
 		t.Errorf("%s holds %q, want %q", file.Basename, got, want)
 	}
 }
@@ -234,14 +234,14 @@ func execSourceFile(t *testing.T, content string) *cwlcore.File {
 
 	local := outWriteFile(t, t.TempDir(), execSourceName, content)
 
-	return &cwlcore.File{
-		Location: outFileURI(local),
-		Path:     local,
+	f := &cwlcore.File{
 		Basename: execSourceName,
-		Dirname:  filepath.Dir(local),
 		Nameroot: "source",
 		Nameext:  ".txt",
 	}
+	f.SetPath(local)
+
+	return f
 }
 
 // execLiteralFile returns a File literal: contents and no path at all.

@@ -110,10 +110,7 @@ func TestFileFieldNamesMatchCwlcore(t *testing.T) {
 	t.Parallel()
 
 	file := &cwlcore.File{
-		Location: "file:///d/a.txt",
-		Path:     "/d/a.txt",
 		Basename: outNameA,
-		Dirname:  "/d",
 		Nameroot: "a",
 		Nameext:  jobExtTxt,
 		Checksum: "sha1$00",
@@ -124,6 +121,7 @@ func TestFileFieldNamesMatchCwlcore(t *testing.T) {
 			&cwlcore.Directory{Basename: "d", Listing: make([]cwlcore.FileOrDirectory, 0)},
 		},
 	}
+	file.SetPathAndLocation("/d/a.txt", "file:///d/a.txt")
 
 	assertDeepEqual(t, "File", outObjectKeys(t, cwlcore.ToExpressionValue(file)), []string{
 		outKeyBasename, outKeyChecksum, outKeyClass, outKeyContents, outKeyDirname, outKeyFormat,
@@ -131,11 +129,10 @@ func TestFileFieldNamesMatchCwlcore(t *testing.T) {
 	})
 
 	dir := &cwlcore.Directory{
-		Location: "file:///d",
-		Path:     "/d",
 		Basename: "d",
 		Listing:  make([]cwlcore.FileOrDirectory, 0),
 	}
+	dir.SetPathAndLocation("/d", "file:///d")
 
 	// Directory's set is much smaller, and deliberately so: the vendored schema gives it only
 	// class, location, path, basename and listing.

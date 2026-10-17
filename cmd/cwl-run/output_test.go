@@ -53,12 +53,11 @@ func TestWriteOutputsRendersTheCWLWireShape(t *testing.T) {
 	t.Parallel()
 
 	file := &cwlcore.File{
-		Location: "file:///out/a.txt",
-		Path:     "/out/a.txt",
 		Basename: "a.txt",
 		Checksum: "sha1$da39a3ee5e6b4b0d3255bfef95601890afd80709",
 		Size:     cwlcore.NewOptInt(13),
 	}
+	file.SetPathAndLocation("/out/a.txt", "file:///out/a.txt")
 
 	got := fileOf(t, decode(t, map[string]any{"f": file}), "f")
 

@@ -7,6 +7,20 @@ import (
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
+func validFile(path, location string) *cwlcore.File {
+	f := &cwlcore.File{Basename: "x.txt"}
+	f.SetPathAndLocation(path, location)
+
+	return f
+}
+
+func validDir(path, location string) *cwlcore.Directory {
+	d := &cwlcore.Directory{Basename: "d"}
+	d.SetPathAndLocation(path, location)
+
+	return d
+}
+
 func TestValidateOutputPathsAcceptsConsistentValues(t *testing.T) {
 	t.Parallel()
 
@@ -15,28 +29,30 @@ func TestValidateOutputPathsAcceptsConsistentValues(t *testing.T) {
 		outputs map[string]any
 	}{
 		{
-			name: "local path and file location",
-			outputs: map[string]any{
-				"out": &cwlcore.File{Path: "/data/x.txt", Location: "file:///data/x.txt", Basename: "x.txt"},
-			},
+			name:    "local path and file location",
+			outputs: map[string]any{"out": validFile("/data/x.txt", "file:///data/x.txt")},
 		},
 		{
-			name: "remote path and remote location",
-			outputs: map[string]any{
-				"out": &cwlcore.File{Path: "s3://bucket/x.txt", Location: "s3://bucket/x.txt", Basename: "x.txt"},
-			},
+			name:    "remote path and remote location",
+			outputs: map[string]any{"out": validFile("s3://bucket/x.txt", "s3://bucket/x.txt")},
 		},
 		{
 			name: "path only",
-			outputs: map[string]any{
-				"out": &cwlcore.File{Path: "s3://bucket/x.txt", Basename: "x.txt"},
-			},
+			outputs: map[string]any{"out": func() *cwlcore.File {
+				f := &cwlcore.File{Basename: "x.txt"}
+				f.SetPath("s3://bucket/x.txt")
+
+				return f
+			}()},
 		},
 		{
 			name: "location only",
-			outputs: map[string]any{
-				"out": &cwlcore.File{Location: "file:///data/x.txt", Basename: "x.txt"},
-			},
+			outputs: map[string]any{"out": func() *cwlcore.File {
+				f := &cwlcore.File{Basename: "x.txt"}
+				f.SetLocation("file:///data/x.txt")
+
+				return f
+			}()},
 		},
 		{
 			name: "nil values",
@@ -50,10 +66,8 @@ func TestValidateOutputPathsAcceptsConsistentValues(t *testing.T) {
 			outputs: make(map[string]any),
 		},
 		{
-			name: "scalar values",
-			outputs: map[string]any{
-				"msg": "hello",
-			},
+			name:    "scalar values",
+			outputs: map[string]any{"msg": "hello"},
 		},
 	}
 
@@ -76,55 +90,43 @@ func TestValidateOutputPathsRejectsInconsistentSchemes(t *testing.T) {
 		outputs map[string]any
 	}{
 		{
-			name: "s3 path with file location",
-			outputs: map[string]any{
-				"out": &cwlcore.File{
-					Path: "s3://bucket/x.txt", Location: "file:///tmp/stale/x.txt", Basename: "x.txt",
-				},
-			},
+			name:    "s3 path with file location",
+			outputs: map[string]any{"out": validFile("s3://bucket/x.txt", "file:///tmp/stale/x.txt")},
 		},
 		{
-			name: "directory with mixed schemes",
-			outputs: map[string]any{
-				"dir": &cwlcore.Directory{
-					Path: "s3://bucket/ledger", Location: "file:///tmp/old/ledger", Basename: "ledger",
-				},
-			},
+			name:    "directory with mixed schemes",
+			outputs: map[string]any{"dir": validDir("s3://bucket/ledger", "file:///tmp/old/ledger")},
 		},
 		{
 			name: "inconsistent secondary file",
 			outputs: map[string]any{
-				"out": &cwlcore.File{
-					Path: "s3://bucket/x.bam", Location: "s3://bucket/x.bam", Basename: "x.bam",
-					SecondaryFiles: []cwlcore.FileOrDirectory{
-						&cwlcore.File{
-							Path: "s3://bucket/x.bai", Location: "file:///tmp/x.bai", Basename: "x.bai",
-						},
-					},
-				},
+				"out": func() *cwlcore.File {
+					f := validFile("s3://bucket/x.bam", "s3://bucket/x.bam")
+					f.SecondaryFiles = []cwlcore.FileOrDirectory{
+						validFile("s3://bucket/x.bai", "file:///tmp/x.bai"),
+					}
+
+					return f
+				}(),
 			},
 		},
 		{
 			name: "inconsistent listing entry",
 			outputs: map[string]any{
-				"dir": &cwlcore.Directory{
-					Path: "s3://bucket/d", Location: "s3://bucket/d", Basename: "d",
-					Listing: []cwlcore.FileOrDirectory{
-						&cwlcore.File{
-							Path: "s3://bucket/d/f.txt", Location: "file:///tmp/f.txt", Basename: "f.txt",
-						},
-					},
-				},
+				"dir": func() *cwlcore.Directory {
+					d := validDir("s3://bucket/d", "s3://bucket/d")
+					d.Listing = []cwlcore.FileOrDirectory{
+						validFile("s3://bucket/d/f.txt", "file:///tmp/f.txt"),
+					}
+
+					return d
+				}(),
 			},
 		},
 		{
 			name: "nested in array",
 			outputs: map[string]any{
-				"arr": []any{
-					&cwlcore.File{
-						Path: "s3://bucket/a.txt", Location: "file:///tmp/a.txt", Basename: "a.txt",
-					},
-				},
+				"arr": []any{validFile("s3://bucket/a.txt", "file:///tmp/a.txt")},
 			},
 		},
 	}

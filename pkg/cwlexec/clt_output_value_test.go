@@ -81,7 +81,7 @@ func TestOutputEvalReturningADirectoryWithAListing(t *testing.T) {
 
 	// A relative location in a hand-built value resolves against the output directory, and the
 	// file is measured because the expression gave no checksum.
-	assertDeepEqual(t, "path", entry.Path, filepath.Join(dir, outNameA))
+	assertDeepEqual(t, "path", entry.Path(), filepath.Join(dir, outNameA))
 	assertDeepEqual(t, "checksum", entry.Checksum, outSumAlpha)
 }
 
@@ -149,7 +149,7 @@ func TestRemeasure(t *testing.T) {
 
 	localFS := NewLocalDirFS(dir)
 
-	onDisk := &cwlcore.File{Path: local}
+	onDisk := cwlcore.NewFileAtPath(local)
 	outRemeasure(onDisk, localFS, dir)
 	assertDeepEqual(t, "on-disk checksum", onDisk.Checksum, outSumAlpha)
 	assertDeepEqual(t, "on-disk size", onDisk.Size.Int(), int64(len("alpha")))
@@ -162,7 +162,7 @@ func TestRemeasure(t *testing.T) {
 
 	// A path that is not there is left alone rather than reported: an expression may describe a
 	// file some later stage will create.
-	absent := &cwlcore.File{Path: filepath.Join(dir, "gone")}
+	absent := cwlcore.NewFileAtPath(filepath.Join(dir, "gone"))
 	outRemeasure(absent, localFS, dir)
 	assertDeepEqual(t, "absent checksum", absent.Checksum, "")
 
@@ -288,8 +288,8 @@ func TestOutputEvalReturningAFileLiteral(t *testing.T) {
 	// A literal names nothing on disk yet, so it has no path and no dirname, but its bytes are
 	// already known and so are its size and checksum.
 	file := outWantFile(t, outputs, "f", "made.txt", outSumAlpha, int64(len("alpha")))
-	assertDeepEqual(t, "path", file.Path, "")
-	assertDeepEqual(t, "dirname", file.Dirname, "")
+	assertDeepEqual(t, "path", file.Path(), "")
+	assertDeepEqual(t, "dirname", file.Dirname(), "")
 	assertDeepEqual(t, "contents", file.Contents.Value(), "alpha")
 }
 
@@ -316,7 +316,7 @@ func TestOutputEvalReturningARemoteFile(t *testing.T) {
 
 	// Nothing local to measure and no contents to measure from, so Size stays unset rather than
 	// becoming a misleading zero.
-	assertDeepEqual(t, "location", file.Location, "s3://bucket/a.txt")
+	assertDeepEqual(t, "location", file.Location(), "s3://bucket/a.txt")
 
 	if file.Size.IsSet() {
 		t.Errorf("size = %s, want unset for a file this engine cannot read", file.Size)
@@ -407,9 +407,9 @@ func relWantPath(t *testing.T, value any, local string) *cwlcore.File {
 		t.Fatalf("value = %#v, want a File", value)
 	}
 
-	assertDeepEqual(t, "path", file.Path, local)
-	assertDeepEqual(t, "location", file.Location, outFileURI(local))
-	assertDeepEqual(t, "dirname", file.Dirname, filepath.Dir(local))
+	assertDeepEqual(t, "path", file.Path(), local)
+	assertDeepEqual(t, "location", file.Location(), outFileURI(local))
+	assertDeepEqual(t, "dirname", file.Dirname(), filepath.Dir(local))
 	assertDeepEqual(t, "basename", file.Basename, filepath.Base(local))
 
 	parts := outSplitName(filepath.Base(local))
@@ -458,7 +458,7 @@ func TestRelocateLeavesAMatchingValueAlone(t *testing.T) {
 	// this pass exists to rename what a document renamed, not to copy an output directory.
 	cases := map[string]*cwlcore.File{
 		"basename already matches": relFile(local, outNameA),
-		"no basename declared":     {Path: local},
+		"no basename declared":     cwlcore.NewFileAtPath(local),
 		"no path at all":           {Basename: outNameB, Contents: cwlcore.NewOptString(cltAlpha)},
 	}
 
@@ -516,7 +516,8 @@ func TestRelocateRenamesADirectoryAndRebasesItsListing(t *testing.T) {
 
 	// A listing entry that names something this engine cannot move stays put; one inside the
 	// directory moves with it.
-	remote := &cwlcore.File{Location: "https://example.invalid/x", Basename: outNameX}
+	remote := &cwlcore.File{Basename: outNameX}
+	remote.SetLocation("https://example.invalid/x")
 
 	// A typed nil is neither of the two things a listing can hold, and rebasing must step over it
 	// rather than dereference it.
@@ -529,17 +530,17 @@ func TestRelocateRenamesADirectoryAndRebasesItsListing(t *testing.T) {
 	}
 
 	moved := filepath.Join(dir, outNameDeeper)
-	assertDeepEqual(t, "path", tree.Path, moved)
-	assertDeepEqual(t, "location", tree.Location, outFileURI(moved))
+	assertDeepEqual(t, "path", tree.Path(), moved)
+	assertDeepEqual(t, "location", tree.Location(), outFileURI(moved))
 
 	sub, ok := tree.Listing[0].(*cwlcore.Directory)
 	if !ok {
 		t.Fatalf("listing[0] = %#v, want a Directory", tree.Listing[0])
 	}
 
-	assertDeepEqual(t, "sub path", sub.Path, filepath.Join(moved, outNameSub))
+	assertDeepEqual(t, "sub path", sub.Path(), filepath.Join(moved, outNameSub))
 	relWantPath(t, sub.Listing[0], filepath.Join(moved, outNameSub, outNameA))
-	assertDeepEqual(t, "remote location", remote.Location, "https://example.invalid/x")
+	assertDeepEqual(t, "remote location", remote.Location(), "https://example.invalid/x")
 }
 
 func TestRelocateCopiesAValueFromOutsideTheOutputDirectory(t *testing.T) {
@@ -582,12 +583,18 @@ func TestRelocateFailures(t *testing.T) {
 		"a file that is not there":         func(dir string) any { return missing(dir) },
 		"a file outside that is not there": func(dir string) any { return outside(dir) },
 		"a directory that is not there": func(dir string) any {
-			return &cwlcore.Directory{Path: filepath.Join(dir, outMissingName), Basename: outNameB}
+			d := &cwlcore.Directory{Basename: outNameB}
+			d.SetPath(filepath.Join(dir, outMissingName))
+
+			return d
 		},
 		"inside a list":   func(dir string) any { return []any{missing(dir)} },
 		"inside a record": func(dir string) any { return map[string]any{outFieldLeft: missing(dir)} },
 		"inside a listing": func(dir string) any {
-			return &cwlcore.Directory{Path: dir, Listing: []cwlcore.FileOrDirectory{missing(dir)}}
+			d := &cwlcore.Directory{Listing: []cwlcore.FileOrDirectory{missing(dir)}}
+			d.SetPath(dir)
+
+			return d
 		},
 	}
 
@@ -625,9 +632,9 @@ func TestCollectOutputsReportsARenameItCannotPerform(t *testing.T) {
 	binding := &cwlcore.CommandOutputBinding{OutputEval: outRefSrc}
 	tool := outTestTool(outTestParam("#tool/result", outTypeFile, binding))
 
-	inputs := map[string]any{outNameSrc: &cwlcore.File{
-		Path: filepath.Join(dir, outMissingName), Basename: outNameB,
-	}}
+	missingFile := &cwlcore.File{Basename: outNameB}
+	missingFile.SetPath(filepath.Join(dir, outMissingName))
+	inputs := map[string]any{outNameSrc: missingFile}
 
 	_, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, inputs, cwlcore.NewEvaluator(),
 		cwlcore.RuntimeContext{Outdir: dir})

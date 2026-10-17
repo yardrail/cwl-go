@@ -513,30 +513,30 @@ func readsListing(mode cwlcore.LoadListingEnum) bool {
 // loadDirectoryListing reads a Directory's listing from disk at the requested depth.
 // Skips if listing is already set, mode is no_listing, or path is empty.
 func loadDirectoryListing(dir *cwlcore.Directory, mode cwlcore.LoadListingEnum, resolver OutputResolver) (any, error) {
-	if !readsListing(mode) || dir.Listing != nil || dir.Path == "" {
+	if !readsListing(mode) || dir.Listing != nil || dir.Path() == "" {
 		return dir, nil
 	}
 
 	var fsys WriteFS
 
 	if resolver != nil {
-		resolved, _, resolveErr := resolver.ResolveOutputFS(dir.Path)
+		resolved, _, resolveErr := resolver.ResolveOutputFS(dir.Path())
 		if resolveErr != nil {
-			return nil, fmt.Errorf("%w: %s: %w", ErrLoadListing, dir.Path, resolveErr)
+			return nil, fmt.Errorf("%w: %s: %w", ErrLoadListing, dir.Path(), resolveErr)
 		}
 
 		if wfs, ok := resolved.(WriteFS); ok {
 			fsys = wfs
 		} else {
-			fsys = NewLocalDirFS(dir.Path)
+			fsys = NewLocalDirFS(dir.Path())
 		}
 	} else {
-		fsys = NewLocalDirFS(dir.Path)
+		fsys = NewLocalDirFS(dir.Path())
 	}
 
-	listed, err := outCollectDirectory(dir.Path, mode, fsys, dir.Path)
+	listed, err := outCollectDirectory(dir.Path(), mode, fsys, dir.Path())
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s: %w", ErrLoadListing, dir.Path, err)
+		return nil, fmt.Errorf("%w: %s: %w", ErrLoadListing, dir.Path(), err)
 	}
 
 	loaded := *dir
@@ -547,7 +547,7 @@ func loadDirectoryListing(dir *cwlcore.Directory, mode cwlcore.LoadListingEnum, 
 
 // loadFileContents reads a File's contents from disk. Returns a copy to avoid mutating shared values.
 func loadFileContents(file *cwlcore.File, resolver OutputResolver) (any, error) {
-	if file.Contents.IsSet() || file.Path == "" {
+	if file.Contents.IsSet() || file.Path() == "" {
 		return file, nil
 	}
 
@@ -562,18 +562,18 @@ func loadFileContents(file *cwlcore.File, resolver OutputResolver) (any, error) 
 			name string
 		)
 
-		fsys, name, err = resolver.ResolveOutputFS(file.Path)
+		fsys, name, err = resolver.ResolveOutputFS(file.Path())
 		if err != nil {
-			return nil, fmt.Errorf("%w: %s: %w", ErrLoadContents, file.Path, err)
+			return nil, fmt.Errorf("%w: %s: %w", ErrLoadContents, file.Path(), err)
 		}
 
 		stats, err = outDigestFS(fsys, name)
 	} else {
-		stats, err = outDigest(file.Path)
+		stats, err = outDigest(file.Path())
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s: %w", ErrLoadContents, file.Path, err)
+		return nil, fmt.Errorf("%w: %s: %w", ErrLoadContents, file.Path(), err)
 	}
 
 	loaded := *file

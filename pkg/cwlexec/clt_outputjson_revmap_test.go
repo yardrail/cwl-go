@@ -161,8 +161,8 @@ func ojWantRevmapped(t *testing.T, key, written string) {
 		t.Fatalf("out = %#v, want a *cwlcore.File", outputs["out"])
 	}
 
-	if file.Path != filepath.Join(dir, ojMadeName) {
-		t.Errorf("path = %q, want the file on this host", file.Path)
+	if file.Path() != filepath.Join(dir, ojMadeName) {
+		t.Errorf("path = %q, want the file on this host", file.Path())
 	}
 
 	if file.Size.Int() != int64(len(execGreeting)) {

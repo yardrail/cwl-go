@@ -137,8 +137,8 @@ func TestADiscoveredSecondaryFileIsMeasuredAndNamed(t *testing.T) {
 		t.Fatalf("secondaryFiles[0] is %T, want *cwlcore.File", file.SecondaryFiles[0])
 	}
 
-	if want := filepath.Join(fixtures, "files", jobBai); index.Path != want {
-		t.Errorf("path = %q, want %q", index.Path, want)
+	if want := filepath.Join(fixtures, "files", jobBai); index.Path() != want {
+		t.Errorf("path = %q, want %q", index.Path(), want)
 	}
 
 	// A discovered secondary goes through the same measurement a supplied one does, so an
@@ -506,7 +506,7 @@ func TestDiscoveryStopsWhenTheContextIsCancelled(t *testing.T) {
 	cancel()
 
 	tool := jobSecondaryTool(jobPatternOf(jobPattern))
-	inputs := map[string]any{"f": &cwlcore.File{Path: filepath.Join(jobFixtures(t), "files", "data.bam")}}
+	inputs := map[string]any{"f": cwlcore.NewFileAtPath(filepath.Join(jobFixtures(t), "files", "data.bam"))}
 
 	err := joDiscoverSecondaryFiles(ctx, inputs, tool)
 	if err == nil || !strings.Contains(err.Error(), context.Canceled.Error()) {

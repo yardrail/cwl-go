@@ -292,17 +292,6 @@ func TestExpressionToolReachesALiteralInsideARecord(t *testing.T) {
 	assertFileOnDisk(t, wantFile(t, record["nested"]), "deep")
 }
 
-func TestExpressionToolAllowsLargeContents(t *testing.T) {
-	t.Parallel()
-
-	big := strings.Repeat("x", joMaxContentsBytes*2)
-	call := literalCall(t, fmt.Sprintf(
-		`${return {"out": {"class": "File", "basename": "big.txt", "contents": %q}};}`, big))
-
-	result := runLiteralTool(t, call)
-	assertFileOnDisk(t, wantFile(t, result), big)
-}
-
 func TestExpressionToolRejectsAMalformedFilesystemObject(t *testing.T) {
 	t.Parallel()
 

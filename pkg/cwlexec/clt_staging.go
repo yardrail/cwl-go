@@ -340,10 +340,12 @@ func (m *PathMap) applyMapping(mapping *PathMapping, outFS, stageFS WriteFS) err
 		return replaceWithFS(resolved.fs, resolved.rel, func() error {
 			return m.placeLinkFS(mapping, resolved.fs, resolved.rel)
 		})
-	case StageCopy, StageRemote:
+	case StageCopy:
 		return replaceWithFS(resolved.fs, resolved.rel, func() error {
 			return m.copyToFS(mapping.Resolved, resolved.fs, resolved.rel)
 		})
+	case StageRemote:
+		return m.copyToFS(mapping.Resolved, resolved.fs, resolved.rel)
 	default:
 		return fmt.Errorf("%w: unknown staging action %q", ErrStageValue, mapping.Action)
 	}

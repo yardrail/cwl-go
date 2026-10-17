@@ -288,36 +288,15 @@ func TestExpressionToolReachesALiteralInsideARecord(t *testing.T) {
 	assertFileOnDisk(t, wantFile(t, record["nested"]), "deep")
 }
 
-func TestExpressionToolRejectsAnOversizedLiteral(t *testing.T) {
+func TestExpressionToolAllowsLargeContents(t *testing.T) {
 	t.Parallel()
 
+	big := strings.Repeat("x", joMaxContentsBytes*2)
 	call := literalCall(t, fmt.Sprintf(
-		`${return {"out": {"class": "File", "basename": "big", "contents": %q}};}`,
-		strings.Repeat("x", joMaxContentsBytes+1)))
+		`${return {"out": {"class": "File", "basename": "big.txt", "contents": %q}};}`, big))
 
-	_, err := runExpressionTool(t, call)
-	if !errors.Is(err, ErrLiteralTooLarge) {
-		t.Fatalf("error = %v, want ErrLiteralTooLarge", err)
-	}
-}
-
-func TestExpressionToolReportsOnlyTheFirstOversizedLiteral(t *testing.T) {
-	t.Parallel()
-
-	oversized := strings.Repeat("x", joMaxContentsBytes+1)
-	call := literalCall(t, fmt.Sprintf(`${return {"out": {"class": "Directory", "basename": "d", "listing": [
-		{"class": "File", "basename": "first", "contents": %q},
-		{"class": "File", "basename": "second", "contents": %q}
-	]}};}`, oversized, oversized))
-
-	_, err := runExpressionTool(t, call)
-	if !errors.Is(err, ErrLiteralTooLarge) {
-		t.Fatalf("error = %v, want ErrLiteralTooLarge", err)
-	}
-
-	if strings.Contains(err.Error(), "second") {
-		t.Fatalf("error %q reports past the first failure", err)
-	}
+	result := runLiteralTool(t, call)
+	assertFileOnDisk(t, wantFile(t, result), big)
 }
 
 func TestExpressionToolRejectsAMalformedFilesystemObject(t *testing.T) {
@@ -347,18 +326,20 @@ func TestExpressionToolRejectsAnUnusableOutputDirectory(t *testing.T) {
 	}
 }
 
-func TestExpressionToolRejectsALiteralItCannotPlace(t *testing.T) {
+func TestExpressionToolPlansARemoteLocationLiteral(t *testing.T) {
 	t.Parallel()
 
-	// The directory literal is one this engine can create; the entry it lists names a resource on
-	// a filesystem this engine cannot read, so the placement cannot be planned.
+	// A directory literal listing a file with a remote location is now accepted at
+	// planning time. Resolution is deferred to Apply, which delegates to the
+	// configured OutputResolver (here nil, so it would fail at apply — but the
+	// expression tool output path doesn't apply the staging plan).
 	call := literalCall(t, `${return {"out": {"class": "Directory", "basename": "d", "listing": [
 		{"class": "File", "location": "http://example.invalid/x", "basename": "x"}
 	]}};}`)
 
 	_, err := runExpressionTool(t, call)
-	if !errors.Is(err, ErrUnsupportedLocationScheme) {
-		t.Fatalf("error = %v, want ErrUnsupportedLocationScheme", err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

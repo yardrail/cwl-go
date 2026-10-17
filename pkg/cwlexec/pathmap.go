@@ -241,6 +241,11 @@ func (m *PathMap) stageFile(file *cwlcore.File, target string, writable bool) er
 			Resolved: "", Target: target, Host: "", Contents: file.Contents.Value(),
 			Action: StageWrite, Writable: writable,
 		}, file)
+	case remoteURI(file) != "":
+		m.add(&PathMapping{
+			Resolved: remoteURI(file), Target: target, Host: "", Contents: "",
+			Action: stageActions[m.isolate(writable)], Writable: writable,
+		}, file)
 	case file.Location != "":
 		return fmt.Errorf("%w: %s is not on a filesystem this engine can read",
 			ErrUnsupportedLocationScheme, file.Location)
@@ -266,6 +271,18 @@ func (m *PathMap) stageDirectory(dir *cwlcore.Directory, target string, writable
 	if local != "" {
 		m.add(&PathMapping{
 			Resolved: local, Target: target, Host: "", Contents: "",
+			Action: stageActions[m.isolate(writable)], Writable: writable,
+		}, dir)
+
+		return nil
+	}
+
+	// A Directory whose Path or Location is a remote URI (e.g. s3://) can be
+	// staged if the configured OutputResolver knows how to read it. Use the
+	// URI as Resolved so Apply resolves it through resolveSource.
+	if uri := remoteURI(dir); uri != "" {
+		m.add(&PathMapping{
+			Resolved: uri, Target: target, Host: "", Contents: "",
 			Action: stageActions[m.isolate(writable)], Writable: writable,
 		}, dir)
 
@@ -416,7 +433,15 @@ type stageRef struct {
 // ref resolves path (preferred) or location to a local path and name.
 func (f stageFields) ref() stageRef {
 	if f.path != "" {
+		if hasRemoteScheme(f.path) {
+			return stageRef{local: "", name: path.Base(f.path)}
+		}
+
 		return stageRef{local: f.path, name: filepath.Base(f.path)}
+	}
+
+	if f.location == "" {
+		return stageRef{local: "", name: ""}
 	}
 
 	parsed, err := url.Parse(f.location)
@@ -430,6 +455,28 @@ func (f stageFields) ref() stageRef {
 	}
 
 	return stageRef{local: filepath.Clean(parsed.Path), name: name}
+}
+
+// hasRemoteScheme reports whether p begins with a non-file URI scheme.
+func hasRemoteScheme(p string) bool {
+	parsed, err := url.Parse(p)
+
+	return err == nil && parsed.Scheme != "" && parsed.Scheme != joSchemeFile
+}
+
+// remoteURI returns the remote URI from a File or Directory's Path or Location,
+// or "" if neither is a remote URI.
+func remoteURI(value cwlcore.FileOrDirectory) string {
+	fields := fieldsOf(value)
+	if fields.path != "" && hasRemoteScheme(fields.path) {
+		return fields.path
+	}
+
+	if fields.location != "" && hasRemoteScheme(fields.location) {
+		return fields.location
+	}
+
+	return ""
 }
 
 // relocate returns a copy of a File/Directory placed at target.

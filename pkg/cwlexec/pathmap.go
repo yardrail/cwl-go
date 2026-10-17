@@ -399,9 +399,17 @@ func basenameOf(value cwlcore.FileOrDirectory) string {
 	return fields.ref().name
 }
 
-// pathOf returns the local host path of a File/Directory, or "" for literals/remote resources.
+// pathOf returns the local host path from a File/Directory's Path field.
+// Returns "" for remote paths and values with no Path set.
+// Location is NOT consulted — call [NormalizeValuePaths] first to derive
+// Path from Location for document-loaded values.
 func pathOf(value cwlcore.FileOrDirectory) string {
-	return fieldsOf(value).ref().local
+	fields := fieldsOf(value)
+	if fields.path == "" || hasRemoteScheme(fields.path) {
+		return ""
+	}
+
+	return fields.path
 }
 
 // stageFields holds the naming fields of a File or Directory.
@@ -520,6 +528,78 @@ func relocateFile(file *cwlcore.File, target string) *cwlcore.File {
 	}
 
 	return moved
+}
+
+// NormalizeValuePaths ensures every File/Directory has Path set. For values
+// loaded from CWL documents that only carry a file:// Location, Path is
+// derived from Location. Call before staging — after this, [pathOf] is the
+// only source of truth and Location is not consulted for path resolution.
+func NormalizeValuePaths(value any) {
+	switch typed := value.(type) {
+	case *cwlcore.File:
+		normalizeFilePath(typed)
+	case *cwlcore.Directory:
+		normalizeDirPath(typed)
+	case []any:
+		for _, item := range typed {
+			NormalizeValuePaths(item)
+		}
+	case []cwlcore.FileOrDirectory:
+		for _, item := range typed {
+			NormalizeValuePaths(item)
+		}
+	case map[string]any:
+		for _, item := range typed {
+			NormalizeValuePaths(item)
+		}
+	}
+}
+
+func normalizeFilePath(f *cwlcore.File) {
+	if f == nil || f.Path != "" {
+		return
+	}
+
+	if local := localFromURI(f.Location); local != "" {
+		f.Path = local
+	}
+
+	for _, sec := range f.SecondaryFiles {
+		NormalizeValuePaths(sec)
+	}
+}
+
+func normalizeDirPath(d *cwlcore.Directory) {
+	if d == nil || d.Path != "" {
+		return
+	}
+
+	if local := localFromURI(d.Location); local != "" {
+		d.Path = local
+	}
+
+	for _, entry := range d.Listing {
+		NormalizeValuePaths(entry)
+	}
+}
+
+// localFromURI extracts a local filesystem path from a file:// URI.
+// Returns "" for non-file URIs, relative paths, or parse errors.
+func localFromURI(uri string) string {
+	if uri == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(uri)
+	if err != nil || parsed.Path == "" {
+		return ""
+	}
+
+	if (parsed.Scheme != "" && parsed.Scheme != joSchemeFile) || !path.IsAbs(parsed.Path) {
+		return ""
+	}
+
+	return filepath.Clean(parsed.Path)
 }
 
 // relocateDirectory copies a Directory to a new path with its listing.

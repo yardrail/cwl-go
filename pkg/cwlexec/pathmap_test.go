@@ -493,25 +493,24 @@ func TestPathMapValueHelpers(t *testing.T) {
 			local:    stgHostTree,
 		},
 		{
-			// The shape a listing entry written straight into a document arrives in.
+			// A document-loaded value with only Location has no Path yet — pathOf returns "".
+			// Call NormalizeValuePaths to derive Path from Location before staging.
 			name:     "a File with only a file: location",
 			value:    &cwlcore.File{Location: "file:///data/x.txt"},
 			basename: "x.txt",
-			local:    pmHostPath,
+			local:    "",
 		},
 		{
 			name:     "a Directory with only a file: location",
 			value:    &cwlcore.Directory{Location: stgTreeLocation},
 			basename: stgTreeName,
-			local:    stgHostTree,
+			local:    "",
 		},
 		{
-			// A percent-escaped location decodes before it is split, so the name is the one
-			// the document meant rather than its escaped spelling.
 			name:     "a location carrying an escape",
 			value:    &cwlcore.File{Location: "file:///data/a%20b.txt"},
 			basename: "a b.txt",
-			local:    "/data/a b.txt",
+			local:    "",
 		},
 		{
 			// Named, so an entryname is not needed, but not readable: staging reports it as
@@ -685,6 +684,169 @@ func TestPathMapMaterializeLeavesSecondaryFilesAlreadyBesideThePrimary(t *testin
 	}
 
 	pmWantPlan(t, mapper, make([]PathMapping, 0))
+}
+
+func TestPathOfIgnoresLocation(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		value cwlcore.FileOrDirectory
+		name  string
+		want  string
+	}{
+		{
+			name:  "remote Path with stale Location",
+			value: &cwlcore.File{Path: "s3://bucket/key.txt", Location: "file:///tmp/stale/key.txt"},
+			want:  "",
+		},
+		{
+			name:  "local Path with stale Location",
+			value: &cwlcore.File{Path: "/local/path.txt", Location: "file:///stale/path.txt"},
+			want:  "/local/path.txt",
+		},
+		{
+			name:  "Location only without Path",
+			value: &cwlcore.File{Location: "file:///data/file.txt"},
+			want:  "",
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := pathOf(testCase.value); got != testCase.want {
+				t.Errorf("pathOf = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeValuePaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("File with Location only gets Path set", func(t *testing.T) {
+		t.Parallel()
+
+		f := &cwlcore.File{Location: "file:///data/x.txt", Basename: "x.txt"}
+		NormalizeValuePaths(f)
+
+		if f.Path != "/data/x.txt" {
+			t.Errorf("Path = %q, want /data/x.txt", f.Path)
+		}
+	})
+
+	t.Run("File with Path already set is unchanged", func(t *testing.T) {
+		t.Parallel()
+
+		f := &cwlcore.File{Path: "/existing/path.txt", Location: "file:///other/path.txt"}
+		NormalizeValuePaths(f)
+
+		if f.Path != "/existing/path.txt" {
+			t.Errorf("Path = %q, want /existing/path.txt", f.Path)
+		}
+	})
+
+	t.Run("File with remote Location keeps empty Path", func(t *testing.T) {
+		t.Parallel()
+
+		f := &cwlcore.File{Location: "s3://bucket/remote.txt"}
+		NormalizeValuePaths(f)
+
+		if f.Path != "" {
+			t.Errorf("Path = %q, want empty", f.Path)
+		}
+	})
+
+	t.Run("Directory with Location only gets Path set", func(t *testing.T) {
+		t.Parallel()
+
+		d := &cwlcore.Directory{Location: "file:///data/dir"}
+		NormalizeValuePaths(d)
+
+		if d.Path != "/data/dir" {
+			t.Errorf("Path = %q, want /data/dir", d.Path)
+		}
+	})
+
+	t.Run("nested values are normalized recursively", func(t *testing.T) {
+		t.Parallel()
+
+		secondary := &cwlcore.File{Location: "file:///data/sec.bai"}
+		primary := &cwlcore.File{
+			Location:       "file:///data/reads.bam",
+			SecondaryFiles: []cwlcore.FileOrDirectory{secondary},
+		}
+		NormalizeValuePaths(primary)
+
+		if primary.Path != "/data/reads.bam" {
+			t.Errorf("primary.Path = %q", primary.Path)
+		}
+
+		if secondary.Path != "/data/sec.bai" {
+			t.Errorf("secondary.Path = %q", secondary.Path)
+		}
+	})
+
+	t.Run("directory listing entries are normalized", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &cwlcore.File{Location: "file:///data/dir/inner.txt"}
+		dir := &cwlcore.Directory{
+			Location: "file:///data/dir",
+			Listing:  []cwlcore.FileOrDirectory{inner},
+		}
+		NormalizeValuePaths(dir)
+
+		if dir.Path != "/data/dir" {
+			t.Errorf("dir.Path = %q", dir.Path)
+		}
+
+		if inner.Path != "/data/dir/inner.txt" {
+			t.Errorf("inner.Path = %q", inner.Path)
+		}
+	})
+
+	t.Run("array values are normalized", func(t *testing.T) {
+		t.Parallel()
+
+		f := &cwlcore.File{Location: "file:///data/a.txt"}
+		NormalizeValuePaths([]any{f})
+
+		if f.Path != "/data/a.txt" {
+			t.Errorf("Path = %q", f.Path)
+		}
+	})
+
+	t.Run("map values are normalized", func(t *testing.T) {
+		t.Parallel()
+
+		f := &cwlcore.File{Location: "file:///data/a.txt"}
+		NormalizeValuePaths(map[string]any{"file": f})
+
+		if f.Path != "/data/a.txt" {
+			t.Errorf("Path = %q", f.Path)
+		}
+	})
+
+	t.Run("nil values are handled gracefully", func(t *testing.T) {
+		t.Parallel()
+
+		NormalizeValuePaths(nil)
+		NormalizeValuePaths((*cwlcore.File)(nil))
+		NormalizeValuePaths((*cwlcore.Directory)(nil))
+	})
+
+	t.Run("percent-encoded location is decoded", func(t *testing.T) {
+		t.Parallel()
+
+		f := &cwlcore.File{Location: "file:///data/a%20b.txt"}
+		NormalizeValuePaths(f)
+
+		if f.Path != "/data/a b.txt" {
+			t.Errorf("Path = %q, want /data/a b.txt", f.Path)
+		}
+	})
 }
 
 func TestPathMapInplaceUpdateLinksAWritableEntry(t *testing.T) {

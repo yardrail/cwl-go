@@ -206,6 +206,8 @@ func resolveInputs(step *plannedStep, lookup sourceLookup) (map[string]any, erro
 		return nil, fmt.Errorf("step %q: %w", step.id, err)
 	}
 
+	NormalizeValuePaths(object)
+
 	err = checkStepSecondaryFiles(step.pending.secondary, object, step.eval)
 	if err != nil {
 		return nil, fmt.Errorf("step %q: %w", step.id, err)

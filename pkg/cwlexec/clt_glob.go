@@ -175,6 +175,8 @@ func outEntryRoots(entry cwlcore.InitialWorkDirEntry, roots []string) []string {
 
 // outStagedRoot appends the local path of a staged value, if it has one.
 func outStagedRoot(value cwlcore.FileOrDirectory, roots []string) []string {
+	NormalizeValuePaths(value)
+
 	local := pathOf(value)
 	if local == "" {
 		return roots

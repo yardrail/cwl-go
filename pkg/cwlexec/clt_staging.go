@@ -246,6 +246,8 @@ func (s *workDirStager) objects(values []cwlcore.FileOrDirectory, name string, w
 
 // object plans one File or Directory under the given name or its own basename.
 func (s *workDirStager) object(value cwlcore.FileOrDirectory, name string, writable bool) error {
+	NormalizeValuePaths(value)
+
 	if name == "" {
 		name = basenameOf(value)
 	}

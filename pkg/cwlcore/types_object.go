@@ -1,6 +1,7 @@
 package cwlcore
 
 import (
+	"encoding/json"
 	"net/url"
 	"path"
 	"path/filepath"
@@ -167,6 +168,28 @@ func (*File) Class() string {
 	return ClassFile
 }
 
+// MarshalJSON includes the unexported path, location, and dirname fields.
+func (f *File) MarshalJSON() ([]byte, error) {
+	return json.Marshal(fileObject(f))
+}
+
+// UnmarshalJSON restores a File from JSON, including path/location/dirname.
+func (f *File) UnmarshalJSON(data []byte) error {
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err
+	}
+
+	v, err := newFileValue(m)
+	if err != nil {
+		return err
+	}
+
+	*f = *(v.(*File))
+
+	return nil
+}
+
 // isFileOrDirectory seals FileOrDirectory.
 func (*File) isFileOrDirectory() {}
 
@@ -230,6 +253,28 @@ func (d *Directory) SetPathAndLocation(p, loc string) {
 // Class returns ClassDirectory.
 func (*Directory) Class() string {
 	return ClassDirectory
+}
+
+// MarshalJSON includes the unexported path and location fields.
+func (d *Directory) MarshalJSON() ([]byte, error) {
+	return json.Marshal(directoryObject(d))
+}
+
+// UnmarshalJSON restores a Directory from JSON, including path/location.
+func (d *Directory) UnmarshalJSON(data []byte) error {
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err
+	}
+
+	v, err := newDirectoryValue(m)
+	if err != nil {
+		return err
+	}
+
+	*d = *(v.(*Directory))
+
+	return nil
 }
 
 // isFileOrDirectory seals FileOrDirectory.

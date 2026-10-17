@@ -303,13 +303,19 @@ func (i *invocation) acquireImage(ctx context.Context) error {
 func (i *invocation) newMapper() *PathMap {
 	if i.box == nil {
 		m := NewPathMap(i.outdir, i.tmpdir)
-		m.resolver = i.call.OutputResolver
+
+		if i.call.OutputResolver != nil {
+			m.resolver = i.call.OutputResolver
+		}
 
 		return m
 	}
 
 	mapper := i.box.mapper()
-	mapper.resolver = i.call.OutputResolver
+
+	if i.call.OutputResolver != nil {
+		mapper.resolver = i.call.OutputResolver
+	}
 
 	if i.absolute {
 		mapper.AllowAbsoluteTargets()

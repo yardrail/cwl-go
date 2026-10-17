@@ -119,6 +119,10 @@ func (m *mockCopyResolver) ResolveOutputFS(path string) (fs.FS, string, error) {
 	return m.fsys, filepath.Base(path), nil
 }
 
+func (m *mockCopyResolver) ResolveOutputDirFS(path string) (fs.FS, error) {
+	return m.fsys, nil
+}
+
 func (m *mockCopyResolver) CopyDirect(srcPath string, dest WriteFS, destName string) (bool, error) {
 	if !m.canCopy {
 		return false, nil
@@ -292,6 +296,10 @@ func (r *prefixResolver) ResolveOutputFS(path string) (fs.FS, string, error) {
 	}
 
 	return r.fsys, rel, nil
+}
+
+func (r *prefixResolver) ResolveOutputDirFS(path string) (fs.FS, error) {
+	return r.fsys, nil
 }
 
 func TestMountPointFSWithResolver(t *testing.T) {

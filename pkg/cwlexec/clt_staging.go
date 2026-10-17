@@ -340,15 +340,23 @@ func (m *PathMap) applyMapping(mapping *PathMapping, outFS, stageFS WriteFS) err
 		return replaceWithFS(resolved.fs, resolved.rel, func() error {
 			return m.placeLinkFS(mapping, resolved.fs, resolved.rel)
 		})
-	case StageCopy:
-		return replaceWithFS(resolved.fs, resolved.rel, func() error {
-			return m.copyToFS(mapping.Resolved, resolved.fs, resolved.rel)
-		})
-	case StageRemote:
-		return m.copyToFS(mapping.Resolved, resolved.fs, resolved.rel)
+	case StageCopy, StageRemote:
+		return m.applyCopyOrRemote(mapping, resolved)
 	default:
 		return fmt.Errorf("%w: unknown staging action %q", ErrStageValue, mapping.Action)
 	}
+}
+
+// applyCopyOrRemote handles StageCopy and StageRemote. StageRemote skips
+// the destructive Remove-then-place to avoid deleting source files when
+// the source and destination overlap (e.g. cross-step S3 output passing).
+func (m *PathMap) applyCopyOrRemote(mapping *PathMapping, resolved fsResolution) error {
+	place := func() error { return m.copyToFS(mapping.Resolved, resolved.fs, resolved.rel) }
+	if mapping.Action == StageRemote {
+		return place()
+	}
+
+	return replaceWithFS(resolved.fs, resolved.rel, place)
 }
 
 // resolveFS maps an absolute host path to its WriteFS and relative path.

@@ -36,8 +36,11 @@ const schemeFile = "file"
 // IsRemoteScheme reports whether p begins with a non-file URI scheme.
 func IsRemoteScheme(p string) bool {
 	parsed, err := url.Parse(p)
+	if err != nil || parsed == nil {
+		return false
+	}
 
-	return err == nil && parsed.Scheme != "" && parsed.Scheme != schemeFile
+	return parsed.Scheme != "" && parsed.Scheme != schemeFile
 }
 
 func fileURI(local string) string {

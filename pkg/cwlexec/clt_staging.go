@@ -341,11 +341,7 @@ func (m *PathMap) applyMapping(mapping *PathMapping, outFS, stageFS WriteFS) err
 		return replaceWithFS(resolved.fs, resolved.rel, func() error {
 			return m.placeLinkFS(mapping, resolved.fs, resolved.rel)
 		})
-	case StageCopy:
-		return replaceWithFS(resolved.fs, resolved.rel, func() error {
-			return m.copyToFS(mapping.Resolved, resolved.fs, resolved.rel)
-		})
-	case StageRemote:
+	case StageCopy, StageRemote:
 		return replaceWithFS(resolved.fs, resolved.rel, func() error {
 			return m.copyToFS(mapping.Resolved, resolved.fs, resolved.rel)
 		})
@@ -458,8 +454,8 @@ func replaceWithFS(dst WriteFS, rel string, place func() error) error {
 }
 
 // resolveSource returns a readable [fs.FS] and relative path for a source file.
-func (m *PathMap) resolveSource(path string) (fs.FS, string, error) {
-	return m.resolver.ResolveOutputFS(path)
+func (m *PathMap) resolveSource(source string) (fs.FS, string, error) {
+	return m.resolver.ResolveOutputFS(source)
 }
 
 // copyToFS copies source into dst at rel.
@@ -483,7 +479,7 @@ func (m *PathMap) copyToFS(source string, dst WriteFS, rel string) error {
 
 // copyTreeFS copies a directory and everything under it into a [WriteFS].
 // Uses [OutputResolver.ResolveOutputDirFS] to get a directory-rooted FS and
-// walks it directly, avoiding filepath.Join on the source URI.
+// walks it directly, avoiding [filepath.Join] on the source URI.
 func (m *PathMap) copyTreeFS(source string, dst WriteFS, rel string) error {
 	dirFS, err := m.resolver.ResolveOutputDirFS(source)
 	if err != nil {

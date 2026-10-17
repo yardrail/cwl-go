@@ -245,6 +245,7 @@ func TestExpressionToolWritesNothingWhenNoLiteralIsReturned(t *testing.T) {
 	// there is nothing to create and nothing to put in the output directory.
 	file := &cwlcore.File{Basename: "in.txt"}
 	file.SetPathAndLocation("/w/in.txt", "file:///w/in.txt")
+
 	dir := &cwlcore.Directory{Basename: "d"}
 	dir.SetPathAndLocation("/w/d", "file:///w/d")
 
@@ -340,11 +341,11 @@ func TestExpressionToolPlansARemoteLocationLiteral(t *testing.T) {
 // plan remote entries but don't need real content.
 type memLiteralResolver struct{}
 
-func (memLiteralResolver) ResolveOutputFS(path string) (fs.FS, string, error) {
+func (memLiteralResolver) ResolveOutputFS(_ string) (fs.FS, string, error) {
 	return fstest.MapFS{"file": &fstest.MapFile{Data: nil}}, "file", nil
 }
 
-func (memLiteralResolver) ResolveOutputDirFS(path string) (fs.FS, error) {
+func (memLiteralResolver) ResolveOutputDirFS(_ string) (fs.FS, error) {
 	return fstest.MapFS{}, nil
 }
 

@@ -247,7 +247,12 @@ var cltScalarTypesCases = []cltCase{
 			},
 		},
 		inputs: map[string]any{
-			"f": func() *cwlcore.File { f := &cwlcore.File{}; f.SetPathAndLocation("/staged/a.txt", "file:///elsewhere/a.txt"); return f }(),
+			"f": func() *cwlcore.File {
+				f := &cwlcore.File{}
+				f.SetPathAndLocation("/staged/a.txt", "file:///elsewhere/a.txt")
+
+				return f
+			}(),
 		},
 		want: []string{"t", "-f", "/staged/a.txt"},
 	},

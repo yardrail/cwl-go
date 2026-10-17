@@ -1,3 +1,4 @@
+//nolint:revive // file-length-limit: test file consolidates all pathmap tests
 package cwlexec
 
 import (
@@ -764,6 +765,7 @@ func TestPathOfIgnoresLocation(t *testing.T) {
 	}
 }
 
+//nolint:cyclop,revive // subtests are clearer in one function
 func TestNormalizeValuePaths(t *testing.T) {
 	t.Parallel()
 

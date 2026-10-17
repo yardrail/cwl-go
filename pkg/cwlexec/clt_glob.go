@@ -567,9 +567,15 @@ func outNewFile(local string) *cwlcore.File {
 	parts := outSplitName(basename)
 
 	file := &cwlcore.File{
-		Basename: basename,
-		Nameroot: parts.root,
-		Nameext:  parts.ext,
+		Node:           nil,
+		Basename:       basename,
+		Nameroot:       parts.root,
+		Nameext:        parts.ext,
+		Checksum:       "",
+		Format:         "",
+		Size:           cwlcore.OptInt{},
+		Contents:       cwlcore.OptString{},
+		SecondaryFiles: nil,
 	}
 	file.SetPath(local)
 

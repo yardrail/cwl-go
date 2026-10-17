@@ -126,12 +126,15 @@ func (c *outputCollector) retypeFile(object map[string]any) (*cwlcore.File, erro
 	parts := outSplitName(ref.basename)
 
 	file := &cwlcore.File{
-		Node:     nil,
-		Basename: ref.basename,
-		Nameroot: parts.root,
-		Nameext:  parts.ext,
-		Checksum: outTextField(object, outKeyChecksum),
-		Format:   outTextField(object, outKeyFormat),
+		Node:           nil,
+		Basename:       ref.basename,
+		Nameroot:       parts.root,
+		Nameext:        parts.ext,
+		Checksum:       outTextField(object, outKeyChecksum),
+		Format:         outTextField(object, outKeyFormat),
+		Size:           cwlcore.OptInt{},
+		Contents:       cwlcore.OptString{},
+		SecondaryFiles: nil,
 	}
 	file.SetPathAndLocation(ref.local, ref.location)
 

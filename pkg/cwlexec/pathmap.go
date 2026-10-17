@@ -513,14 +513,15 @@ func relocateFile(file *cwlcore.File, target string) *cwlcore.File {
 	parts := outSplitName(basename)
 
 	moved := &cwlcore.File{
-		Node:     file.Node,
-		Basename: basename,
-		Nameroot: parts.root,
-		Nameext:  parts.ext,
-		Checksum: file.Checksum,
-		Format:   file.Format,
-		Size:     file.Size,
-		Contents: file.Contents,
+		Node:           file.Node,
+		Basename:       basename,
+		Nameroot:       parts.root,
+		Nameext:        parts.ext,
+		Checksum:       file.Checksum,
+		Format:         file.Format,
+		Size:           file.Size,
+		Contents:       file.Contents,
+		SecondaryFiles: nil,
 	}
 	moved.SetPath(target)
 
@@ -556,6 +557,7 @@ func NormalizeValuePaths(value any) {
 		for _, item := range typed {
 			NormalizeValuePaths(item)
 		}
+	default:
 	}
 }
 
@@ -611,6 +613,7 @@ func relocateDirectory(dir *cwlcore.Directory, target string) *cwlcore.Directory
 	moved := &cwlcore.Directory{
 		Node:     dir.Node,
 		Basename: filepath.Base(target),
+		Listing:  nil,
 	}
 	moved.SetPath(target)
 

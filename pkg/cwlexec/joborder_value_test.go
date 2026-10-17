@@ -406,8 +406,8 @@ func TestAnyWalksNestedFilesystemObjects(t *testing.T) {
 		t.Fatalf("v[0] is %T, want *cwlcore.File", items[0])
 	}
 
-	if want := filepath.Join(fixtures, "files", "hello.txt"); file.Path != want {
-		t.Errorf("v[0].path = %q, want %q", file.Path, want)
+	if want := filepath.Join(fixtures, "files", "hello.txt"); file.Path() != want {
+		t.Errorf("v[0].path = %q, want %q", file.Path(), want)
 	}
 
 	if _, ok := items[1].(*cwlcore.Directory); !ok {

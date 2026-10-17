@@ -102,7 +102,7 @@ func TestCollectOutputsLeavesAListingUnreadWhenNothingAsks(t *testing.T) {
 			value := outWantDirectory(t, outCollect(t, tool, dir, 0))
 
 			assertDeepEqual(t, "basename", value.Basename, outNameTree)
-			assertDeepEqual(t, "path", value.Path, filepath.Join(dir, outNameTree))
+			assertDeepEqual(t, "path", value.Path(), filepath.Join(dir, outNameTree))
 
 			if value.Listing != nil {
 				t.Errorf("a binding that asked for nothing produced %v", outEntryNames(t, value.Listing))
@@ -461,7 +461,7 @@ func TestCollectOutputsOutputEvalReplacesTheValue(t *testing.T) {
 	// The globbed list is gone; what outputEval returned took its place, re-typed back into a
 	// File on the way out.
 	file := outWantFile(t, outputs, "second", "b.txt", outSumBeta, int64(len("beta")))
-	assertDeepEqual(t, "path", file.Path, filepath.Join(dir, "b.txt"))
+	assertDeepEqual(t, "path", file.Path(), filepath.Join(dir, "b.txt"))
 }
 
 func TestCollectOutputsOutputEvalCanReturnAnyValue(t *testing.T) {
@@ -570,7 +570,7 @@ func TestGlobbedSymlinkToAnInputIsRetrieved(t *testing.T) {
 	// The ordinary case, and the reason the rule names input directories at all: an input staged
 	// into the output directory is a link straight back out of it.
 	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0,
-		map[string]any{"f": &cwlcore.File{Path: target, Basename: "whale.txt"}},
+		map[string]any{"f": func() *cwlcore.File { f := &cwlcore.File{Basename: "whale.txt"}; f.SetPath(target); return f }()},
 		cwlcore.NewEvaluator(), cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -596,8 +596,8 @@ func TestAllowedRootsFromAnInputObject(t *testing.T) {
 	t.Parallel()
 
 	inputs := outExpressionObject(map[string]any{
-		"d":  &cwlcore.Directory{Path: "/in/tree"},
-		"fs": []any{&cwlcore.File{Path: "/in/reads/a.bam", Basename: "a.bam"}},
+		"d":  cwlcore.NewDirectoryAtPath("/in/tree"),
+		"fs": []any{func() *cwlcore.File { f := &cwlcore.File{Basename: "a.bam"}; f.SetPath("/in/reads/a.bam"); return f }()},
 
 		// A literal has nowhere to be yet, a plain record that happens to carry a `path` field is
 		// not a filesystem value, and a number is not an object: none of the three occupies a path.
@@ -615,10 +615,10 @@ func TestAllowedRootsFromAnInitialWorkDirListing(t *testing.T) {
 
 	tool := outStagingTool(cwlcore.NewInitialWorkDirListing(
 		[]cwlcore.InitialWorkDirEntry{
-			cwlcore.NewInitialWorkDirFile(&cwlcore.File{Path: "/src/a.txt"}),
-			cwlcore.NewInitialWorkDirDirectory(&cwlcore.Directory{Location: "file:///src/tree"}),
+			cwlcore.NewInitialWorkDirFile(cwlcore.NewFileAtPath("/src/a.txt")),
+			cwlcore.NewInitialWorkDirDirectory(func() *cwlcore.Directory { d := &cwlcore.Directory{}; d.SetLocation("file:///src/tree"); return d }()),
 			cwlcore.NewInitialWorkDirObjects([]cwlcore.FileOrDirectory{
-				&cwlcore.Directory{Path: "/src/nested"},
+				cwlcore.NewDirectoryAtPath("/src/nested"),
 
 				// A literal names no host path, so it contributes no root.
 				&cwlcore.File{Basename: "lit", Contents: cwlcore.NewOptString("hi")},
@@ -660,7 +660,7 @@ func TestGlobbedInitialWorkDirEntryIsRetrieved(t *testing.T) {
 	tool := outTestTool(outTestParam("#tool/l", outTypeFile, outGlobBinding("whale.txt")))
 	tool.Requirements = []cwlcore.ProcessRequirement{
 		&cwlcore.InitialWorkDirRequirement{Listing: cwlcore.NewInitialWorkDirListing(
-			[]cwlcore.InitialWorkDirEntry{cwlcore.NewInitialWorkDirFile(&cwlcore.File{Path: target})},
+			[]cwlcore.InitialWorkDirEntry{cwlcore.NewInitialWorkDirFile(cwlcore.NewFileAtPath(target))},
 		)},
 	}
 
@@ -687,7 +687,8 @@ func TestGlobbedStagedInputIsRetrieved(t *testing.T) {
 	// What an InitialWorkDirRequirement leaves behind: the input's own path is the link inside the
 	// output directory, and the link leads back out to wherever the input really lives. Rejecting
 	// that would reject every tool that names a staged input as one of its outputs.
-	staged := &cwlcore.File{Path: filepath.Join(dir, "staged.txt"), Basename: "staged.txt"}
+	staged := &cwlcore.File{Basename: "staged.txt"}
+	staged.SetPath(filepath.Join(dir, "staged.txt"))
 
 	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0, map[string]any{"f": staged},
 		cwlcore.NewEvaluator(), cwlcore.RuntimeContext{Outdir: dir})

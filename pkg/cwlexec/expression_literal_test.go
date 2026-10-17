@@ -78,17 +78,17 @@ func wantDirectory(t *testing.T, value any) *cwlcore.Directory {
 func assertFileOnDisk(t *testing.T, file *cwlcore.File, want string) {
 	t.Helper()
 
-	got, err := os.ReadFile(filepath.Clean(file.Path))
+	got, err := os.ReadFile(filepath.Clean(file.Path()))
 	if err != nil {
 		t.Fatalf("reading the materialized literal: %v", err)
 	}
 
 	if string(got) != want {
-		t.Fatalf("contents of %s = %q, want %q", file.Path, got, want)
+		t.Fatalf("contents of %s = %q, want %q", file.Path(), got, want)
 	}
 
-	if file.Location != "file://"+file.Path {
-		t.Fatalf("location = %q, want the file IRI of %q", file.Location, file.Path)
+	if file.Location() != "file://"+file.Path() {
+		t.Fatalf("location = %q, want the file IRI of %q", file.Location(), file.Path())
 	}
 }
 
@@ -133,8 +133,8 @@ func TestExpressionToolWritesAFileLiteral(t *testing.T) {
 		t.Fatalf("basename = %q, want the one the expression chose", file.Basename)
 	}
 
-	if file.Dirname != call.OutDir {
-		t.Fatalf("literal written to %q, want it in the invocation's output directory %q", file.Dirname, call.OutDir)
+	if file.Dirname() != call.OutDir {
+		t.Fatalf("literal written to %q, want it in the invocation's output directory %q", file.Dirname(), call.OutDir)
 	}
 
 	if !file.Size.IsSet() || file.Size.Int() != int64(len(helloLiteral)) {
@@ -194,11 +194,11 @@ func TestExpressionToolWritesADirectoryLiteral(t *testing.T) {
 	]}};}`, "file://"+existing))
 
 	dir := wantDirectory(t, runLiteralTool(t, call))
-	if filepath.Base(dir.Path) != "a_directory" {
-		t.Fatalf("path = %q, want a directory named after the literal", dir.Path)
+	if filepath.Base(dir.Path()) != "a_directory" {
+		t.Fatalf("path = %q, want a directory named after the literal", dir.Path())
 	}
 
-	assertIsDir(t, dir.Path)
+	assertIsDir(t, dir.Path())
 
 	if len(dir.Listing) != 3 {
 		t.Fatalf("listing = %#v, want the three entries the expression wrote", dir.Listing)
@@ -207,12 +207,12 @@ func TestExpressionToolWritesADirectoryLiteral(t *testing.T) {
 	entry := wantFile(t, dir.Listing[0])
 	assertFileOnDisk(t, entry, "inside")
 
-	if entry.Dirname != dir.Path {
-		t.Fatalf("entry written to %q, want it inside %q", entry.Dirname, dir.Path)
+	if entry.Dirname() != dir.Path() {
+		t.Fatalf("entry written to %q, want it inside %q", entry.Dirname(), dir.Path())
 	}
 
-	assertIsDir(t, wantDirectory(t, dir.Listing[1]).Path)
-	assertIsDir(t, wantDirectory(t, dir.Listing[2]).Path)
+	assertIsDir(t, wantDirectory(t, dir.Listing[1]).Path())
+	assertIsDir(t, wantDirectory(t, dir.Listing[2]).Path())
 }
 
 func TestExpressionToolWritesALiteralSecondaryFile(t *testing.T) {
@@ -231,7 +231,7 @@ func TestExpressionToolWritesALiteralSecondaryFile(t *testing.T) {
 	secondary := wantFile(t, file.SecondaryFiles[0])
 	assertFileOnDisk(t, secondary, "index")
 
-	if secondary.Dirname != file.Dirname {
+	if secondary.Dirname() != file.Dirname() {
 		t.Fatal("a secondary file must be written beside the file it belongs to")
 	}
 }
@@ -241,8 +241,10 @@ func TestExpressionToolWritesNothingWhenNoLiteralIsReturned(t *testing.T) {
 
 	// A File or Directory the expression passed through already has bytes on a filesystem, so
 	// there is nothing to create and nothing to put in the output directory.
-	file := &cwlcore.File{Location: "file:///w/in.txt", Path: "/w/in.txt", Basename: "in.txt"}
-	dir := &cwlcore.Directory{Location: "file:///w/d", Path: "/w/d", Basename: "d"}
+	file := &cwlcore.File{Basename: "in.txt"}
+	file.SetPathAndLocation("/w/in.txt", "file:///w/in.txt")
+	dir := &cwlcore.Directory{Basename: "d"}
+	dir.SetPathAndLocation("/w/d", "file:///w/d")
 
 	call := &StepCall{
 		StepID:       stepID,
@@ -266,7 +268,7 @@ func TestExpressionToolWritesNothingWhenNoLiteralIsReturned(t *testing.T) {
 		t.Fatalf("output %q = %#v, want the two-element list the expression produced", outPort, result.Outputs[outPort])
 	}
 
-	if wantFile(t, list[0]).Path != file.Path || wantDirectory(t, list[1]).Path != dir.Path {
+	if wantFile(t, list[0]).Path() != file.Path() || wantDirectory(t, list[1]).Path() != dir.Path() {
 		t.Fatalf("output %q = %#v, want the values that went in", outPort, list)
 	}
 

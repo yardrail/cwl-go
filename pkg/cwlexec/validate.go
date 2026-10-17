@@ -54,7 +54,7 @@ func validateOutputFile(f *cwlcore.File) error {
 		return nil
 	}
 
-	if err := validateSchemeConsistency(f.Path, f.Location, f.Basename); err != nil {
+	if err := validateSchemeConsistency(f.Path(), f.Location(), f.Basename); err != nil {
 		return err
 	}
 
@@ -72,7 +72,7 @@ func validateOutputDir(d *cwlcore.Directory) error {
 		return nil
 	}
 
-	if err := validateSchemeConsistency(d.Path, d.Location, d.Basename); err != nil {
+	if err := validateSchemeConsistency(d.Path(), d.Location(), d.Basename); err != nil {
 		return err
 	}
 

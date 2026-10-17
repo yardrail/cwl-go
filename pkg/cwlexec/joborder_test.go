@@ -242,8 +242,8 @@ func TestTheSameJobBytesResolveDifferentlyFromDifferentDirectories(t *testing.T)
 			}
 
 			file := jobFileValue(t, values, "f")
-			if file.Path != filepath.Join(dir, "data.txt") {
-				t.Errorf("path = %q, want it under %q", file.Path, dir)
+			if file.Path() != filepath.Join(dir, "data.txt") {
+				t.Errorf("path = %q, want it under %q", file.Path(), dir)
 			}
 
 			if file.Size.Int() != int64(len(want)) {
@@ -271,12 +271,12 @@ func jobWriteFile(t *testing.T, name, content string) string {
 func jobAssertLocatedAt(t *testing.T, file *cwlcore.File, want string) {
 	t.Helper()
 
-	if file.Path != want {
-		t.Errorf("path = %q, want %q", file.Path, want)
+	if file.Path() != want {
+		t.Errorf("path = %q, want %q", file.Path(), want)
 	}
 
-	if file.Location != "file://"+want {
-		t.Errorf("location = %q, want %q", file.Location, "file://"+want)
+	if file.Location() != "file://"+want {
+		t.Errorf("location = %q, want %q", file.Location(), "file://"+want)
 	}
 }
 
@@ -535,8 +535,8 @@ func TestDefaultsResolveAgainstTheProcessDocument(t *testing.T) {
 	values := jobMustParse(t, t.TempDir(), "{}", tool)
 
 	file := jobFileValue(t, values, "message")
-	if want := filepath.Join(fixtures, "files", "hello.txt"); file.Path != want {
-		t.Errorf("path = %q, want %q", file.Path, want)
+	if want := filepath.Join(fixtures, "files", "hello.txt"); file.Path() != want {
+		t.Errorf("path = %q, want %q", file.Path(), want)
 	}
 }
 

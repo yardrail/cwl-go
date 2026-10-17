@@ -247,7 +247,7 @@ var cltScalarTypesCases = []cltCase{
 			},
 		},
 		inputs: map[string]any{
-			"f": &cwlcore.File{Location: "file:///elsewhere/a.txt", Path: "/staged/a.txt"},
+			"f": func() *cwlcore.File { f := &cwlcore.File{}; f.SetPathAndLocation("/staged/a.txt", "file:///elsewhere/a.txt"); return f }(),
 		},
 		want: []string{"t", "-f", "/staged/a.txt"},
 	},
@@ -259,7 +259,7 @@ var cltScalarTypesCases = []cltCase{
 				cltInput("d", cltDir, cltPrefixed(0, "-d")),
 			},
 		},
-		inputs: map[string]any{"d": &cwlcore.Directory{Path: "/staged/dir"}},
+		inputs: map[string]any{"d": cwlcore.NewDirectoryAtPath("/staged/dir")},
 		want:   []string{"t", "-d", "/staged/dir"},
 	},
 	{

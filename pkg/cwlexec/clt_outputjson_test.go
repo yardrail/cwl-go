@@ -55,8 +55,8 @@ func TestLoadOutputJSONNormalizesAFile(t *testing.T) {
 		t.Fatalf("output %q = %#v, want a File", outPort, outputs[outPort])
 	}
 
-	if file.Path != filepath.Join(outdir, ojMadeName) {
-		t.Errorf("path = %q, want it resolved against the output directory", file.Path)
+	if file.Path() != filepath.Join(outdir, ojMadeName) {
+		t.Errorf("path = %q, want it resolved against the output directory", file.Path())
 	}
 
 	if file.Checksum != outSumHello || !file.Size.IsSet() {
@@ -234,7 +234,7 @@ func TestLoadOutputJSONAcceptsAPathAnInputOccupies(t *testing.T) {
 	// where it really lives. That is outside the output directory and is not an escape, which is
 	// why the check draws on the invocation's inputs rather than on the directory alone.
 	outputs, err := LoadOutputJSON(ojTool(), outdir, NewLocalDirFS(outdir),
-		map[string]any{"f": &cwlcore.File{Path: input, Basename: "whale.txt"}})
+		map[string]any{"f": func() *cwlcore.File { f := &cwlcore.File{Basename: "whale.txt"}; f.SetPath(input); return f }()})
 	if err != nil {
 		t.Fatalf("LoadOutputJSON: %v", err)
 	}

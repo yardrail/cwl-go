@@ -18,19 +18,9 @@ func TestOutRemeasureFS(t *testing.T) {
 	}}
 
 	file := &cwlcore.File{
-		Node:           nil,
-		Location:       "",
-		Path:           fakeOutdir + "/" + testDataBin,
-		Basename:       testDataBin,
-		Dirname:        "",
-		Nameroot:       "",
-		Nameext:        "",
-		Checksum:       "",
-		Format:         "",
-		Size:           cwlcore.OptInt{},
-		Contents:       cwlcore.OptString{},
-		SecondaryFiles: nil,
+		Basename: testDataBin,
 	}
+	file.SetPath(fakeOutdir + "/" + testDataBin)
 
 	outRemeasure(file, mfs, fakeOutdir)
 
@@ -48,19 +38,9 @@ func TestOutRemeasureSkipsPathOutsideOutdir(t *testing.T) {
 	t.Parallel()
 
 	file := &cwlcore.File{
-		Node:           nil,
-		Location:       "",
-		Path:           "/somewhere/else/" + testDataBin,
-		Basename:       testDataBin,
-		Dirname:        "",
-		Nameroot:       "",
-		Nameext:        "",
-		Checksum:       "",
-		Format:         "",
-		Size:           cwlcore.OptInt{},
-		Contents:       cwlcore.OptString{},
-		SecondaryFiles: nil,
+		Basename: testDataBin,
 	}
+	file.SetPath("/somewhere/else/" + testDataBin)
 
 	mfs := mapWriteFS{fstest.MapFS{}}
 	outRemeasure(file, mfs, fakeOutdir)

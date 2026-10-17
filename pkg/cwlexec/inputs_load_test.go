@@ -54,7 +54,10 @@ func writeFile(t *testing.T, name string, content []byte) *cwlcore.File {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	return &cwlcore.File{Location: "file://" + local, Path: local, Basename: name}
+	f := &cwlcore.File{Basename: name}
+	f.SetPathAndLocation(local, "file://"+local)
+
+	return f
 }
 
 // runLoading runs spec with an upstream value of upstream and returns what reached the sink.
@@ -191,7 +194,8 @@ func TestResolveInputsPassesThroughValuesLoadContentsDoesNotApplyTo(t *testing.T
 	t.Parallel()
 
 	literal := &cwlcore.File{Basename: "lit.txt", Contents: cwlcore.NewOptString("already here")}
-	remote := &cwlcore.File{Location: "https://example.org/far.txt", Basename: "far.txt"}
+	remote := &cwlcore.File{Basename: "far.txt"}
+	remote.SetLocation("https://example.org/far.txt")
 
 	cases := []struct {
 		upstream any
@@ -248,7 +252,7 @@ func TestResolveInputsRejectsAnUnusableLoadContentsRead(t *testing.T) {
 
 				gone := writeFile(t, "gone.txt", []byte("x"))
 
-				err := os.Remove(gone.Path)
+				err := os.Remove(gone.Path())
 				if err != nil {
 					t.Fatalf("Remove: %v", err)
 				}
@@ -315,7 +319,10 @@ func makeDir(t *testing.T, entries ...string) *cwlcore.Directory {
 		}
 	}
 
-	return &cwlcore.Directory{Location: "file://" + local, Path: local, Basename: "d"}
+	d := &cwlcore.Directory{Basename: "d"}
+	d.SetPathAndLocation(local, "file://"+local)
+
+	return d
 }
 
 // reopen restores a directory the test made unreadable, so the temporary tree can be removed.
@@ -419,7 +426,8 @@ func TestResolveInputsKeepsASuppliedListing(t *testing.T) {
 	supplied := makeDir(t, dirEntry)
 	supplied.Listing = []cwlcore.FileOrDirectory{&cwlcore.File{Basename: "written by hand"}}
 
-	remote := &cwlcore.Directory{Location: "https://example.org/d", Basename: "d"}
+	remote := &cwlcore.Directory{Basename: "d"}
+	remote.SetLocation("https://example.org/d")
 
 	cases := []struct {
 		dir  *cwlcore.Directory
@@ -484,7 +492,7 @@ func TestStepReadsADirectoryAsItStandsRatherThanAsItWasPublished(t *testing.T) {
 
 		published := outWantDirectory(t, outCollect(t, tool, local, 0))
 
-		writeErr := os.WriteFile(filepath.Join(published.Path, dirEntry), nil, 0o600)
+		writeErr := os.WriteFile(filepath.Join(published.Path(), dirEntry), nil, 0o600)
 		if writeErr != nil {
 			return Result{}, writeErr
 		}
@@ -529,7 +537,7 @@ func TestResolveInputsRejectsAnUnreadableDirectory(t *testing.T) {
 
 				gone := makeDir(t)
 
-				err := os.Remove(gone.Path)
+				err := os.Remove(gone.Path())
 				if err != nil {
 					t.Fatalf("Remove: %v", err)
 				}
@@ -544,12 +552,12 @@ func TestResolveInputsRejectsAnUnreadableDirectory(t *testing.T) {
 
 				shut := makeDir(t, dirEntry)
 
-				err := os.Chmod(shut.Path, 0o000)
+				err := os.Chmod(shut.Path(), 0o000)
 				if err != nil {
 					t.Fatalf("Chmod: %v", err)
 				}
 
-				t.Cleanup(func() { reopen(t, shut.Path) })
+				t.Cleanup(func() { reopen(t, shut.Path()) })
 
 				return shut
 			},
@@ -648,7 +656,7 @@ func TestResolveInputsNormalizesAFileStepDefault(t *testing.T) {
 		t.Fatalf("step input = %#v, want a *cwlcore.File", got)
 	}
 
-	assertDeepEqual(t, "path", file.Path, filepath.Join(docDir, whaleFile))
+	assertDeepEqual(t, "path", file.Path(), filepath.Join(docDir, whaleFile))
 	assertDeepEqual(t, "checksum", file.Checksum, outChecksumOf([]byte(whaleText)))
 }
 

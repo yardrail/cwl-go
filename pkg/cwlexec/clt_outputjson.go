@@ -280,11 +280,11 @@ func bindOutputJSON(collector *outputCollector, object map[string]any) (map[stri
 // would make returning your own input an error, which is not what it is about.
 func (c *outputCollector) checkPublishable(value any) error {
 	if file, ok := value.(*cwlcore.File); ok && file != nil {
-		return c.checkPath(file.Path, file.SecondaryFiles)
+		return c.checkPath(file.Path(), file.SecondaryFiles)
 	}
 
 	if dir, ok := value.(*cwlcore.Directory); ok && dir != nil {
-		return c.checkPath(dir.Path, dir.Listing)
+		return c.checkPath(dir.Path(), dir.Listing)
 	}
 
 	switch typed := value.(type) {

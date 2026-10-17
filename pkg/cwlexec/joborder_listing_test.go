@@ -144,8 +144,8 @@ func TestAReadListingCarriesTheFieldsAFileValueMustHave(t *testing.T) {
 		t.Fatalf("listing[0] is %T, want *cwlcore.File", dir.Listing[0])
 	}
 
-	if want := filepath.Join(fixtures, "dir", "one.txt"); file.Path != want {
-		t.Errorf("path = %q, want %q", file.Path, want)
+	if want := filepath.Join(fixtures, "dir", "one.txt"); file.Path() != want {
+		t.Errorf("path = %q, want %q", file.Path(), want)
 	}
 
 	// A listed File goes through the same measurement an explicitly supplied one does, so an
@@ -200,8 +200,8 @@ func TestADirectoryLiteralIsNotWalked(t *testing.T) {
 	dir := jobDirValue(t, jobMustParse(t, jobFixtures(t),
 		"d: {class: Directory, basename: made_up, listing: []}", jobListingTool(cwlcore.LoadListingDeep, "")))
 
-	if dir.Path != "" {
-		t.Errorf("path = %q, want it empty for a literal", dir.Path)
+	if dir.Path() != "" {
+		t.Errorf("path = %q, want it empty for a literal", dir.Path())
 	}
 }
 

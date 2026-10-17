@@ -136,10 +136,10 @@ func fileObject(file *File) map[string]any {
 	object := make(map[string]any, fileFieldCount)
 	object[keyClass] = ClassFile
 
-	putNonEmpty(object, keyLocation, file.Location)
-	putNonEmpty(object, keyPath, file.Path)
+	putNonEmpty(object, keyLocation, file.location)
+	putNonEmpty(object, keyPath, file.path)
 	putNameFields(object, file)
-	putNonEmpty(object, keyDirname, file.Dirname)
+	putNonEmpty(object, keyDirname, file.dirname)
 	putNonEmpty(object, keyChecksum, file.Checksum)
 	putNonEmpty(object, keyFormat, file.Format)
 
@@ -168,8 +168,8 @@ func directoryObject(dir *Directory) map[string]any {
 	object := make(map[string]any, directoryFieldCount)
 	object[keyClass] = ClassDirectory
 
-	putNonEmpty(object, keyLocation, dir.Location)
-	putNonEmpty(object, keyPath, dir.Path)
+	putNonEmpty(object, keyLocation, dir.location)
+	putNonEmpty(object, keyPath, dir.path)
 	putNonEmpty(object, keyBasename, dir.Basename)
 
 	if dir.Listing != nil {
@@ -285,10 +285,10 @@ func newFileValue(object map[string]any) (any, error) {
 
 	file := &File{
 		Node:           nil,
-		Location:       reader.text(keyLocation),
-		Path:           reader.text(keyPath),
+		location:       reader.text(keyLocation),
+		path:           reader.text(keyPath),
 		Basename:       reader.text(keyBasename),
-		Dirname:        reader.text(keyDirname),
+		dirname:        reader.text(keyDirname),
 		Nameroot:       reader.text(keyNameroot),
 		Nameext:        reader.text(keyNameext),
 		Checksum:       reader.text(keyChecksum),
@@ -311,8 +311,8 @@ func newDirectoryValue(object map[string]any) (any, error) {
 
 	dir := &Directory{
 		Node:     nil,
-		Location: reader.text(keyLocation),
-		Path:     reader.text(keyPath),
+		location: reader.text(keyLocation),
+		path:     reader.text(keyPath),
 		Basename: reader.text(keyBasename),
 		Listing:  reader.entries(keyListing),
 	}

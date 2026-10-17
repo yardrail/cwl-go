@@ -152,12 +152,9 @@ func TestOutFillListingsMapFS(t *testing.T) {
 	}}
 
 	dir := &cwlcore.Directory{
-		Node:     nil,
-		Location: "file://" + fakeOutdir + "/sub",
-		Path:     fakeOutdir + "/sub",
 		Basename: "sub",
-		Listing:  nil,
 	}
+	dir.SetPathAndLocation(fakeOutdir+"/sub", "file://"+fakeOutdir+"/sub")
 
 	outFillListings(dir, mfs, fakeOutdir)
 
@@ -219,7 +216,7 @@ func TestCollectOutputsMapFS(t *testing.T) {
 	wantChecksum := outChecksumOf(content)
 	file := outWantFile(t, outputs, "out", testResultName, wantChecksum, int64(len(content)))
 
-	if file.Path != "/virtual/out/"+testResultName {
-		t.Errorf("path = %q, want /virtual/out/%s", file.Path, testResultName)
+	if file.Path() != "/virtual/out/"+testResultName {
+		t.Errorf("path = %q, want /virtual/out/%s", file.Path(), testResultName)
 	}
 }

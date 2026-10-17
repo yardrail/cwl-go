@@ -192,10 +192,10 @@ func isLiteral(value cwlcore.FileOrDirectory) bool {
 
 // isFileLiteral reports whether a File has no location/path and has contents set.
 func isFileLiteral(file *cwlcore.File) bool {
-	return file != nil && file.Location == "" && file.Path == "" && file.Contents.IsSet()
+	return file != nil && file.Location() == "" && file.Path() == "" && file.Contents.IsSet()
 }
 
 // isDirectoryLiteral reports whether a Directory has no location/path and has a non-nil listing.
 func isDirectoryLiteral(dir *cwlcore.Directory) bool {
-	return dir != nil && dir.Location == "" && dir.Path == "" && dir.Listing != nil
+	return dir != nil && dir.Location() == "" && dir.Path() == "" && dir.Listing != nil
 }

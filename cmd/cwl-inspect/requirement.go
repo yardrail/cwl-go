@@ -214,12 +214,12 @@ func listingEntry(entry cwlcore.InitialWorkDirEntry) any {
 
 	file := entry.File()
 	if file != nil {
-		return cwlcli.NewObject().Set("class", file.Class()).SetString("location", file.Location)
+		return cwlcli.NewObject().Set("class", file.Class()).SetString("location", file.Location())
 	}
 
 	directory := entry.Directory()
 	if directory != nil {
-		return cwlcli.NewObject().Set("class", directory.Class()).SetString("location", directory.Location)
+		return cwlcli.NewObject().Set("class", directory.Class()).SetString("location", directory.Location())
 	}
 
 	return entry.String()

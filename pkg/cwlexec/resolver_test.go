@@ -75,7 +75,7 @@ func (m *mockRewriterInvocation) RewriteOutputPaths(outputs map[string]any) map[
 		}
 
 		clone := *file
-		clone.Path = m.prefix + "/" + filepath.Base(file.Path)
+		clone.SetPath(m.prefix + "/" + filepath.Base(file.Path()))
 		rewritten[k] = &clone
 	}
 
@@ -93,7 +93,7 @@ func TestOutputRewriterTypeAssertion(t *testing.T) {
 	}
 
 	outputs := map[string]any{
-		"result": &cwlcore.File{Path: "/tmp/cwl-out-123/result.mp4"},
+		"result": cwlcore.NewFileAtPath("/tmp/cwl-out-123/result.mp4"),
 	}
 
 	rewritten := rw.RewriteOutputPaths(outputs)
@@ -103,8 +103,8 @@ func TestOutputRewriterTypeAssertion(t *testing.T) {
 		t.Fatal("rewritten result is not a *cwlcore.File")
 	}
 
-	if file.Path != "s3://bucket/runs/1/out/result.mp4" {
-		t.Errorf("rewritten path = %q, want s3 path", file.Path)
+	if file.Path() != "s3://bucket/runs/1/out/result.mp4" {
+		t.Errorf("rewritten path = %q, want s3 path", file.Path())
 	}
 }
 

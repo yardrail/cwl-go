@@ -65,16 +65,16 @@ func TestContainerOutputsAreNotRootOwned(t *testing.T) {
 	// remove the directory it is in.
 	file := execOutFile(t, execSucceed(t, ctrRunCall(t, ctrWriteTool(), ctrPulled())))
 
-	info, err := os.Stat(file.Path)
+	info, err := os.Stat(file.Path())
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
 
 	if info.Size() == 0 {
-		t.Errorf("%s is empty, want the container's output", file.Path)
+		t.Errorf("%s is empty, want the container's output", file.Path())
 	}
 
-	err = os.Remove(file.Path)
+	err = os.Remove(file.Path())
 	if err != nil {
 		t.Errorf("removing a container-written output: %v", err)
 	}
@@ -93,12 +93,12 @@ func TestDockerOutputDirectoryOverrides(t *testing.T) {
 	tool := execTool([]string{"touch", ctrOtherDir + "/thing"}, execFileOut("thing"))
 	file := execOutFile(t, execSucceed(t, ctrRunCall(t, tool, declared)))
 
-	if filepath.Base(file.Path) != "thing" {
-		t.Errorf("path = %q, want the file the tool touched", file.Path)
+	if filepath.Base(file.Path()) != "thing" {
+		t.Errorf("path = %q, want the file the tool touched", file.Path())
 	}
 
-	if strings.HasPrefix(file.Path, ctrOtherDir) {
-		t.Errorf("path = %q, want a path on this host rather than the container's", file.Path)
+	if strings.HasPrefix(file.Path(), ctrOtherDir) {
+		t.Errorf("path = %q, want a path on this host rather than the container's", file.Path())
 	}
 }
 

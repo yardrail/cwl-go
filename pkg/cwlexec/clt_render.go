@@ -295,9 +295,9 @@ func isRecordValue(value any) bool {
 func asFileLike(value any) (fileLike, bool) {
 	switch typed := value.(type) {
 	case *cwlcore.File:
-		return fileLike{class: cwlcore.ClassFile, path: typed.Path}, true
+		return fileLike{class: cwlcore.ClassFile, path: typed.Path()}, true
 	case *cwlcore.Directory:
-		return fileLike{class: cwlcore.ClassDirectory, path: typed.Path}, true
+		return fileLike{class: cwlcore.ClassDirectory, path: typed.Path()}, true
 	default:
 	}
 

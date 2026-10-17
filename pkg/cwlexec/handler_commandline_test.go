@@ -48,8 +48,8 @@ func TestCommandLineToolRunsAndCollectsAFile(t *testing.T) {
 	execWantContent(t, outputs, execGreeting)
 
 	file := execOutFile(t, outputs)
-	if filepath.Dir(file.Path) != call.OutDir {
-		t.Errorf("output is at %q, want it inside the allocated output directory %q", file.Path, call.OutDir)
+	if filepath.Dir(file.Path()) != call.OutDir {
+		t.Errorf("output is at %q, want it inside the allocated output directory %q", file.Path(), call.OutDir)
 	}
 }
 
@@ -64,13 +64,13 @@ func TestCommandLineToolAllocatesItsOwnDirectories(t *testing.T) {
 
 	file := execOutFile(t, execSucceed(t, call))
 
-	if !filepath.IsAbs(file.Path) {
-		t.Fatalf("output path %q is not absolute", file.Path)
+	if !filepath.IsAbs(file.Path()) {
+		t.Fatalf("output path %q is not absolute", file.Path())
 	}
 
-	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(file.Path)) })
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(file.Path())) })
 
-	if got := execRead(t, file.Path); got != execGreeting {
+	if got := execRead(t, file.Path()); got != execGreeting {
 		t.Errorf("output holds %q, want %q", got, execGreeting)
 	}
 }
@@ -284,7 +284,7 @@ func TestCommandLineToolEnvironmentIsNotInherited(t *testing.T) {
 	})
 
 	file := execOutFile(t, execSucceed(t, call))
-	fields := strings.Fields(execRead(t, file.Path))
+	fields := strings.Fields(execRead(t, file.Path()))
 
 	want := []string{execEnvValue, call.OutDir, call.TmpDir}
 	if !slices.Equal(fields, want) {

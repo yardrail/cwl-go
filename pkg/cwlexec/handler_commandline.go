@@ -500,7 +500,7 @@ func (i *invocation) shortcutStdin() string {
 
 		file, ok := i.inputs[ShortName(param.ID())].(*cwlcore.File)
 		if ok {
-			return file.Path
+			return file.Path()
 		}
 	}
 

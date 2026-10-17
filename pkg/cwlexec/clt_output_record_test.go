@@ -487,7 +487,7 @@ func TestCollectOutputsRecordOutputEvalProducesTheRecord(t *testing.T) {
 	), &cwlcore.CommandOutputBinding{OutputEval: outRefSrc})
 
 	inputs := map[string]any{outNameSrc: map[string]any{
-		outFieldLeft: &cwlcore.File{Path: filepath.Join(dir, outNameA), Basename: outNameA},
+		outFieldLeft: func() *cwlcore.File { f := &cwlcore.File{Basename: outNameA}; f.SetPath(filepath.Join(dir, outNameA)); return f }(),
 		outFieldText: cltAlpha,
 	}}
 

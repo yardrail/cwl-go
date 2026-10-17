@@ -29,10 +29,10 @@ const (
 // list that mixes a File and a Directory so the recursion is exercised.
 func testFile() *File {
 	return &File{
-		Location: "file:///data/reads.bam",
-		Path:     readsPath,
+		location: "file:///data/reads.bam",
+		path:     readsPath,
 		Basename: readsName,
-		Dirname:  "/data",
+		dirname:  "/data",
 		Nameroot: readsRoot,
 		Nameext:  readsExt,
 		Checksum: "sha1$deadbeef",
@@ -40,10 +40,10 @@ func testFile() *File {
 		Size:     NewOptInt(1024),
 		Contents: NewOptString(someText),
 		SecondaryFiles: []FileOrDirectory{
-			&File{Basename: indexName, Path: "/data/" + indexName, Nameroot: readsName, Nameext: indexExt},
+			&File{Basename: indexName, path: "/data/" + indexName, Nameroot: readsName, Nameext: indexExt},
 			&Directory{
 				Basename: auxName,
-				Path:     "/data/" + auxName,
+				path:     "/data/" + auxName,
 				Listing:  []FileOrDirectory{&File{Basename: notesName, Nameroot: notesRoot, Nameext: notesExt}},
 			},
 		},
@@ -295,7 +295,7 @@ func TestFromExpressionValueRoundTrip(t *testing.T) {
 		{name: "a full File", value: testFile()},
 		{name: "a bare File", value: &File{Basename: readsName}},
 		{name: "an empty File", value: &File{Basename: readsName, Size: NewOptInt(0), Contents: NewOptString("")}},
-		{name: "an unread Directory", value: &Directory{Basename: auxName, Path: "/d"}},
+		{name: "an unread Directory", value: &Directory{Basename: auxName, path: "/d"}},
 		{name: "an empty Directory", value: &Directory{Basename: auxName, Listing: make([]FileOrDirectory, 0)}},
 		{
 			name:  "a File with no secondary files",
@@ -304,7 +304,7 @@ func TestFromExpressionValueRoundTrip(t *testing.T) {
 		{name: "a record around a File", value: map[string]any{innerKey: &File{Basename: notesName}}},
 		{
 			name:  "a bare top-level list",
-			value: []any{testFile(), &Directory{Basename: auxName, Path: "/data/" + auxName}},
+			value: []any{testFile(), &Directory{Basename: auxName, path: "/data/" + auxName}},
 		},
 	}
 

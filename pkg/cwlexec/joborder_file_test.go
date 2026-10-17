@@ -52,8 +52,8 @@ func jobAssertNames(t *testing.T, file *cwlcore.File, dirname string, want *jobF
 		t.Errorf("basename = %q, want %q", file.Basename, want.basename)
 	}
 
-	if file.Dirname != dirname {
-		t.Errorf("dirname = %q, want %q", file.Dirname, dirname)
+	if file.Dirname() != dirname {
+		t.Errorf("dirname = %q, want %q", file.Dirname(), dirname)
 	}
 
 	if file.Nameroot != want.nameroot {
@@ -167,12 +167,12 @@ func TestFileAbsoluteLocationIsLeftAlone(t *testing.T) {
 	values := jobMustParse(t, t.TempDir(), "f: {class: File, location: 'file://"+absolute+"'}", jobFileTool())
 
 	file := jobFileValue(t, values, "f")
-	if file.Path != absolute {
-		t.Errorf("path = %q, want %q", file.Path, absolute)
+	if file.Path() != absolute {
+		t.Errorf("path = %q, want %q", file.Path(), absolute)
 	}
 
-	if file.Location != "file://"+absolute {
-		t.Errorf("location = %q, want %q", file.Location, "file://"+absolute)
+	if file.Location() != "file://"+absolute {
+		t.Errorf("location = %q, want %q", file.Location(), "file://"+absolute)
 	}
 }
 
@@ -186,8 +186,8 @@ func TestFilePathWinsOverLocationAndIsMadeAbsolute(t *testing.T) {
 	values := jobMustParse(t, fixtures, src, jobFileTool())
 
 	file := jobFileValue(t, values, "f")
-	if want := filepath.Join(fixtures, "files", "hello.txt"); file.Path != want {
-		t.Errorf("path = %q, want %q", file.Path, want)
+	if want := filepath.Join(fixtures, "files", "hello.txt"); file.Path() != want {
+		t.Errorf("path = %q, want %q", file.Path(), want)
 	}
 
 	if file.Checksum != jobSumHello {
@@ -204,8 +204,8 @@ func TestFileAbsolutePathIsCleanedNotRebased(t *testing.T) {
 	values := jobMustParse(t, t.TempDir(), "f: {class: File, path: '"+messy+"'}", jobFileTool())
 
 	file := jobFileValue(t, values, "f")
-	if want := filepath.Join(fixtures, "files", "hello.txt"); file.Path != want {
-		t.Errorf("path = %q, want %q", file.Path, want)
+	if want := filepath.Join(fixtures, "files", "hello.txt"); file.Path() != want {
+		t.Errorf("path = %q, want %q", file.Path(), want)
 	}
 }
 
@@ -217,16 +217,16 @@ func TestFileWithARemoteLocationIsCarriedThroughUnmeasured(t *testing.T) {
 	values := jobMustParse(t, t.TempDir(), src, jobFileTool())
 
 	file := jobFileValue(t, values, "f")
-	if file.Location != "https://example.com/data/reads.fastq.gz" {
-		t.Errorf("location = %q, want the IRI untouched", file.Location)
+	if file.Location() != "https://example.com/data/reads.fastq.gz" {
+		t.Errorf("location = %q, want the IRI untouched", file.Location())
 	}
 
-	if file.Path != "" {
-		t.Errorf("path = %q, want empty: the resource is not on this filesystem", file.Path)
+	if file.Path() != "" {
+		t.Errorf("path = %q, want empty: the resource is not on this filesystem", file.Path())
 	}
 
-	if file.Dirname != "" {
-		t.Errorf("dirname = %q, want empty", file.Dirname)
+	if file.Dirname() != "" {
+		t.Errorf("dirname = %q, want empty", file.Dirname())
 	}
 
 	if file.Basename != "reads.fastq.gz" {
@@ -257,8 +257,8 @@ func TestFileLocationsAreEscapedAndUnescaped(t *testing.T) {
 		t.Errorf("basename = %q, want %q", file.Basename, name)
 	}
 
-	if !strings.HasSuffix(file.Location, "/a%20file.txt") {
-		t.Errorf("location = %q, want the space re-escaped", file.Location)
+	if !strings.HasSuffix(file.Location(), "/a%20file.txt") {
+		t.Errorf("location = %q, want the space re-escaped", file.Location())
 	}
 }
 
@@ -278,8 +278,8 @@ func TestFileLiteralCarriesContentsSizeAndChecksum(t *testing.T) {
 		t.Errorf("contents = %q, want empty", file.Contents.Value())
 	}
 
-	if file.Location != "" || file.Path != "" {
-		t.Errorf("a literal must have no location or path, got %q / %q", file.Location, file.Path)
+	if file.Location() != "" || file.Path() != "" {
+		t.Errorf("a literal must have no location or path, got %q / %q", file.Location(), file.Path())
 	}
 
 	if !file.Size.IsSet() || file.Size.Int() != 0 {
@@ -599,8 +599,8 @@ func TestDirectoryWithoutAListingKeepsItNil(t *testing.T) {
 		t.Errorf("listing = %v, want nil: an absent listing is read from the location later", dir.Listing)
 	}
 
-	if want := filepath.Join(fixtures, "dir"); dir.Path != want {
-		t.Errorf("path = %q, want %q", dir.Path, want)
+	if want := filepath.Join(fixtures, "dir"); dir.Path() != want {
+		t.Errorf("path = %q, want %q", dir.Path(), want)
 	}
 
 	if dir.Basename != "dir" {
@@ -662,8 +662,8 @@ func TestDirectoryLiteralNeedsNoLocation(t *testing.T) {
 		t.Errorf("listing = %v, want empty", dir.Listing)
 	}
 
-	if dir.Location != "" || dir.Path != "" {
-		t.Errorf("a directory literal must have no location or path, got %q / %q", dir.Location, dir.Path)
+	if dir.Location() != "" || dir.Path() != "" {
+		t.Errorf("a directory literal must have no location or path, got %q / %q", dir.Location(), dir.Path())
 	}
 }
 

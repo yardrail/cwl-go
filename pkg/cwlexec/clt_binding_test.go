@@ -144,7 +144,7 @@ var cltArraysCases = []cltCase{
 			},
 		},
 		inputs: map[string]any{
-			"fs": []any{&cwlcore.File{Path: "/a"}, &cwlcore.File{Path: "/b"}},
+			"fs": []any{cwlcore.NewFileAtPath("/a"), cwlcore.NewFileAtPath("/b")},
 		},
 		want: []string{"-f", "/a", "/b"},
 	},
@@ -578,7 +578,7 @@ func TestBuildCommandLineErrorNamesItsOrigin(t *testing.T) {
 	}
 
 	_, err := BuildCommandLine(tool, map[string]any{
-		cltRec: map[string]any{"f": &cwlcore.File{Location: "file:///a.txt"}},
+		cltRec: map[string]any{"f": func() *cwlcore.File { f := &cwlcore.File{}; f.SetLocation("file:///a.txt"); return f }()},
 	}, cltEval(), nil, cwlcore.RuntimeContext{})
 	if err == nil {
 		t.Fatal("BuildCommandLine: want an error for a File with no path")

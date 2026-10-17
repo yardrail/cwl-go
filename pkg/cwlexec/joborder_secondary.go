@@ -104,7 +104,7 @@ func (s *joSecondaryPass) record(
 func (s *joSecondaryPass) file(
 	ctx context.Context, primary *cwlcore.File, schemas []cwlcore.SecondaryFileSchema, path string,
 ) *salad.Error {
-	if primary == nil || len(schemas) == 0 || primary.Path == "" {
+	if primary == nil || len(schemas) == 0 || primary.Path() == "" {
 		return nil
 	}
 
@@ -312,7 +312,7 @@ type joSecondaryRef struct {
 
 // joCandidateRef resolves one candidate to the file it names.
 func joCandidateRef(candidate any, primary *cwlcore.File, path string) (joSecondaryRef, *salad.Error) {
-	dir := outDirname(primary.Path)
+	dir := outDirname(primary.Path())
 
 	switch typed := candidate.(type) {
 	case string:

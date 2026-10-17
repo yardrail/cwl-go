@@ -77,7 +77,7 @@ func TestStageInitialWorkDirEntryKinds(t *testing.T) {
 		cwlcore.NewInitialWorkDirNull(),
 		cwlcore.InitialWorkDirEntry{},
 		cwlcore.NewInitialWorkDirFile(pmHostFile("/data/a.txt")),
-		cwlcore.NewInitialWorkDirDirectory(&cwlcore.Directory{Path: stgHostTree, Basename: stgTreeName}),
+		cwlcore.NewInitialWorkDirDirectory(func() *cwlcore.Directory { d := &cwlcore.Directory{Basename: stgTreeName}; d.SetPath(stgHostTree); return d }()),
 		cwlcore.NewInitialWorkDirObjects([]cwlcore.FileOrDirectory{pmHostFile("/data/b.txt")}),
 		cwlcore.NewInitialWorkDirExpression("$(inputs.f)"),
 	)
@@ -142,10 +142,10 @@ func TestStageInitialWorkDirNamesAnEntryByItsLocation(t *testing.T) {
 	// the listing, which reaches this package holding the absolute location salad resolved and
 	// nothing else — no path, and no basename to name it under.
 	listing := stgEntries(
-		cwlcore.NewInitialWorkDirFile(&cwlcore.File{Location: "file:///data/a.txt"}),
+		cwlcore.NewInitialWorkDirFile(func() *cwlcore.File { f := &cwlcore.File{}; f.SetLocation("file:///data/a.txt"); return f }()),
 		cwlcore.NewInitialWorkDirObjects([]cwlcore.FileOrDirectory{
-			&cwlcore.File{Location: "file:///data/b.txt"},
-			&cwlcore.Directory{Location: stgTreeLocation},
+			func() *cwlcore.File { f := &cwlcore.File{}; f.SetLocation("file:///data/b.txt"); return f }(),
+			func() *cwlcore.Directory { d := &cwlcore.Directory{}; d.SetLocation(stgTreeLocation); return d }(),
 		}),
 	)
 
@@ -339,7 +339,7 @@ func TestStagerSerializesThroughTheSharedRenderer(t *testing.T) {
 	// whose members turned out not to be a filesystem object after all.
 	value := []any{
 		int64(1),
-		&cwlcore.Directory{Location: stgTreeLocation, Basename: stgTreeName},
+		func() *cwlcore.Directory { d := &cwlcore.Directory{Basename: stgTreeName}; d.SetLocation(stgTreeLocation); return d }(),
 	}
 
 	err := stager.serialized(stgEntryName, value)
@@ -368,7 +368,7 @@ func TestApplyCarriesOutThePlan(t *testing.T) {
 	plan := []error{
 		mapper.Stage(pmHostFile(source), execSourceName, false),
 		mapper.Stage(pmHostFile(source), "writable.txt", true),
-		mapper.Stage(&cwlcore.Directory{Path: filepath.Join(host, stgTreeName)}, stgTreeName, true),
+		mapper.Stage(cwlcore.NewDirectoryAtPath(filepath.Join(host, stgTreeName)), stgTreeName, true),
 		mapper.Stage(execLiteralFile(stgEntryName, execGreeting), stgEntryName, false),
 		mapper.Stage(&cwlcore.Directory{
 			Listing: []cwlcore.FileOrDirectory{execLiteralFile("inner.txt", execGreeting)},

@@ -425,11 +425,11 @@ func outMeasureFileFS(local string, fsys fs.FS, outdir string) (*cwlcore.File, e
 func outWithContents(file *cwlcore.File, stats *outFileStats) (*cwlcore.File, error) {
 	if stats.size > joMaxContentsBytes {
 		return nil, fmt.Errorf("%w: %s is %d bytes, over %d",
-			ErrContentsTooLarge, file.Path, stats.size, joMaxContentsBytes)
+			ErrContentsTooLarge, file.Path(), stats.size, joMaxContentsBytes)
 	}
 
 	if !utf8.Valid(stats.head) {
-		return nil, fmt.Errorf("%w: %s", ErrContentsNotText, file.Path)
+		return nil, fmt.Errorf("%w: %s", ErrContentsNotText, file.Path())
 	}
 
 	file.Contents = cwlcore.NewOptString(string(stats.head))
@@ -566,20 +566,14 @@ func outNewFile(local string) *cwlcore.File {
 	basename := filepath.Base(local)
 	parts := outSplitName(basename)
 
-	return &cwlcore.File{
-		Node:           nil,
-		Location:       outFileURI(local),
-		Path:           local,
-		Basename:       basename,
-		Dirname:        outDirname(local),
-		Nameroot:       parts.root,
-		Nameext:        parts.ext,
-		Checksum:       "",
-		Format:         "",
-		Size:           cwlcore.OptInt{},
-		Contents:       cwlcore.OptString{},
-		SecondaryFiles: nil,
+	file := &cwlcore.File{
+		Basename: basename,
+		Nameroot: parts.root,
+		Nameext:  parts.ext,
 	}
+	file.SetPath(local)
+
+	return file
 }
 
 // Completing directory listings at the engine boundary. Done once on output, not during
@@ -648,11 +642,11 @@ func outFillDirectoryLocal(dir *cwlcore.Directory) {
 		return
 	}
 
-	if dir.Path == "" {
+	if dir.Path() == "" {
 		return
 	}
 
-	dir.Listing = outReadListing(dir.Path, NewLocalDirFS(dir.Path), dir.Path)
+	dir.Listing = outReadListing(dir.Path(), NewLocalDirFS(dir.Path()), dir.Path())
 }
 
 // outFillEntries completes listings for each entry.
@@ -670,7 +664,7 @@ func outFillDirectory(dir *cwlcore.Directory, fsys fs.FS, outdir string) {
 		return
 	}
 
-	dir.Listing = outReadListing(dir.Path, fsys, outdir)
+	dir.Listing = outReadListing(dir.Path(), fsys, outdir)
 }
 
 // outReadListing reads the full tree under local, returning nil on error.
@@ -699,11 +693,5 @@ func outReadListing(local string, fsys fs.FS, outdir string) []cwlcore.FileOrDir
 
 // outNewDirectory builds a Directory value from a path.
 func outNewDirectory(local string) *cwlcore.Directory {
-	return &cwlcore.Directory{
-		Node:     nil,
-		Location: outFileURI(local),
-		Path:     local,
-		Basename: filepath.Base(local),
-		Listing:  nil,
-	}
+	return cwlcore.NewDirectoryAtPath(local)
 }

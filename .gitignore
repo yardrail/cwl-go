@@ -11,3 +11,6 @@
 
 # Task's checksum cache for sources/generates up-to-date checks
 /.task/
+
+proxmox-jobs.sqlite3
+proxmox_mcp.log

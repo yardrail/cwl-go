@@ -204,7 +204,8 @@ func TestCommandLineToolPlansARemoteInput(t *testing.T) {
 	t.Parallel()
 	execSkipUnless(t, execTrue)
 
-	remote := &cwlcore.File{Basename: execGreetName, Location: "s3://bucket/greet.txt"}
+	remote := &cwlcore.File{Basename: execGreetName}
+	remote.SetLocation("s3://bucket/greet.txt")
 
 	cases := map[string]any{
 		"in a record": map[string]any{"f": remote},

@@ -508,8 +508,8 @@ func TestExpandScatterMatchesTheConformanceSuiteEmptyShapes(t *testing.T) {
 			plan := mustExpand(t, tc.base, keys, tc.method)
 			assertInt(t, "Cardinality", plan.Cardinality(), 0)
 
-			gathered := mustGather(t, &plan, nil, []string{"out"})
-			assertDeepEqual(t, "Gather", gathered["out"], tc.want)
+			gathered := mustGather(t, &plan, nil, []string{outPort})
+			assertDeepEqual(t, "Gather", gathered[outPort], tc.want)
 		})
 	}
 }

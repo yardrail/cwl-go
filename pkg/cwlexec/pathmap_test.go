@@ -26,6 +26,8 @@ const (
 
 	// pmEscape is the absolute entryname the rows about leaving the working directory use.
 	pmEscape = "/etc/escape"
+
+	pmDataA = "/data/a.txt"
 )
 
 // pmMap returns an empty path map over the two notional directories.
@@ -519,7 +521,7 @@ func TestPathMapValueHelpers(t *testing.T) {
 		basename string
 		local    string
 	}{
-		{name: "a File naming its own basename", value: pmHostFile(pmHostPath), basename: "x.txt", local: pmHostPath},
+		{name: "a File naming its own basename", value: pmHostFile(pmHostPath), basename: outNameX, local: pmHostPath},
 		{
 			name:     "a File with only a path",
 			value:    cwlcore.NewFileAtPath("/data/derived.txt"),
@@ -537,7 +539,7 @@ func TestPathMapValueHelpers(t *testing.T) {
 			// Call NormalizeValuePaths to derive Path from Location before staging.
 			name:     "a File with only a file: location",
 			value:    pmFileWithLocation("file:///data/x.txt"),
-			basename: "x.txt",
+			basename: outNameX,
 			local:    "",
 		},
 		{
@@ -866,7 +868,7 @@ func TestNormalizeValuePaths(t *testing.T) {
 		f.SetLocation("file:///data/a.txt")
 		NormalizeValuePaths([]any{f})
 
-		if f.Path() != "/data/a.txt" {
+		if f.Path() != pmDataA {
 			t.Errorf("Path = %q", f.Path())
 		}
 	})
@@ -876,9 +878,9 @@ func TestNormalizeValuePaths(t *testing.T) {
 
 		f := &cwlcore.File{}
 		f.SetLocation("file:///data/a.txt")
-		NormalizeValuePaths(map[string]any{"file": f})
+		NormalizeValuePaths(map[string]any{joSchemeFile: f})
 
-		if f.Path() != "/data/a.txt" {
+		if f.Path() != pmDataA {
 			t.Errorf("Path = %q", f.Path())
 		}
 	})

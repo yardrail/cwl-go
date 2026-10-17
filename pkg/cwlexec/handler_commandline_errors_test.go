@@ -254,7 +254,7 @@ func (r *memResolver) ResolveOutputFS(path string) (fs.FS, string, error) {
 		return nil, "", fmt.Errorf("%w: %s", errMemNotFound, path)
 	}
 
-	return fstest.MapFS{"file": &fstest.MapFile{Data: []byte(content)}}, "file", nil
+	return fstest.MapFS{joSchemeFile: &fstest.MapFile{Data: []byte(content)}}, joSchemeFile, nil
 }
 
 func (r *memResolver) ResolveOutputDirFS(_ string) (fs.FS, error) {

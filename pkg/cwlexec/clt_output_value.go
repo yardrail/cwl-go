@@ -254,11 +254,11 @@ func (c *outputCollector) deriveRef(object map[string]any) outRef {
 
 	if ref.local == "" {
 		ref.local = c.localPath(ref.location)
-	} else {
+	} else if !cwlcore.IsRemoteScheme(ref.local) {
 		ref.local = outAbsolutize(ref.local, c.outdir)
 	}
 
-	if ref.local != "" {
+	if ref.local != "" && !cwlcore.IsRemoteScheme(ref.local) {
 		ref.location = outFileURI(ref.local)
 	}
 

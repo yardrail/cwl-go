@@ -2,12 +2,16 @@ package cwlcore
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/url"
 	"path"
 	"path/filepath"
 
 	"github.com/yardrail/cwl-go/pkg/salad"
 )
+
+var errUnmarshalType = errors.New("cwlcore: unexpected type from JSON unmarshal")
 
 // File and Directory value types. Pure data; no filesystem access.
 
@@ -176,7 +180,9 @@ func (f *File) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON restores a File from JSON, including path/location/dirname.
 func (f *File) UnmarshalJSON(data []byte) error {
 	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
+
+	err := json.Unmarshal(data, &m)
+	if err != nil {
 		return err
 	}
 
@@ -185,7 +191,12 @@ func (f *File) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	*f = *(v.(*File))
+	parsed, ok := v.(*File)
+	if !ok {
+		return fmt.Errorf("%w: expected *File, got %T", errUnmarshalType, v)
+	}
+
+	*f = *parsed
 
 	return nil
 }
@@ -263,7 +274,9 @@ func (d *Directory) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON restores a Directory from JSON, including path/location.
 func (d *Directory) UnmarshalJSON(data []byte) error {
 	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
+
+	err := json.Unmarshal(data, &m)
+	if err != nil {
 		return err
 	}
 
@@ -272,7 +285,12 @@ func (d *Directory) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	*d = *(v.(*Directory))
+	parsed, ok := v.(*Directory)
+	if !ok {
+		return fmt.Errorf("%w: expected *Directory, got %T", errUnmarshalType, v)
+	}
+
+	*d = *parsed
 
 	return nil
 }

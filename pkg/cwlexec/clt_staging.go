@@ -6,7 +6,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
@@ -342,12 +341,22 @@ func (m *PathMap) applyMapping(mapping *PathMapping, outFS, stageFS WriteFS) err
 			return m.placeLinkFS(mapping, resolved.fs, resolved.rel)
 		})
 	case StageCopy, StageRemote:
-		return replaceWithFS(resolved.fs, resolved.rel, func() error {
-			return m.copyToFS(mapping.Resolved, resolved.fs, resolved.rel)
-		})
+		return m.applyCopyOrRemote(mapping, resolved)
 	default:
 		return fmt.Errorf("%w: unknown staging action %q", ErrStageValue, mapping.Action)
 	}
+}
+
+// applyCopyOrRemote handles StageCopy and StageRemote. StageRemote skips
+// the destructive Remove-then-place to avoid deleting source files when
+// the source and destination overlap (e.g. cross-step S3 output passing).
+func (m *PathMap) applyCopyOrRemote(mapping *PathMapping, resolved fsResolution) error {
+	place := func() error { return m.copyToFS(mapping.Resolved, resolved.fs, resolved.rel) }
+	if mapping.Action == StageRemote {
+		return place()
+	}
+
+	return replaceWithFS(resolved.fs, resolved.rel, place)
 }
 
 // resolveFS maps an absolute host path to its WriteFS and relative path.
@@ -508,7 +517,7 @@ func (m *PathMap) copyTreeFS(source string, dst WriteFS, rel string) error {
 // Tries [CopyOptimizer] with the original source URI for server-side copy,
 // then falls back to streaming from the walked FS.
 func (m *PathMap) copyWalkedFile(dirFS fs.FS, name, sourceDir string, dst WriteFS, rel string) error {
-	childSrc := path.Join(sourceDir, name)
+	childSrc := sourceDir + "/" + name
 
 	done, err := m.tryCopyDirect(childSrc, dst, rel)
 	if done || err != nil {

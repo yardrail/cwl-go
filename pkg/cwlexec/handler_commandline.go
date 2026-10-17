@@ -240,6 +240,8 @@ func (i *invocation) prepare(ctx context.Context) error {
 
 	i.mapper = i.newMapper()
 
+	NormalizeValuePaths(i.call.Inputs)
+
 	err = materializeLiterals(i.mapper, i.call.Inputs)
 	if err != nil {
 		return err

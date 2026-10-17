@@ -58,6 +58,8 @@ func writeExpressionLiterals(
 	mapper := NewPathMap(outdir, outdir)
 
 	for _, root := range roots {
+		NormalizeValuePaths(root)
+
 		err = mapper.Materialize(root)
 		if err != nil {
 			return nil, err

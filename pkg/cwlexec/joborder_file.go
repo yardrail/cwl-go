@@ -115,12 +115,15 @@ func (l *joLoader) fileShell(m *salad.MapNode, v *joValueCtx) (*cwlcore.File, *s
 	parts := outSplitName(basename)
 
 	file := &cwlcore.File{
-		Node:     m,
-		Basename: basename,
-		Nameroot: parts.root,
-		Nameext:  parts.ext,
-		Format:   format,
-		Contents: contents,
+		Node:           m,
+		Basename:       basename,
+		Nameroot:       parts.root,
+		Nameext:        parts.ext,
+		Checksum:       "",
+		Format:         format,
+		Size:           cwlcore.OptInt{},
+		Contents:       contents,
+		SecondaryFiles: nil,
 	}
 	file.SetPathAndLocation(ref.local, ref.location)
 

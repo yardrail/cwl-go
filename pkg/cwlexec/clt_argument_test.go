@@ -246,7 +246,12 @@ var cltErrorsCases = []cltErrCase{
 		tool: &cwlcore.CommandLineTool{
 			Inputs: []cwlcore.CommandInputParameter{cltInput("f", cltFile, cltAt(0))},
 		},
-		inputs:  map[string]any{"f": func() *cwlcore.File { f := &cwlcore.File{}; f.SetLocation("file:///a.txt"); return f }()},
+		inputs: map[string]any{"f": func() *cwlcore.File {
+			f := &cwlcore.File{}
+			f.SetLocation("file:///a.txt")
+
+			return f
+		}()},
 		wantErr: ErrBindingValue,
 	},
 	{

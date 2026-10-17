@@ -10,6 +10,20 @@ import (
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
+func outTestFileAtPath(basename, p string) *cwlcore.File {
+	f := &cwlcore.File{Basename: basename}
+	f.SetPath(p)
+
+	return f
+}
+
+func outTestDirWithLocation(loc string) *cwlcore.Directory {
+	d := &cwlcore.Directory{}
+	d.SetLocation(loc)
+
+	return d
+}
+
 // outListingBinding builds an output binding that globs one pattern with the given loadListing mode.
 func outListingBinding(pattern string, mode cwlcore.LoadListingEnum) *cwlcore.CommandOutputBinding {
 	binding := outGlobBinding(pattern)
@@ -570,7 +584,7 @@ func TestGlobbedSymlinkToAnInputIsRetrieved(t *testing.T) {
 	// The ordinary case, and the reason the rule names input directories at all: an input staged
 	// into the output directory is a link straight back out of it.
 	outputs, err := CollectOutputs(tool, dir, NewLocalDirFS(dir), 0,
-		map[string]any{"f": func() *cwlcore.File { f := &cwlcore.File{Basename: "whale.txt"}; f.SetPath(target); return f }()},
+		map[string]any{"f": outTestFileAtPath("whale.txt", target)},
 		cwlcore.NewEvaluator(), cwlcore.RuntimeContext{Outdir: dir})
 	if err != nil {
 		t.Fatalf("CollectOutputs: %v", err)
@@ -597,7 +611,7 @@ func TestAllowedRootsFromAnInputObject(t *testing.T) {
 
 	inputs := outExpressionObject(map[string]any{
 		"d":  cwlcore.NewDirectoryAtPath("/in/tree"),
-		"fs": []any{func() *cwlcore.File { f := &cwlcore.File{Basename: "a.bam"}; f.SetPath("/in/reads/a.bam"); return f }()},
+		"fs": []any{outTestFileAtPath("a.bam", "/in/reads/a.bam")},
 
 		// A literal has nowhere to be yet, a plain record that happens to carry a `path` field is
 		// not a filesystem value, and a number is not an object: none of the three occupies a path.
@@ -616,7 +630,7 @@ func TestAllowedRootsFromAnInitialWorkDirListing(t *testing.T) {
 	tool := outStagingTool(cwlcore.NewInitialWorkDirListing(
 		[]cwlcore.InitialWorkDirEntry{
 			cwlcore.NewInitialWorkDirFile(cwlcore.NewFileAtPath("/src/a.txt")),
-			cwlcore.NewInitialWorkDirDirectory(func() *cwlcore.Directory { d := &cwlcore.Directory{}; d.SetLocation("file:///src/tree"); return d }()),
+			cwlcore.NewInitialWorkDirDirectory(outTestDirWithLocation("file:///src/tree")),
 			cwlcore.NewInitialWorkDirObjects([]cwlcore.FileOrDirectory{
 				cwlcore.NewDirectoryAtPath("/src/nested"),
 

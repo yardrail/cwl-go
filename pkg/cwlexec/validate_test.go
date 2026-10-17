@@ -75,7 +75,8 @@ func TestValidateOutputPathsAcceptsConsistentValues(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			if err := ValidateOutputPaths(testCase.outputs); err != nil {
+			err := ValidateOutputPaths(testCase.outputs)
+			if err != nil {
 				t.Errorf("ValidateOutputPaths: unexpected error: %v", err)
 			}
 		})

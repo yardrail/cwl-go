@@ -49,6 +49,20 @@ func stgEntries(entries ...cwlcore.InitialWorkDirEntry) cwlcore.InitialWorkDirLi
 	return cwlcore.NewInitialWorkDirListing(entries)
 }
 
+func stgLocationFile(loc string) *cwlcore.File {
+	f := &cwlcore.File{}
+	f.SetLocation(loc)
+
+	return f
+}
+
+func stgLocationDir(loc string) *cwlcore.Directory {
+	d := &cwlcore.Directory{}
+	d.SetLocation(loc)
+
+	return d
+}
+
 func TestStageInitialWorkDirWithoutTheRequirement(t *testing.T) {
 	t.Parallel()
 
@@ -77,7 +91,12 @@ func TestStageInitialWorkDirEntryKinds(t *testing.T) {
 		cwlcore.NewInitialWorkDirNull(),
 		cwlcore.InitialWorkDirEntry{},
 		cwlcore.NewInitialWorkDirFile(pmHostFile("/data/a.txt")),
-		cwlcore.NewInitialWorkDirDirectory(func() *cwlcore.Directory { d := &cwlcore.Directory{Basename: stgTreeName}; d.SetPath(stgHostTree); return d }()),
+		cwlcore.NewInitialWorkDirDirectory(func() *cwlcore.Directory {
+			d := &cwlcore.Directory{Basename: stgTreeName}
+			d.SetPath(stgHostTree)
+
+			return d
+		}()),
 		cwlcore.NewInitialWorkDirObjects([]cwlcore.FileOrDirectory{pmHostFile("/data/b.txt")}),
 		cwlcore.NewInitialWorkDirExpression("$(inputs.f)"),
 	)
@@ -142,10 +161,10 @@ func TestStageInitialWorkDirNamesAnEntryByItsLocation(t *testing.T) {
 	// the listing, which reaches this package holding the absolute location salad resolved and
 	// nothing else — no path, and no basename to name it under.
 	listing := stgEntries(
-		cwlcore.NewInitialWorkDirFile(func() *cwlcore.File { f := &cwlcore.File{}; f.SetLocation("file:///data/a.txt"); return f }()),
+		cwlcore.NewInitialWorkDirFile(stgLocationFile("file:///data/a.txt")),
 		cwlcore.NewInitialWorkDirObjects([]cwlcore.FileOrDirectory{
-			func() *cwlcore.File { f := &cwlcore.File{}; f.SetLocation("file:///data/b.txt"); return f }(),
-			func() *cwlcore.Directory { d := &cwlcore.Directory{}; d.SetLocation(stgTreeLocation); return d }(),
+			stgLocationFile("file:///data/b.txt"),
+			stgLocationDir(stgTreeLocation),
 		}),
 	)
 
@@ -339,7 +358,12 @@ func TestStagerSerializesThroughTheSharedRenderer(t *testing.T) {
 	// whose members turned out not to be a filesystem object after all.
 	value := []any{
 		int64(1),
-		func() *cwlcore.Directory { d := &cwlcore.Directory{Basename: stgTreeName}; d.SetLocation(stgTreeLocation); return d }(),
+		func() *cwlcore.Directory {
+			d := &cwlcore.Directory{Basename: stgTreeName}
+			d.SetLocation(stgTreeLocation)
+
+			return d
+		}(),
 	}
 
 	err := stager.serialized(stgEntryName, value)

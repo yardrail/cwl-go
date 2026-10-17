@@ -1,6 +1,7 @@
 package cwlexec
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os/exec"
@@ -245,16 +246,18 @@ type memResolver struct {
 	files map[string]string
 }
 
+var errMemNotFound = errors.New("memResolver: not found")
+
 func (r *memResolver) ResolveOutputFS(path string) (fs.FS, string, error) {
 	content, ok := r.files[path]
 	if !ok {
-		return nil, "", fmt.Errorf("memResolver: not found: %s", path)
+		return nil, "", fmt.Errorf("%w: %s", errMemNotFound, path)
 	}
 
 	return fstest.MapFS{"file": &fstest.MapFile{Data: []byte(content)}}, "file", nil
 }
 
-func (r *memResolver) ResolveOutputDirFS(path string) (fs.FS, error) {
+func (r *memResolver) ResolveOutputDirFS(_ string) (fs.FS, error) {
 	return fstest.MapFS{}, nil
 }
 

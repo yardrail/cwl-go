@@ -18,7 +18,8 @@ var ErrInconsistentPaths = errors.New("inconsistent Path and Location")
 // left as a stale file:// URI).
 func ValidateOutputPaths(outputs map[string]any) error {
 	for name, value := range outputs {
-		if err := validateOutputValue(value); err != nil {
+		err := validateOutputValue(value)
+		if err != nil {
 			return fmt.Errorf("output %q: %w", name, err)
 		}
 	}
@@ -33,16 +34,30 @@ func validateOutputValue(v any) error {
 	case *cwlcore.Directory:
 		return validateOutputDir(typed)
 	case []any:
-		for _, item := range typed {
-			if err := validateOutputValue(item); err != nil {
-				return err
-			}
-		}
+		return validateOutputSlice(typed)
 	case map[string]any:
-		for _, item := range typed {
-			if err := validateOutputValue(item); err != nil {
-				return err
-			}
+		return validateOutputMap(typed)
+	default:
+		return nil
+	}
+}
+
+func validateOutputSlice(items []any) error {
+	for _, item := range items {
+		err := validateOutputValue(item)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateOutputMap(items map[string]any) error {
+	for _, item := range items {
+		err := validateOutputValue(item)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -54,12 +69,14 @@ func validateOutputFile(f *cwlcore.File) error {
 		return nil
 	}
 
-	if err := validateSchemeConsistency(f.Path(), f.Location(), f.Basename); err != nil {
+	err := validateSchemeConsistency(f.Path(), f.Location(), f.Basename)
+	if err != nil {
 		return err
 	}
 
 	for _, sec := range f.SecondaryFiles {
-		if err := validateOutputValue(sec); err != nil {
+		err = validateOutputValue(sec)
+		if err != nil {
 			return err
 		}
 	}
@@ -72,12 +89,14 @@ func validateOutputDir(d *cwlcore.Directory) error {
 		return nil
 	}
 
-	if err := validateSchemeConsistency(d.Path(), d.Location(), d.Basename); err != nil {
+	err := validateSchemeConsistency(d.Path(), d.Location(), d.Basename)
+	if err != nil {
 		return err
 	}
 
 	for _, entry := range d.Listing {
-		if err := validateOutputValue(entry); err != nil {
+		err := validateOutputValue(entry)
+		if err != nil {
 			return err
 		}
 	}

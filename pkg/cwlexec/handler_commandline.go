@@ -394,6 +394,10 @@ func (i *invocation) execute(ctx context.Context) (Result, error) {
 
 	if rw, ok := i.inv.(OutputRewriter); ok {
 		outputs = rw.RewriteOutputPaths(outputs)
+
+		if err = ValidateOutputPaths(outputs); err != nil {
+			return PermanentFail(fmt.Errorf("%s: rewritten outputs: %w", describe(i.call), err))
+		}
 	}
 
 	return Success(outputs)

@@ -57,6 +57,10 @@ func writeExpressionLiterals(
 
 	mapper := NewPathMap(outdir, outdir)
 
+	if call.OutputResolver != nil {
+		mapper.SetResolver(call.OutputResolver)
+	}
+
 	for _, root := range roots {
 		NormalizeValuePaths(root)
 

@@ -29,6 +29,11 @@ const (
 
 	// StageMkdir creates an empty directory.
 	StageMkdir StageAction = "mkdir"
+
+	// StageRemote resolves a remote source through the [OutputResolver] at
+	// apply time. Unlike StageLink, this never produces a bind mount — the
+	// content is always copied to the staging filesystem.
+	StageRemote StageAction = "remote"
 )
 
 var (
@@ -149,6 +154,10 @@ func (m *PathMap) Materialize(value cwlcore.FileOrDirectory) error {
 		return nil
 	}
 
+	if _, planned := m.byValue[value]; planned {
+		return nil
+	}
+
 	return m.stageAt(value, m.unique(basenameOf(value)), false)
 }
 
@@ -244,7 +253,7 @@ func (m *PathMap) stageFile(file *cwlcore.File, target string, writable bool) er
 	case remoteURI(file) != "":
 		m.add(&PathMapping{
 			Resolved: remoteURI(file), Target: target, Host: "", Contents: "",
-			Action: stageActions[m.isolate(writable)], Writable: writable,
+			Action: StageRemote, Writable: writable,
 		}, file)
 	case file.Location() != "":
 		return fmt.Errorf("%w: %s is not on a filesystem this engine can read",
@@ -283,7 +292,7 @@ func (m *PathMap) stageDirectory(dir *cwlcore.Directory, target string, writable
 	if uri := remoteURI(dir); uri != "" {
 		m.add(&PathMapping{
 			Resolved: uri, Target: target, Host: "", Contents: "",
-			Action: stageActions[m.isolate(writable)], Writable: writable,
+			Action: StageRemote, Writable: writable,
 		}, dir)
 
 		return nil

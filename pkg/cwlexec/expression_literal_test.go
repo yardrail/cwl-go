@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
@@ -331,18 +333,30 @@ func TestExpressionToolRejectsAnUnusableOutputDirectory(t *testing.T) {
 func TestExpressionToolPlansARemoteLocationLiteral(t *testing.T) {
 	t.Parallel()
 
-	// A directory literal listing a file with a remote location is now accepted at
-	// planning time. Resolution is deferred to Apply, which delegates to the
-	// configured OutputResolver (here nil, so it would fail at apply — but the
-	// expression tool output path doesn't apply the staging plan).
+	// A directory literal listing a file with a remote location is accepted and
+	// staged through the OutputResolver. StageRemote copies the content at
+	// apply time rather than creating a symlink.
 	call := literalCall(t, `${return {"out": {"class": "Directory", "basename": "d", "listing": [
 		{"class": "File", "location": "http://example.invalid/x", "basename": "x"}
 	]}};}`)
+	call.OutputResolver = &memLiteralResolver{}
 
 	_, err := runExpressionTool(t, call)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+// memLiteralResolver resolves any URI to an empty file. For tests that
+// plan remote entries but don't need real content.
+type memLiteralResolver struct{}
+
+func (memLiteralResolver) ResolveOutputFS(path string) (fs.FS, string, error) {
+	return fstest.MapFS{"file": &fstest.MapFile{Data: nil}}, "file", nil
+}
+
+func (memLiteralResolver) ResolveOutputDirFS(path string) (fs.FS, error) {
+	return fstest.MapFS{}, nil
 }
 
 func TestExpressionToolReportsAFailedPlacement(t *testing.T) {

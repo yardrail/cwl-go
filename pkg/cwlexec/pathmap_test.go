@@ -173,7 +173,7 @@ func TestPathMapStagesAFileWithRemoteURI(t *testing.T) {
 	}
 
 	pmWantPlan(t, mapper, []PathMapping{
-		{Resolved: "s3://bucket/prefix/named.txt", Target: "/work/" + pmName, Action: StageLink},
+		{Resolved: "s3://bucket/prefix/named.txt", Target: "/work/" + pmName, Action: StageRemote},
 	})
 }
 
@@ -191,7 +191,7 @@ func TestPathMapStagesADirectoryWithRemoteURI(t *testing.T) {
 	}
 
 	pmWantPlan(t, mapper, []PathMapping{
-		{Resolved: "s3://bucket/prefix/tree", Target: stgWorkTree, Action: StageLink},
+		{Resolved: "s3://bucket/prefix/tree", Target: stgWorkTree, Action: StageRemote},
 	})
 }
 
@@ -209,7 +209,7 @@ func TestPathMapStagesAFileWithRemoteLocation(t *testing.T) {
 	}
 
 	pmWantPlan(t, mapper, []PathMapping{
-		{Resolved: "https://example.com/data.csv", Target: "/work/" + pmName, Action: StageLink},
+		{Resolved: "https://example.com/data.csv", Target: "/work/" + pmName, Action: StageRemote},
 	})
 }
 

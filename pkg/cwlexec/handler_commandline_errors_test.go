@@ -1,9 +1,12 @@
 package cwlexec
 
 import (
+	"fmt"
+	"io/fs"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
@@ -212,12 +215,17 @@ func TestCommandLineToolPlansARemoteInput(t *testing.T) {
 		"in an array": []any{remote},
 	}
 
+	resolver := &memResolver{files: map[string]string{
+		"s3://bucket/greet.txt": execGreeting,
+	}}
+
 	for name, value := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			call := execCall(t, execTool([]string{execTrue}))
 			call.Inputs["holder"] = value
+			call.OutputResolver = resolver
 
 			result, err := execRun(t, call)
 			if err != nil {
@@ -229,6 +237,25 @@ func TestCommandLineToolPlansARemoteInput(t *testing.T) {
 			}
 		})
 	}
+}
+
+// memResolver resolves paths from an in-memory map. For tests that need
+// a StageRemote source to be readable without real S3 or filesystem access.
+type memResolver struct {
+	files map[string]string
+}
+
+func (r *memResolver) ResolveOutputFS(path string) (fs.FS, string, error) {
+	content, ok := r.files[path]
+	if !ok {
+		return nil, "", fmt.Errorf("memResolver: not found: %s", path)
+	}
+
+	return fstest.MapFS{"file": &fstest.MapFile{Data: []byte(content)}}, "file", nil
+}
+
+func (r *memResolver) ResolveOutputDirFS(path string) (fs.FS, error) {
+	return fstest.MapFS{}, nil
 }
 
 func TestCommandLineToolRejectsARelativeDirectory(t *testing.T) {

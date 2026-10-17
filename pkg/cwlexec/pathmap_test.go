@@ -121,6 +121,60 @@ func TestPathMapStagesADirectoryByPath(t *testing.T) {
 	})
 }
 
+func TestPathMapStagesAFileWithRemoteURI(t *testing.T) {
+	t.Parallel()
+
+	mapper := pmMap()
+
+	err := mapper.Stage(&cwlcore.File{
+		Basename: pmName,
+		Path:     "s3://bucket/prefix/named.txt",
+	}, pmName, false)
+	if err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+
+	pmWantPlan(t, mapper, []PathMapping{
+		{Resolved: "s3://bucket/prefix/named.txt", Target: "/work/" + pmName, Action: StageLink},
+	})
+}
+
+func TestPathMapStagesADirectoryWithRemoteURI(t *testing.T) {
+	t.Parallel()
+
+	mapper := pmMap()
+
+	err := mapper.Stage(&cwlcore.Directory{
+		Basename: stgTreeName,
+		Path:     "s3://bucket/prefix/tree",
+	}, stgTreeName, false)
+	if err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+
+	pmWantPlan(t, mapper, []PathMapping{
+		{Resolved: "s3://bucket/prefix/tree", Target: stgWorkTree, Action: StageLink},
+	})
+}
+
+func TestPathMapStagesAFileWithRemoteLocation(t *testing.T) {
+	t.Parallel()
+
+	mapper := pmMap()
+
+	err := mapper.Stage(&cwlcore.File{
+		Basename: pmName,
+		Location: "https://example.com/data.csv",
+	}, pmName, false)
+	if err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+
+	pmWantPlan(t, mapper, []PathMapping{
+		{Resolved: "https://example.com/data.csv", Target: "/work/" + pmName, Action: StageLink},
+	})
+}
+
 func TestPathMapStagingFailures(t *testing.T) {
 	t.Parallel()
 
@@ -161,22 +215,10 @@ func TestPathMapStagingFailures(t *testing.T) {
 			want:  ErrStageValue,
 		},
 		{
-			name:  "a File on storage this engine cannot read",
-			value: &cwlcore.File{Basename: pmName, Location: "s3://bucket/named.txt"},
-			entry: pmName,
-			want:  ErrUnsupportedLocationScheme,
-		},
-		{
 			name:  "a Directory with neither a path nor a listing",
 			value: &cwlcore.Directory{Basename: stgTreeName},
 			entry: stgTreeName,
 			want:  ErrStageValue,
-		},
-		{
-			name:  "a Directory on storage this engine cannot read",
-			value: &cwlcore.Directory{Basename: stgTreeName, Location: "s3://bucket/tree"},
-			entry: stgTreeName,
-			want:  ErrUnsupportedLocationScheme,
 		},
 		{
 			name:  "a secondary file that cannot be staged",

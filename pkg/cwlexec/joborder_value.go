@@ -15,12 +15,13 @@ import (
 
 // joValueCtx carries the type, base directory, path breadcrumb, and settings for one conversion position.
 type joValueCtx struct {
-	typ          cwlcore.TypeRef
-	base         string
-	path         string
-	format       []string
-	listing      cwlcore.LoadListingEnum
-	loadContents bool
+	typ           cwlcore.TypeRef
+	base          string
+	path          string
+	format        []string
+	listing       cwlcore.LoadListingEnum
+	loadContents  bool
+	contentsLimit int64 // effective loadContents ceiling; 0 = spec default
 }
 
 // withType returns a copy of v expecting typ at the same position.

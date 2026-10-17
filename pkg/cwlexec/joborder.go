@@ -20,8 +20,17 @@ import (
 // Job-order loading: turns the input object into a normalised, typed value map.
 // Lives in cwlexec (not cwlcore) because it does filesystem I/O.
 
-// joMaxContentsBytes is the CWL spec limit on file literal contents and loadContents (64 KiB).
+// joMaxContentsBytes is the CWL spec default for loadContents (64 KiB).
 const joMaxContentsBytes = 64 * 1024
+
+// contentsLimit returns the effective loadContents ceiling.
+// A positive override wins; otherwise the spec default applies.
+func contentsLimit(override int64) int64 {
+	if override > 0 {
+		return override
+	}
+	return joMaxContentsBytes
+}
 
 // joSchemeFile is the IRI scheme for File/Directory locations.
 const joSchemeFile = "file"

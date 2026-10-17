@@ -423,7 +423,7 @@ func TestCollectPathOnAMissingPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	gone := filepath.Join(tmpDir, "gone")
 
-	_, err := outCollectPath(gone, &cwlcore.CommandOutputBinding{}, NewLocalDirFS(tmpDir), tmpDir)
+	_, err := outCollectPath(gone, &cwlcore.CommandOutputBinding{}, NewLocalDirFS(tmpDir), tmpDir, 0)
 	if err == nil {
 		t.Fatal("outCollectPath on a missing path succeeded, want an error")
 	}
@@ -435,7 +435,7 @@ func TestCollectFileOnAMissingPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	gone := filepath.Join(tmpDir, "gone")
 
-	_, err := outCollectFile(gone, &cwlcore.CommandOutputBinding{LoadContents: true}, NewLocalDirFS(tmpDir), tmpDir)
+	_, err := outCollectFile(gone, &cwlcore.CommandOutputBinding{LoadContents: true}, NewLocalDirFS(tmpDir), tmpDir, 0)
 	if err == nil {
 		t.Fatal("outCollectFile on a missing path succeeded, want an error")
 	}

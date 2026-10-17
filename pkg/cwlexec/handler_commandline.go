@@ -548,7 +548,8 @@ func (i *invocation) collect(exitCode int) (map[string]any, error) {
 		return nil, err
 	}
 
-	return CollectOutputs(view, i.outdir, outfs, exitCode, inputs, i.eval, i.runtime)
+	return CollectOutputs(view, i.outdir, outfs, exitCode, inputs, i.eval, i.runtime,
+		withContentsLimit(i.call.LoadContentsLimit))
 }
 
 // hostInputs returns the input object with host-side paths for output collection.

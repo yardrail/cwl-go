@@ -2,16 +2,12 @@ package cwlexec
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/yardrail/cwl-go/pkg/cwlcore"
 )
 
 // Materializes file/directory literals from ExpressionTool results using [PathMap].
-
-// ErrLiteralTooLarge reports a file literal whose contents exceed the 64 KiB limit.
-var ErrLiteralTooLarge = errors.New("file literal contents are over the 64 KiB limit")
 
 // expressionOutPrefix is the temp directory prefix for ExpressionTool output.
 const expressionOutPrefix = "cwl-expr-"
@@ -160,17 +156,10 @@ func (s *literalScan) walkDirectory(dir *cwlcore.Directory) {
 	}
 }
 
-// measure validates the literal size limit and fills in size/checksum.
+// measure fills in size/checksum for a file literal.
+// Per CWL v1.2, expression-generated contents have no size limit.
 func (s *literalScan) measure(file *cwlcore.File) {
 	if s.err != nil {
-		return
-	}
-
-	size := len(file.Contents.Value())
-	if size > joMaxContentsBytes {
-		s.err = fmt.Errorf("%w: %q carries %d bytes, over the %d byte limit",
-			ErrLiteralTooLarge, file.Basename, size, joMaxContentsBytes)
-
 		return
 	}
 

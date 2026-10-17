@@ -25,13 +25,13 @@ type outFileStats struct {
 }
 
 // outDigest reads the file and returns its size, checksum and leading bytes.
-func outDigest(local string) (outFileStats, error) {
+func outDigest(local string, headLimit int64) (outFileStats, error) {
 	file, err := os.Open(filepath.Clean(local))
 	if err != nil {
 		return outFileStats{}, err
 	}
 
-	stats, hashErr := outHashAll(file)
+	stats, hashErr := outHashAll(file, headLimit)
 
 	readErr := errors.Join(hashErr, file.Close())
 	if readErr != nil {
@@ -42,13 +42,13 @@ func outDigest(local string) (outFileStats, error) {
 }
 
 // outDigestFS reads the file from an [fs.FS] and returns its size, checksum and leading bytes.
-func outDigestFS(fsys fs.FS, name string) (outFileStats, error) {
+func outDigestFS(fsys fs.FS, name string, headLimit int64) (outFileStats, error) {
 	file, err := fsys.Open(name)
 	if err != nil {
 		return outFileStats{}, err
 	}
 
-	stats, hashErr := outHashAll(file)
+	stats, hashErr := outHashAll(file, headLimit)
 
 	readErr := errors.Join(hashErr, file.Close())
 	if readErr != nil {
@@ -59,9 +59,9 @@ func outDigestFS(fsys fs.FS, name string) (outFileStats, error) {
 }
 
 // outHashAll streams r through the SHA-1 digest, capturing leading bytes.
-func outHashAll(r io.Reader) (outFileStats, error) {
+func outHashAll(r io.Reader, headLimit int64) (outFileStats, error) {
 	digest := sha1.New()
-	head := &outHeadWriter{buf: nil, limit: joMaxContentsBytes}
+	head := &outHeadWriter{buf: nil, limit: int(contentsLimit(headLimit))}
 
 	size, err := io.Copy(io.MultiWriter(digest, head), r)
 	if err != nil {

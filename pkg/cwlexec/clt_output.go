@@ -38,13 +38,14 @@ const (
 // outdir must be absolute. Does not classify exit codes; see [ClassifyExit].
 func CollectOutputs(tool *cwlcore.CommandLineTool, outdir string, outfs WriteFS, exitCode int,
 	inputs map[string]any, eval *cwlcore.Evaluator, rt cwlcore.RuntimeContext,
+	opts ...outputCollectorOption,
 ) (map[string]any, error) {
 	if !filepath.IsAbs(outdir) {
 		return nil, fmt.Errorf("%w: %q", ErrOutputDir, outdir)
 	}
 
-	collector := newOutputCollector(tool, outdir, outfs, inputs,
-		withEvaluator(eval), withRuntime(rt), withExitCode(exitCode))
+	base := []outputCollectorOption{withEvaluator(eval), withRuntime(rt), withExitCode(exitCode)}
+	collector := newOutputCollector(tool, outdir, outfs, inputs, append(base, opts...)...)
 
 	outputs := make(map[string]any, len(tool.Outputs))
 
@@ -134,10 +135,11 @@ type outputCollector struct {
 	inputs   map[string]any         // expression-ready input object
 	roots    []string               // allowed paths for containment checks
 	runtime  cwlcore.RuntimeContext // runtime.* context (exitCode undefined here)
-	outdir   string                 // cleaned absolute output directory
-	outfs    WriteFS                // filesystem backing outdir
-	outroot  string                 // symlink-resolved outdir
-	exitCode int                    // process exit code, for outputEval only
+	outdir        string                 // cleaned absolute output directory
+	outfs         WriteFS                // filesystem backing outdir
+	outroot       string                 // symlink-resolved outdir
+	exitCode      int                    // process exit code, for outputEval only
+	contentsLimit int64                  // effective loadContents ceiling; 0 = spec default
 }
 
 // newOutputCollector builds the shared context for output collection.
@@ -152,6 +154,12 @@ func withEvaluator(eval *cwlcore.Evaluator) outputCollectorOption {
 func withRuntime(rt cwlcore.RuntimeContext) outputCollectorOption {
 	return func(c *outputCollector) {
 		c.runtime = rt
+	}
+}
+
+func withContentsLimit(limit int64) outputCollectorOption {
+	return func(c *outputCollector) {
+		c.contentsLimit = limit
 	}
 }
 

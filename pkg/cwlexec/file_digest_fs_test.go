@@ -14,7 +14,7 @@ func TestOutDigestFS(t *testing.T) {
 		"output.txt": &fstest.MapFile{Data: content},
 	}
 
-	stats, err := outDigestFS(mfs, "output.txt")
+	stats, err := outDigestFS(mfs, "output.txt", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestOutDigestFSNotFound(t *testing.T) {
 
 	mfs := fstest.MapFS{}
 
-	_, err := outDigestFS(mfs, "missing.txt")
+	_, err := outDigestFS(mfs, "missing.txt", 0)
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}

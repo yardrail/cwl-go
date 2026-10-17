@@ -322,6 +322,9 @@ type pendingValues struct {
 
 	// resolver resolves file paths from prior step outputs. Nil means local filesystem.
 	resolver OutputResolver
+
+	// contentsLimit overrides the 64 KiB loadContents ceiling; 0 = spec default.
+	contentsLimit int64
 }
 
 // deferredValue is a materialized default value, deferring error reporting until use.
@@ -338,7 +341,7 @@ func (d deferredValue) get() (any, error) {
 // newProcessValues collects the run process's types, defaults, and load settings.
 func newProcessValues(
 	ctx context.Context, run cwlcore.Process, scope *cwlcore.RequirementScope, decls []portDecl,
-	resolver OutputResolver,
+	resolver OutputResolver, contentsLimit int64,
 ) *pendingValues {
 	base := documentDir(run)
 	listing, _ := loadListingDefault(scope)
@@ -354,6 +357,7 @@ func newProcessValues(
 		secondary:      nil,
 		listingDefault: listing,
 		resolver:       resolver,
+		contentsLimit:  contentsLimit,
 	}
 
 	for index := range decls {
@@ -374,9 +378,9 @@ func newProcessValues(
 // newPendingValues extends [newProcessValues] with step-level defaults and load requests.
 func newPendingValues(
 	ctx context.Context, sc cwlcore.StepContainer, step *plannedStep, decls []portDecl,
-	resolver OutputResolver,
+	resolver OutputResolver, contentsLimit int64,
 ) *pendingValues {
-	pending := newProcessValues(ctx, step.run, step.scope, decls, resolver)
+	pending := newProcessValues(ctx, step.run, step.scope, decls, resolver, contentsLimit)
 	pending.stepBase = documentDir(sc)
 	pending.secondary = stepSecondaryDecls(step.run, step.scope)
 
@@ -446,12 +450,13 @@ func (p *pendingValues) materialize(ctx context.Context, node salad.Node, base, 
 		listing: "",
 	}
 	position := &joValueCtx{
-		typ:          p.types[name],
-		base:         base,
-		path:         name,
-		format:       nil,
-		listing:      p.listingFor(name),
-		loadContents: p.loadContents[name],
+		typ:           p.types[name],
+		base:          base,
+		path:          name,
+		format:        nil,
+		listing:       p.listingFor(name),
+		loadContents:  p.loadContents[name],
+		contentsLimit: p.contentsLimit,
 	}
 
 	value, err := loader.value(ctx, node, position)
@@ -495,7 +500,7 @@ func (p *pendingValues) loadOne(name string, value any) (any, error) {
 			return value, nil
 		}
 
-		return loadFileContents(typed, p.resolver)
+		return loadFileContents(typed, p.resolver, p.contentsLimit)
 	case *cwlcore.Directory:
 		return loadDirectoryListing(typed, p.listingFor(name), p.resolver)
 	default:
@@ -544,7 +549,7 @@ func loadDirectoryListing(dir *cwlcore.Directory, mode cwlcore.LoadListingEnum, 
 }
 
 // loadFileContents reads a File's contents from disk. Returns a copy to avoid mutating shared values.
-func loadFileContents(file *cwlcore.File, resolver OutputResolver) (any, error) {
+func loadFileContents(file *cwlcore.File, resolver OutputResolver, limit int64) (any, error) {
 	if file.Contents.IsSet() || file.Path == "" {
 		return file, nil
 	}
@@ -565,9 +570,9 @@ func loadFileContents(file *cwlcore.File, resolver OutputResolver) (any, error) 
 			return nil, fmt.Errorf("%w: %s: %w", ErrLoadContents, file.Path, err)
 		}
 
-		stats, err = outDigestFS(fsys, name)
+		stats, err = outDigestFS(fsys, name, limit)
 	} else {
-		stats, err = outDigest(file.Path)
+		stats, err = outDigest(file.Path, limit)
 	}
 
 	if err != nil {
@@ -576,7 +581,7 @@ func loadFileContents(file *cwlcore.File, resolver OutputResolver) (any, error) 
 
 	loaded := *file
 
-	read, err := outWithContents(&loaded, &stats)
+	read, err := outWithContents(&loaded, &stats, limit)
 	if err != nil {
 		return nil, err
 	}

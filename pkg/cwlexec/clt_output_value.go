@@ -176,7 +176,7 @@ func outRemeasure(file *cwlcore.File, fsys fs.FS, outdir string) {
 		return
 	}
 
-	stats, err := outDigestFS(fsys, filepath.ToSlash(rel))
+	stats, err := outDigestFS(fsys, filepath.ToSlash(rel), 0)
 	if err != nil {
 		return
 	}

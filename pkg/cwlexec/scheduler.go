@@ -48,6 +48,7 @@ type Config struct {
 	EvalTimeout         time.Duration  // Per-expression timeout; zero means default.
 	MaxParallel         int            // Max concurrent handlers; 0 = unbounded.
 	LenientRequirements bool           // Bypass unknown-requirement gate.
+	LoadContentsLimit   int64          // Override the 64 KiB loadContents ceiling; 0 = spec default.
 	// ExecuteFunc replaces the default goroutine-based execution loop. When
 	// nil, the runner uses goroutines and Go channels. The function must
 	// call loop.Pending() to get ready work, run each invocation, and feed

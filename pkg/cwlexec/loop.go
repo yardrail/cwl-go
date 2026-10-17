@@ -506,6 +506,7 @@ func (l *runLoop) newCall(job *runJob, step *plannedStep) (*StepCall, error) {
 		TmpDir:            dirs.TmpDir,
 		Eval:              step.eval,
 		Logger:            l.runner.cfg.Logger,
+		LoadContentsLimit: l.runner.cfg.LoadContentsLimit,
 	}
 
 	if l.runner.registry.IsUnbudgeted(step.class) {

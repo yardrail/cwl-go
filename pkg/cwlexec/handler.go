@@ -80,6 +80,8 @@ type StepCall struct {
 	Eval *cwlcore.Evaluator
 	// Logger may be nil; use [StepCall.Log] for a nil-safe accessor.
 	Logger *slog.Logger
+	// LoadContentsLimit overrides the 64 KiB loadContents ceiling; 0 = spec default.
+	LoadContentsLimit int64
 }
 
 // StepHandler executes one invocation of a process class. Must be safe for concurrent use.

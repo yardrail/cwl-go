@@ -19,12 +19,12 @@ func TestOutDigestFSMatchesHostDigest(t *testing.T) {
 	dir := t.TempDir()
 	path := outWriteFile(t, dir, "data.txt", "consistent across paths")
 
-	hostStats, err := outDigest(path)
+	hostStats, err := outDigest(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	fsStats, err := outDigestFS(NewLocalDirFS(dir), "data.txt")
+	fsStats, err := outDigestFS(NewLocalDirFS(dir), "data.txt", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestOutCollectFileFS(t *testing.T) {
 		OutputEval: "", LoadListing: "", Glob: nil, LoadContents: false,
 	}
 
-	file, err := outCollectFile(fakeOutdir+"/"+testResultName, binding, mfs, fakeOutdir)
+	file, err := outCollectFile(fakeOutdir+"/"+testResultName, binding, mfs, fakeOutdir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

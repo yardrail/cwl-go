@@ -240,7 +240,7 @@ func TestOutDigestOnSomethingItCannotRead(t *testing.T) {
 
 	// A directory opens but does not read, which is the one easy way to reach the read-error
 	// path without depending on file permissions.
-	_, err := outDigest(t.TempDir())
+	_, err := outDigest(t.TempDir(), 0)
 	if err == nil {
 		t.Fatal("outDigest on a directory succeeded, want a read error")
 	}

@@ -85,7 +85,7 @@ func (c *outputCollector) collectMatch(
 		return nil, err
 	}
 
-	return outCollectPath(local, binding, c.outfs, c.outdir)
+	return outCollectPath(local, binding, c.outfs, c.outdir, c.contentsLimit)
 }
 
 // checkRetrievable rejects a matched path whose symlink chain leads outside the output and input directories.
@@ -357,7 +357,7 @@ func outRelSlash(outdir, local string) (string, error) {
 
 // outCollectPath builds a File or Directory value for a matched path via the given FS.
 func outCollectPath(
-	local string, binding *cwlcore.CommandOutputBinding, fsys fs.FS, outdir string,
+	local string, binding *cwlcore.CommandOutputBinding, fsys fs.FS, outdir string, limit int64,
 ) (cwlcore.FileOrDirectory, error) {
 	rel, err := outRelSlash(outdir, local)
 	if err != nil {
@@ -373,19 +373,19 @@ func outCollectPath(
 		return outCollectDirectory(local, binding.LoadListing, fsys, outdir)
 	}
 
-	return outCollectFile(local, binding, fsys, outdir)
+	return outCollectFile(local, binding, fsys, outdir, limit)
 }
 
 // outCollectFile builds a File value with size, checksum, and optionally contents via the given FS.
 func outCollectFile(
-	local string, binding *cwlcore.CommandOutputBinding, fsys fs.FS, outdir string,
+	local string, binding *cwlcore.CommandOutputBinding, fsys fs.FS, outdir string, limit int64,
 ) (*cwlcore.File, error) {
 	rel, err := outRelSlash(outdir, local)
 	if err != nil {
 		return nil, err
 	}
 
-	stats, err := outDigestFS(fsys, rel)
+	stats, err := outDigestFS(fsys, rel, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +398,7 @@ func outCollectFile(
 		return file, nil
 	}
 
-	return outWithContents(file, &stats)
+	return outWithContents(file, &stats, limit)
 }
 
 // outMeasureFile builds a File value with size and checksum but no contents, reading from the host FS.
@@ -406,7 +406,7 @@ func outMeasureFile(local string) (*cwlcore.File, error) {
 	return outCollectFile(
 		local,
 		&cwlcore.CommandOutputBinding{OutputEval: "", LoadListing: "", Glob: nil, LoadContents: false},
-		NewLocalDirFS(filepath.Dir(local)), filepath.Dir(local),
+		NewLocalDirFS(filepath.Dir(local)), filepath.Dir(local), 0,
 	)
 }
 
@@ -415,15 +415,15 @@ func outMeasureFileFS(local string, fsys fs.FS, outdir string) (*cwlcore.File, e
 	return outCollectFile(
 		local,
 		&cwlcore.CommandOutputBinding{OutputEval: "", LoadListing: "", Glob: nil, LoadContents: false},
-		fsys, outdir,
+		fsys, outdir, 0,
 	)
 }
 
-// outWithContents populates File.Contents from the digested bytes, enforcing the 64 KiB and UTF-8 constraints.
-func outWithContents(file *cwlcore.File, stats *outFileStats) (*cwlcore.File, error) {
-	if stats.size > joMaxContentsBytes {
+// outWithContents populates File.Contents from the digested bytes, enforcing the loadContents size and UTF-8 constraints.
+func outWithContents(file *cwlcore.File, stats *outFileStats, limit int64) (*cwlcore.File, error) {
+	if maxBytes := contentsLimit(limit); stats.size > maxBytes {
 		return nil, fmt.Errorf("%w: %s is %d bytes, over %d",
-			ErrContentsTooLarge, file.Path, stats.size, joMaxContentsBytes)
+			ErrContentsTooLarge, file.Path, stats.size, maxBytes)
 	}
 
 	if !utf8.Valid(stats.head) {

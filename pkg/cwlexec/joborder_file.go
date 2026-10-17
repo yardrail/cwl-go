@@ -138,7 +138,7 @@ func joMeasure(file *cwlcore.File, m *salad.MapNode, v *joValueCtx) *salad.Error
 		return nil
 	}
 
-	stats, err := outDigest(file.Path)
+	stats, err := outDigest(file.Path, v.contentsLimit)
 	if err != nil {
 		return salad.Errorf(m.Loc(), "%s: cannot read file: %v", v.path, err)
 	}
@@ -155,10 +155,10 @@ func joLoadContents(file *cwlcore.File, m *salad.MapNode, v *joValueCtx, stats *
 		return nil
 	}
 
-	if stats.size > joMaxContentsBytes {
+	if limit := contentsLimit(v.contentsLimit); stats.size > limit {
 		return salad.Errorf(m.Loc(),
 			"%s: loadContents is set but the file is %d bytes, over the %d byte limit",
-			v.path, stats.size, joMaxContentsBytes)
+			v.path, stats.size, limit)
 	}
 
 	file.Contents = cwlcore.NewOptString(string(stats.head))
@@ -172,10 +172,10 @@ func joCheckFileIdentity(m *salad.MapNode, v *joValueCtx, ref *joFileRef, conten
 		return salad.Errorf(m.Loc(), "%s: a File must supply location, path, or contents", v.path)
 	}
 
-	if size := len(contents.Value()); size > joMaxContentsBytes {
+	if size, limit := len(contents.Value()), int(contentsLimit(v.contentsLimit)); size > limit {
 		return salad.Errorf(m.Loc(),
 			"%s: contents is %d bytes, over the %d byte limit the specification places on a file literal",
-			v.path, size, joMaxContentsBytes)
+			v.path, size, limit)
 	}
 
 	return nil

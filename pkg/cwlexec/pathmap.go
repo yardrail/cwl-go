@@ -89,7 +89,7 @@ func NewPathMap(workdir, staging string) *PathMap {
 		staging:     staging,
 		hostWorkdir: workdir,
 		hostStaging: staging,
-		resolver:    nil,
+		resolver:    localOutputResolver{},
 		inplace:     false,
 		contained:   false,
 		absolute:    false,

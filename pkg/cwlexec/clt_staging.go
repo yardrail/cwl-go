@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -386,7 +387,13 @@ func (m *PathMap) placeLinkFS(mapping *PathMapping, dst WriteFS, rel string) err
 func (m *PathMap) mountPointFS(source string, dst WriteFS, rel string) error {
 	fsys, name, err := m.resolveSource(source)
 	if err != nil {
-		return err
+		// If single-file resolve fails, try as a directory.
+		_, dirErr := m.resolver.ResolveOutputDirFS(source)
+		if dirErr != nil {
+			return err
+		}
+
+		return dst.MkdirAll(rel, stageDirPerm)
 	}
 
 	info, err := fs.Stat(fsys, name)
@@ -447,13 +454,8 @@ func replaceWithFS(dst WriteFS, rel string, place func() error) error {
 }
 
 // resolveSource returns a readable [fs.FS] and relative path for a source file.
-// Uses the configured [OutputResolver] if set, otherwise falls back to [os.DirFS].
 func (m *PathMap) resolveSource(path string) (fs.FS, string, error) {
-	if m.resolver != nil {
-		return m.resolver.ResolveOutputFS(path)
-	}
-
-	return os.DirFS(filepath.Dir(path)), filepath.Base(path), nil
+	return m.resolver.ResolveOutputFS(path)
 }
 
 // copyToFS copies source into dst at rel.
@@ -476,38 +478,57 @@ func (m *PathMap) copyToFS(source string, dst WriteFS, rel string) error {
 }
 
 // copyTreeFS copies a directory and everything under it into a [WriteFS].
+// Uses [OutputResolver.ResolveOutputDirFS] to get a directory-rooted FS and
+// walks it directly, avoiding filepath.Join on the source URI.
 func (m *PathMap) copyTreeFS(source string, dst WriteFS, rel string) error {
-	fsys, name, err := m.resolveSource(source)
+	dirFS, err := m.resolver.ResolveOutputDirFS(source)
 	if err != nil {
 		return err
 	}
 
-	entries, err := fs.ReadDir(fsys, name)
-	if err != nil {
-		return err
-	}
-
-	err = dst.MkdirAll(rel, stageDirPerm)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		childSrc := filepath.Join(source, entry.Name())
-		childRel := rel + "/" + entry.Name()
-
-		if entry.IsDir() {
-			err = m.copyTreeFS(childSrc, dst, childRel)
-		} else {
-			err = m.copyFileFS(childSrc, dst, childRel)
+	return fs.WalkDir(dirFS, ".", func(name string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
 
-		if err != nil {
-			return err
+		childRel := rel
+		if name != "." {
+			childRel = rel + "/" + name
 		}
+
+		if d.IsDir() {
+			return dst.MkdirAll(childRel, stageDirPerm)
+		}
+
+		return m.copyWalkedFile(dirFS, name, source, dst, childRel)
+	})
+}
+
+// copyWalkedFile copies one file from a walked directory FS.
+// Tries [CopyOptimizer] with the original source URI for server-side copy,
+// then falls back to streaming from the walked FS.
+func (m *PathMap) copyWalkedFile(dirFS fs.FS, name, sourceDir string, dst WriteFS, rel string) error {
+	childSrc := path.Join(sourceDir, name)
+
+	done, err := m.tryCopyDirect(childSrc, dst, rel)
+	if done || err != nil {
+		return err
 	}
 
-	return nil
+	src, err := dirFS.Open(name)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	w, err := dst.Create(rel)
+	if err != nil {
+		return err
+	}
+
+	_, copyErr := io.Copy(w, src)
+
+	return errors.Join(copyErr, w.Close())
 }
 
 // copyFileFS reads from a source path and writes through a [WriteFS].
@@ -542,10 +563,6 @@ func (m *PathMap) copyFileFS(source string, dst WriteFS, rel string) error {
 // tryCopyDirect attempts a zero-copy transfer via [CopyOptimizer]. Returns (true, nil) when the
 // optimization succeeded, (false, nil) when unavailable, or (false, err) on failure.
 func (m *PathMap) tryCopyDirect(source string, dst WriteFS, rel string) (bool, error) {
-	if m.resolver == nil {
-		return false, nil
-	}
-
 	opt, ok := m.resolver.(CopyOptimizer)
 	if !ok {
 		return false, nil

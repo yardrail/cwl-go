@@ -8,7 +8,7 @@ import (
 )
 
 func validFile(path, location string) *cwlcore.File {
-	f := &cwlcore.File{Basename: "x.txt"}
+	f := &cwlcore.File{Basename: outNameX}
 	f.SetPathAndLocation(path, location)
 
 	return f
@@ -30,16 +30,16 @@ func TestValidateOutputPathsAcceptsConsistentValues(t *testing.T) {
 	}{
 		{
 			name:    "local path and file location",
-			outputs: map[string]any{"out": validFile("/data/x.txt", "file:///data/x.txt")},
+			outputs: map[string]any{outPort: validFile("/data/x.txt", "file:///data/x.txt")},
 		},
 		{
 			name:    "remote path and remote location",
-			outputs: map[string]any{"out": validFile("s3://bucket/x.txt", "s3://bucket/x.txt")},
+			outputs: map[string]any{outPort: validFile("s3://bucket/x.txt", "s3://bucket/x.txt")},
 		},
 		{
 			name: "path only",
-			outputs: map[string]any{"out": func() *cwlcore.File {
-				f := &cwlcore.File{Basename: "x.txt"}
+			outputs: map[string]any{outPort: func() *cwlcore.File {
+				f := &cwlcore.File{Basename: outNameX}
 				f.SetPath("s3://bucket/x.txt")
 
 				return f
@@ -47,8 +47,8 @@ func TestValidateOutputPathsAcceptsConsistentValues(t *testing.T) {
 		},
 		{
 			name: "location only",
-			outputs: map[string]any{"out": func() *cwlcore.File {
-				f := &cwlcore.File{Basename: "x.txt"}
+			outputs: map[string]any{outPort: func() *cwlcore.File {
+				f := &cwlcore.File{Basename: outNameX}
 				f.SetLocation("file:///data/x.txt")
 
 				return f
@@ -92,11 +92,11 @@ func TestValidateOutputPathsRejectsInconsistentSchemes(t *testing.T) {
 	}{
 		{
 			name:    "s3 path with file location",
-			outputs: map[string]any{"out": validFile("s3://bucket/x.txt", "file:///tmp/stale/x.txt")},
+			outputs: map[string]any{outPort: validFile("s3://bucket/x.txt", "file:///tmp/stale/x.txt")},
 		},
 		{
 			name:    "directory with mixed schemes",
-			outputs: map[string]any{"dir": validDir("s3://bucket/ledger", "file:///tmp/old/ledger")},
+			outputs: map[string]any{jobDirName: validDir("s3://bucket/ledger", "file:///tmp/old/ledger")},
 		},
 		{
 			name: "inconsistent secondary file",
@@ -114,7 +114,7 @@ func TestValidateOutputPathsRejectsInconsistentSchemes(t *testing.T) {
 		{
 			name: "inconsistent listing entry",
 			outputs: map[string]any{
-				"dir": func() *cwlcore.Directory {
+				jobDirName: func() *cwlcore.Directory {
 					d := validDir("s3://bucket/d", "s3://bucket/d")
 					d.Listing = []cwlcore.FileOrDirectory{
 						validFile("s3://bucket/d/f.txt", "file:///tmp/f.txt"),

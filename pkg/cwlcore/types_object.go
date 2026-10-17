@@ -41,7 +41,19 @@ func IsRemoteScheme(p string) bool {
 }
 
 func fileURI(local string) string {
-	uri := url.URL{Scheme: schemeFile, Path: local}
+	uri := url.URL{
+		Scheme:      schemeFile,
+		Opaque:      "",
+		User:        nil,
+		Host:        "",
+		Path:        local,
+		RawPath:     "",
+		OmitHost:    false,
+		ForceQuery:  false,
+		RawQuery:    "",
+		Fragment:    "",
+		RawFragment: "",
+	}
 
 	return uri.String()
 }
@@ -83,6 +95,28 @@ type File struct {
 	Contents OptString
 
 	SecondaryFiles []FileOrDirectory
+}
+
+// NewFileAtPath returns a File with path, location, dirname, and
+// basename all derived from the given path.
+func NewFileAtPath(p string) *File {
+	f := &File{
+		Node:           nil,
+		path:           "",
+		location:       "",
+		Basename:       PathBasename(p),
+		dirname:        "",
+		Nameroot:       "",
+		Nameext:        "",
+		Checksum:       "",
+		Format:         "",
+		Size:           OptInt{value: 0, set: false},
+		Contents:       OptString{value: "", set: false},
+		SecondaryFiles: nil,
+	}
+	f.SetPath(p)
+
+	return f
 }
 
 // Path returns the file's resolved filesystem path.
@@ -133,15 +167,6 @@ func (*File) Class() string {
 // isFileOrDirectory seals FileOrDirectory.
 func (*File) isFileOrDirectory() {}
 
-// NewFileAtPath returns a File with path, location, dirname, and
-// basename all derived from the given path.
-func NewFileAtPath(p string) *File {
-	f := &File{Basename: PathBasename(p)}
-	f.SetPath(p)
-
-	return f
-}
-
 // Directory describes a CWL directory value. Use [SetPath] or
 // [SetPathAndLocation] to set path-related fields.
 type Directory struct {
@@ -151,6 +176,21 @@ type Directory struct {
 	Basename string
 	// Listing is nil when unset (fetch from Location), not when empty.
 	Listing []FileOrDirectory
+}
+
+// NewDirectoryAtPath returns a Directory with path, location, and
+// basename all derived from the given path.
+func NewDirectoryAtPath(p string) *Directory {
+	d := &Directory{
+		Node:     nil,
+		path:     "",
+		location: "",
+		Basename: PathBasename(p),
+		Listing:  nil,
+	}
+	d.SetPath(p)
+
+	return d
 }
 
 // Path returns the directory's resolved filesystem path.
@@ -191,12 +231,3 @@ func (*Directory) Class() string {
 
 // isFileOrDirectory seals FileOrDirectory.
 func (*Directory) isFileOrDirectory() {}
-
-// NewDirectoryAtPath returns a Directory with path, location, and
-// basename all derived from the given path.
-func NewDirectoryAtPath(p string) *Directory {
-	d := &Directory{Basename: PathBasename(p)}
-	d.SetPath(p)
-
-	return d
-}

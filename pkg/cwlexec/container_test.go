@@ -415,7 +415,7 @@ func TestContainerOutdirIsRandomUnlessDeclared(t *testing.T) {
 	}
 
 	// A relative one names nothing a mount can be built from.
-	if got := outdirFor(&cwlcore.DockerRequirement{DockerOutputDirectory: "out"}); got != drawn {
+	if got := outdirFor(&cwlcore.DockerRequirement{DockerOutputDirectory: outPort}); got != drawn {
 		t.Errorf("outdir = %q, want the default for a relative dockerOutputDirectory", got)
 	}
 }

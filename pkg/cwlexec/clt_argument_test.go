@@ -376,7 +376,7 @@ func TestBuildCommandLineWithoutJavaScript(t *testing.T) {
 
 	// A nil evaluator is the parameter-references-only configuration every conforming
 	// implementation must support, and it is what a hand-built call passes.
-	line, err := BuildCommandLine(tool, map[string]any{"x": "dir"}, nil, nil, cwlcore.RuntimeContext{})
+	line, err := BuildCommandLine(tool, map[string]any{"x": jobDirName}, nil, nil, cwlcore.RuntimeContext{})
 	if err != nil {
 		t.Fatalf("BuildCommandLine: unexpected error: %v", err)
 	}

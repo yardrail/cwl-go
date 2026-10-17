@@ -90,7 +90,7 @@ func TestStageInitialWorkDirEntryKinds(t *testing.T) {
 	listing := stgEntries(
 		cwlcore.NewInitialWorkDirNull(),
 		cwlcore.InitialWorkDirEntry{},
-		cwlcore.NewInitialWorkDirFile(pmHostFile("/data/a.txt")),
+		cwlcore.NewInitialWorkDirFile(pmHostFile(pmDataA)),
 		cwlcore.NewInitialWorkDirDirectory(func() *cwlcore.Directory {
 			d := &cwlcore.Directory{Basename: stgTreeName}
 			d.SetPath(stgHostTree)
@@ -104,7 +104,7 @@ func TestStageInitialWorkDirEntryKinds(t *testing.T) {
 	inputs := map[string]any{execInPort: pmHostFile(stgHostFile)}
 
 	pmWantPlan(t, stgPlan(t, listing, inputs), []PathMapping{
-		{Resolved: "/data/a.txt", Target: "/work/a.txt", Action: StageLink},
+		{Resolved: pmDataA, Target: "/work/a.txt", Action: StageLink},
 		{Resolved: stgHostTree, Target: stgWorkTree, Action: StageLink},
 		{Resolved: "/data/b.txt", Target: "/work/b.txt", Action: StageLink},
 		{Resolved: stgHostFile, Target: "/work/c.txt", Action: StageLink},
@@ -169,7 +169,7 @@ func TestStageInitialWorkDirNamesAnEntryByItsLocation(t *testing.T) {
 	)
 
 	pmWantPlan(t, stgPlan(t, listing, nil), []PathMapping{
-		{Resolved: "/data/a.txt", Target: "/work/a.txt", Action: StageLink},
+		{Resolved: pmDataA, Target: "/work/a.txt", Action: StageLink},
 		{Resolved: "/data/b.txt", Target: "/work/b.txt", Action: StageLink},
 		{Resolved: stgHostTree, Target: stgWorkTree, Action: StageLink},
 	})

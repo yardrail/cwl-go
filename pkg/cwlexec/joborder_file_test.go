@@ -603,8 +603,8 @@ func TestDirectoryWithoutAListingKeepsItNil(t *testing.T) {
 		t.Errorf("path = %q, want %q", dir.Path(), want)
 	}
 
-	if dir.Basename != "dir" {
-		t.Errorf("basename = %q, want %q", dir.Basename, "dir")
+	if dir.Basename != jobDirName {
+		t.Errorf("basename = %q, want %q", dir.Basename, jobDirName)
 	}
 }
 

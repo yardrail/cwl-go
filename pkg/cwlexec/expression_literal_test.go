@@ -342,7 +342,7 @@ func TestExpressionToolPlansARemoteLocationLiteral(t *testing.T) {
 type memLiteralResolver struct{}
 
 func (memLiteralResolver) ResolveOutputFS(_ string) (fs.FS, string, error) {
-	return fstest.MapFS{"file": &fstest.MapFile{Data: nil}}, "file", nil
+	return fstest.MapFS{joSchemeFile: &fstest.MapFile{Data: nil}}, joSchemeFile, nil
 }
 
 func (memLiteralResolver) ResolveOutputDirFS(_ string) (fs.FS, error) {

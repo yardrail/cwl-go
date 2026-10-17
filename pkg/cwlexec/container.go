@@ -149,6 +149,10 @@ const containerWholeMounts = 3
 // mountSource returns the host path to bind-mount for a placement, and whether a mount is needed.
 // Links always need a mount; materialized files only need one if outside the whole-directory mounts.
 func (c *container) mountSource(mapping *PathMapping) (string, bool) {
+	if mapping.Action == StageRemote {
+		return "", false
+	}
+
 	if mapping.Action == StageLink {
 		return mapping.Resolved, true
 	}

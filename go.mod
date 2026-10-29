@@ -5,6 +5,7 @@ go 1.27.2
 require (
 	github.com/dop251/goja v0.0.0-20260822123354-58e940e0d230
 	github.com/goccy/go-yaml v1.19.2
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

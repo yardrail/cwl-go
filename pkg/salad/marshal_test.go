@@ -9,8 +9,8 @@ func TestMarshal_map(t *testing.T) {
 	t.Parallel()
 
 	n := NewMapNode(noLoc, []MapEntry{
-		{Key: "name", Value: NewStringNode(noLoc, "Log")},
-		{Key: "type", Value: NewStringNode(noLoc, "record")},
+		{Key: keyName, Value: NewStringNode(noLoc, "Log")},
+		{Key: keyType, Value: NewStringNode(noLoc, "record")},
 		{Key: "documentRoot", Value: NewBoolNode(noLoc, true)},
 	})
 
@@ -53,13 +53,13 @@ func TestMarshal_nested(t *testing.T) {
 	t.Parallel()
 
 	inner := NewMapNode(noLoc, []MapEntry{
-		{Key: "type", Value: NewStringNode(noLoc, "enum")},
-		{Key: "name", Value: NewStringNode(noLoc, "Kind")},
+		{Key: keyType, Value: NewStringNode(noLoc, "enum")},
+		{Key: keyName, Value: NewStringNode(noLoc, "Kind")},
 	})
 
 	n := NewMapNode(noLoc, []MapEntry{
-		{Key: "name", Value: NewStringNode(noLoc, "field")},
-		{Key: "type", Value: inner},
+		{Key: keyName, Value: NewStringNode(noLoc, "field")},
+		{Key: keyType, Value: inner},
 	})
 
 	b, err := Marshal(n)
@@ -114,7 +114,7 @@ func TestMarshal_roundTrip(t *testing.T) {
 	t.Parallel()
 
 	original := NewMapNode(noLoc, []MapEntry{
-		{Key: "name", Value: NewStringNode(noLoc, "Test")},
+		{Key: keyName, Value: NewStringNode(noLoc, "Test")},
 		{Key: "count", Value: NewIntNode(noLoc, 3)},
 		{Key: "items", Value: NewSeqNode(noLoc, []Node{
 			NewStringNode(noLoc, "a"),
@@ -133,7 +133,7 @@ func TestMarshal_roundTrip(t *testing.T) {
 	}
 
 	m := mustMap(t, parsed)
-	if v, _ := AsString(mustGet(t, m, "name")); v != "Test" {
+	if v, _ := AsString(mustGet(t, m, keyName)); v != "Test" {
 		t.Errorf("name = %q, want Test", v)
 	}
 

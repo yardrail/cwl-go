@@ -8,16 +8,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const marshalIndent = 2
+
 // Marshal serializes a salad Node tree to YAML.
 func Marshal(n Node) ([]byte, error) {
 	yn := nodeToYAML(n)
 
-	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{yn}}
+	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{yn}} //nolint:exhaustruct_v5 // external type
 
 	var b bytes.Buffer
 
 	enc := yaml.NewEncoder(&b)
-	enc.SetIndent(2)
+	enc.SetIndent(marshalIndent)
 
 	err := enc.Encode(doc)
 	if err != nil {
@@ -50,11 +52,11 @@ func nodeToYAML(n Node) *yaml.Node {
 }
 
 func mapToYAML(m *MapNode) *yaml.Node {
-	yn := &yaml.Node{Kind: yaml.MappingNode}
+	yn := &yaml.Node{Kind: yaml.MappingNode} //nolint:exhaustruct_v5 // external type
 
 	for _, e := range m.Entries() {
 		yn.Content = append(yn.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Value: e.Key},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: e.Key}, //nolint:exhaustruct_v5 // external type
 			nodeToYAML(e.Value),
 		)
 	}
@@ -63,7 +65,7 @@ func mapToYAML(m *MapNode) *yaml.Node {
 }
 
 func seqToYAML(s *SeqNode) *yaml.Node {
-	yn := &yaml.Node{Kind: yaml.SequenceNode}
+	yn := &yaml.Node{Kind: yaml.SequenceNode} //nolint:exhaustruct_v5 // external type
 
 	for i := range s.Len() {
 		yn.Content = append(yn.Content, nodeToYAML(s.At(i)))
@@ -81,7 +83,7 @@ func scalarToYAML(s *ScalarNode) *yaml.Node {
 	case NullScalar:
 		return nullYAML()
 	case BoolScalar:
-		return &yaml.Node{
+		return &yaml.Node{ //nolint:exhaustruct_v5 // external type
 			Kind:  yaml.ScalarNode,
 			Tag:   "!!bool",
 			Value: strconv.FormatBool(s.AsBool()),
@@ -89,7 +91,7 @@ func scalarToYAML(s *ScalarNode) *yaml.Node {
 	case IntScalar:
 		v, _ := s.AsInt()
 
-		return &yaml.Node{
+		return &yaml.Node{ //nolint:exhaustruct_v5 // external type
 			Kind:  yaml.ScalarNode,
 			Tag:   "!!int",
 			Value: strconv.FormatInt(v, 10),
@@ -97,7 +99,7 @@ func scalarToYAML(s *ScalarNode) *yaml.Node {
 	case FloatScalar:
 		v, _ := s.AsFloat()
 
-		return &yaml.Node{
+		return &yaml.Node{ //nolint:exhaustruct_v5 // external type
 			Kind:  yaml.ScalarNode,
 			Tag:   "!!float",
 			Value: strconv.FormatFloat(v, 'g', -1, 64),
@@ -105,10 +107,10 @@ func scalarToYAML(s *ScalarNode) *yaml.Node {
 	case DecimalScalar:
 		d, _ := s.AsDecimal()
 
-		return &yaml.Node{Kind: yaml.ScalarNode, Value: d.String()}
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: d.String()} //nolint:exhaustruct_v5 // external type
 	default:
 		v, _ := s.AsString()
-		n := &yaml.Node{Kind: yaml.ScalarNode, Value: v}
+		n := &yaml.Node{Kind: yaml.ScalarNode, Value: v} //nolint:exhaustruct_v5 // external type
 
 		if needsQuoting(v) {
 			n.Style = yaml.DoubleQuotedStyle
@@ -133,5 +135,5 @@ func needsQuoting(s string) bool {
 }
 
 func nullYAML() *yaml.Node {
-	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"}
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"} //nolint:exhaustruct_v5 // external type
 }

@@ -129,13 +129,11 @@ func (v *validator) appendConcrete(dst []Type, seen map[string]bool, r *RecordTy
 
 		seen[child.Name] = true
 
-		if child.Abstract {
-			dst = v.appendConcrete(dst, seen, child)
-
-			continue
+		if !child.Abstract {
+			dst = append(dst, child)
 		}
 
-		dst = append(dst, child)
+		dst = v.appendConcrete(dst, seen, child)
 	}
 
 	return dst

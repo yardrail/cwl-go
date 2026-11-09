@@ -7,6 +7,7 @@ import "testing"
 const (
 	testFile    = "a.yml"
 	typeTool    = "Tool"
+	nameProcess = "Process"
 	fieldClass  = "class"
 	fieldInputs = "inputs"
 	litGreen    = "green"
@@ -81,6 +82,29 @@ func mustParse(t *testing.T, file, src string) Node {
 	}
 
 	return n
+}
+
+// fieldArrayElem resolves the element type of a record field that must be an
+// array.
+func fieldArrayElem(t *testing.T, r *RecordType, name string) Type {
+	t.Helper()
+
+	f, found := r.Field(name)
+	if !found {
+		t.Fatalf("record has no %s field", name)
+	}
+
+	if elem := arrayElementOf(f.Type); elem != nil {
+		return elem
+	}
+
+	if a, ok := f.Type.(*ArrayType); ok {
+		return a.Items
+	}
+
+	t.Fatalf("%s field is not an array; type = %s", name, typeLabel(f.Type))
+
+	return nil
 }
 
 // assertLoc checks the file, line and column a node reports.

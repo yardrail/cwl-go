@@ -789,3 +789,73 @@ func assertErrorContains(t *testing.T, err error, want string) {
 		t.Errorf("error does not mention %q:\n%s", want, got)
 	}
 }
+
+func TestFlattenSpecializePropagatesThroughInheritance(t *testing.T) {
+	t.Parallel()
+
+	s := mustFlatten(t, `
+$base: "`+testSchemaBase+`"
+$graph:
+- name: InputParam
+  type: record
+  fields:
+    - name: id
+      type: string
+- name: OpInputParam
+  type: record
+  extends: InputParam
+  fields:
+    - name: hint
+      type: string?
+- name: Process
+  type: record
+  abstract: true
+  fields:
+    - name: inputs
+      type: InputParam[]
+- name: Operation
+  type: record
+  extends: Process
+  specialize:
+    InputParam: OpInputParam
+  fields:
+    - name: class
+      type: string
+- name: MyConnector
+  type: record
+  extends: Operation
+  fields:
+    - name: tag
+      type: string?
+`)
+
+	opInputParam, ok := s.Type(testSchemaBase + "OpInputParam")
+	if !ok {
+		t.Fatal("schema has no OpInputParam")
+	}
+
+	tests := []struct {
+		name     string
+		record   string
+		wantSpec bool
+	}{
+		{"Operation has specialized inputs", "Operation", true},
+		{"MyConnector inherits specialization", "MyConnector", true},
+		{"Process keeps original type", nameProcess, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := namedRecord(t, s, tt.record)
+			elem := fieldArrayElem(t, r, fieldInputs)
+
+			gotSpec := elem == opInputParam
+			if gotSpec != tt.wantSpec {
+				t.Errorf("inputs element is specialized = %v, want %v (type = %s)",
+					gotSpec, tt.wantSpec, typeLabel(elem))
+			}
+		})
+	}
+}

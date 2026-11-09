@@ -160,6 +160,41 @@ func TestValidateAbstractRecordExplainsEverySubtype(t *testing.T) {
 	)
 }
 
+func TestValidateAbstractRecordResolvesTransitiveConcreteSubtypes(t *testing.T) {
+	t.Parallel()
+
+	const (
+		typeOperation = "https://example.com/s#Operation"
+		typeConnector = "https://example.com/s#Connector"
+	)
+
+	process := abstractRecord(typeProcess, field("id", optional(Primitive(PrimitiveString))))
+	operation := extending(record(typeOperation, field("class", Primitive(PrimitiveString))), typeProcess)
+	connector := extending(record(typeConnector, field("tag", Primitive(PrimitiveString))), typeOperation)
+	root := rootRecord(typeInner, field(keyRun, process))
+
+	s := NewSchema([]Type{root, process, operation, connector})
+
+	tests := []struct {
+		name string
+		doc  string
+	}{
+		{name: "direct concrete subtype", doc: "run:\n  class: op\n"},
+		{name: "transitive concrete subtype", doc: "run:\n  tag: hello\n"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := s.Validate(mustParse(t, testFile, tc.doc), Strict(true))
+			if err != nil {
+				t.Fatalf("concrete subtype of concrete subtype should satisfy abstract field: %v", err)
+			}
+		})
+	}
+}
+
 // TestChildrenOfMatchesASubtypeDeclaredByShortName covers childrenOf's merge
 // branch: the base's Name is a fully-qualified IRI, but the subtype declares
 // extends using the base's short name, so indexExtends only ever registers it

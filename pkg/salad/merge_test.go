@@ -55,10 +55,10 @@ $graph:
       type: string
 `
 
-func loadedFromInline(t *testing.T, mount, file, src string) *LoadedSchema {
+func loadedFromInline(t *testing.T, src string) *LoadedSchema {
 	t.Helper()
 
-	ls := resolvedFromInline(t, mount, file, src)
+	ls := resolvedFromInline(t, testSchemaMount, testSchemaFile, src)
 
 	schema, err := Flatten(ls.SchemaDoc, ls.Context)
 	if err != nil {
@@ -108,7 +108,7 @@ type mergeFixtures struct {
 func mergeFixture(t *testing.T) mergeFixtures {
 	t.Helper()
 
-	base := loadedFromInline(t, testSchemaMount, testSchemaFile, mergeSchemaBase)
+	base := loadedFromInline(t, mergeSchemaBase)
 	ext := resolvedFromInline(t, mergeSchemaExtMount, mergeSchemaExtFile, mergeSchemaExt)
 
 	merged, err := MergeSchemas(base, ext)
@@ -299,7 +299,7 @@ func TestLoadExtensionSchemaRejectsInvalidSchema(t *testing.T) {
 func TestMergeSchemasRejectsNamelessDefinition(t *testing.T) {
 	t.Parallel()
 
-	base := loadedFromInline(t, testSchemaMount, testSchemaFile, mergeSchemaBase)
+	base := loadedFromInline(t, mergeSchemaBase)
 
 	namelessDef := NewMapNode(
 		SourceLine{
@@ -332,5 +332,170 @@ func TestMergeSchemasRejectsNamelessDefinition(t *testing.T) {
 	_, err := MergeSchemas(base, extWithBadDoc)
 	if err == nil {
 		t.Error("expected an error for a nameless type definition")
+	}
+}
+
+const mergeSchemaExtWithCollision = `
+$base: "` + mergeSchemaExtBase + `"
+$namespaces:
+  test: "` + testSchemaBase + `"
+$graph:
+- name: ExtWithInputs
+  type: record
+  extends: "` + testSchemaBase + `Process"
+  documentRoot: true
+  fields:
+    - name: class
+      type: {type: enum, symbols: [ExtWithInputs]}
+      jsonldPredicate: {_id: "@type", _type: "@vocab"}
+    - name: inputs
+      type: string
+      doc: "collides with Process.inputs"
+    - name: extra
+      type: string
+`
+
+func TestMergeSchemasFieldCollisionPreservesBaseDocument(t *testing.T) {
+	t.Parallel()
+
+	base := loadedFromInline(t, mergeSchemaBase)
+	ext := resolvedFromInline(t, mergeSchemaExtMount, mergeSchemaExtFile, mergeSchemaExtWithCollision)
+
+	merged, err := MergeSchemas(base, ext)
+	if err != nil {
+		prettyFatal(t, "MergeSchemas", err)
+	}
+
+	tests := []struct {
+		name string
+		doc  string
+	}{
+		{
+			name: "base type still validates",
+			doc:  "class: CommandLineTool\ninputs: hello\nid: test1",
+		},
+		{
+			name: "extension type validates",
+			doc:  "class: ExtWithInputs\ninputs: world\nextra: x\nid: test2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assertMergedValidates(t, merged, tt.doc)
+		})
+	}
+}
+
+func assertMergedValidates(t *testing.T, merged *LoadedSchema, doc string) {
+	t.Helper()
+
+	parsed, err := Parse("test.yml", []byte(doc))
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+
+	resolved, err := merged.Loader.LoadNode(parsed, "test.yml")
+	if err != nil {
+		t.Fatalf("resolving: %v", err)
+	}
+
+	verr := merged.Schema.Validate(resolved.Root)
+	if verr != nil {
+		t.Errorf("validate: %v", verr)
+	}
+}
+
+const mergeSchemaBaseWithWorkflow = `
+$base: "` + testSchemaBase + `"
+$graph:
+- name: Process
+  type: record
+  abstract: true
+  documentRoot: true
+  fields:
+    - name: id
+      type: string?
+    - name: inputs
+      type: string
+- name: CommandLineTool
+  type: record
+  extends: Process
+  documentRoot: true
+  fields:
+    - name: class
+      type: {type: enum, symbols: [CommandLineTool]}
+      jsonldPredicate: {_id: "@type", _type: "@vocab"}
+- name: WorkflowStep
+  type: record
+  fields:
+    - name: id
+      type: string
+    - name: run
+      type: string
+- name: Workflow
+  type: record
+  extends: Process
+  documentRoot: true
+  fields:
+    - name: class
+      type: {type: enum, symbols: [Workflow]}
+      jsonldPredicate: {_id: "@type", _type: "@vocab"}
+    - name: steps
+      type: "WorkflowStep[]"
+      jsonldPredicate: {mapSubject: id}
+`
+
+const mergeSchemaExtWithSteps = `
+$base: "` + mergeSchemaExtBase + `"
+$namespaces:
+  test: "` + testSchemaBase + `"
+$graph:
+- name: ExtWorkflow
+  type: record
+  extends: "` + testSchemaBase + `Process"
+  documentRoot: true
+  fields:
+    - name: class
+      type: {type: enum, symbols: [ExtWorkflow]}
+      jsonldPredicate: {_id: "@type", _type: "@vocab"}
+    - name: steps
+      type: Any
+      doc: "collides with Workflow.steps mapSubject"
+`
+
+func TestMergeSchemasStepsMappingSurvivesCollision(t *testing.T) {
+	t.Parallel()
+
+	base := loadedFromInline(t, mergeSchemaBaseWithWorkflow)
+	ext := resolvedFromInline(t, mergeSchemaExtMount, mergeSchemaExtFile, mergeSchemaExtWithSteps)
+
+	merged, err := MergeSchemas(base, ext)
+	if err != nil {
+		prettyFatal(t, "MergeSchemas", err)
+	}
+
+	const doc = `class: Workflow
+id: wf1
+inputs: x
+steps:
+  step1:
+    run: tool.cwl
+`
+
+	parsed, perr := Parse("test.yml", []byte(doc))
+	if perr != nil {
+		t.Fatalf("parsing: %v", perr)
+	}
+
+	resolved, lerr := merged.Loader.LoadNode(parsed, "test.yml")
+	if lerr != nil {
+		t.Fatalf("resolving (steps mapping broken — mapSubject likely clobbered): %v", lerr)
+	}
+
+	verr := merged.Schema.Validate(resolved.Root)
+	if verr != nil {
+		t.Errorf("validate: %v", verr)
 	}
 }

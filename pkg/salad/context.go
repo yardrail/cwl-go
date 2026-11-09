@@ -115,8 +115,9 @@ func MergeContexts(base, ext *Context) *Context {
 		}
 	}
 
-	maps.Copy(c.terms, base.terms)
+	// Base wins on term collision: copy ext first, then overwrite with base.
 	maps.Copy(c.terms, ext.terms)
+	maps.Copy(c.terms, base.terms)
 
 	seen := make(map[string]bool)
 	for _, id := range base.identifiers {

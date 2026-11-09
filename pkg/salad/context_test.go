@@ -600,6 +600,9 @@ func mergeContextFixture() *Context {
 		ScopedRef:         false,
 		IsIdentifier:      false,
 	}
+	ext.terms["class"] = &TermDef{
+		ID: "https://yardrail.com/cwl#class",
+	}
 	ext.identifiers = []string{"id", keyName}
 	ext.schemas = []string{"https://yardrail.com/cwl.ttl"}
 
@@ -645,6 +648,74 @@ func TestMergeContextsTerms(t *testing.T) {
 
 	if _, ok := merged.terms["capability"]; !ok {
 		t.Error("extension term lost")
+	}
+}
+
+func TestMergeContextsTermCollision(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		term   string
+		wantID string
+	}{
+		{
+			name:   "base wins on collision",
+			term:   fieldClass,
+			wantID: "@type",
+		},
+		{
+			name:   "extension-only term preserved",
+			term:   "capability",
+			wantID: "https://yardrail.com/cwl#capability",
+		},
+	}
+
+	merged := mergeContextFixture()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := merged.terms[tt.term]
+			if !ok {
+				t.Fatalf("term %q missing after merge", tt.term)
+			}
+
+			if got.ID != tt.wantID {
+				t.Errorf("terms[%q].ID = %q, want %q", tt.term, got.ID, tt.wantID)
+			}
+		})
+	}
+}
+
+func TestMergeContextsTermCollisionPreservesMapSubject(t *testing.T) {
+	t.Parallel()
+
+	base := newContext()
+	base.terms["steps"] = &TermDef{
+		ID:         "https://w3id.org/cwl/cwl#steps",
+		MapSubject: "id",
+	}
+
+	ext := newContext()
+	ext.terms["steps"] = &TermDef{
+		ID: "https://example.com/ext#steps",
+	}
+
+	merged := MergeContexts(base, ext)
+
+	got, ok := merged.terms["steps"]
+	if !ok {
+		t.Fatal("term \"steps\" missing after merge")
+	}
+
+	if got.MapSubject != "id" {
+		t.Errorf("terms[\"steps\"].MapSubject = %q, want %q", got.MapSubject, "id")
+	}
+
+	if got.ID != "https://w3id.org/cwl/cwl#steps" {
+		t.Errorf("terms[\"steps\"].ID = %q, want base IRI", got.ID)
 	}
 }
 

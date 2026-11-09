@@ -232,7 +232,7 @@ func TestParseJSONIsAcceptedByTheYAMLPath(t *testing.T) {
 	src := `{"class": "Tool", "inputs": [{"id": "a"}]}`
 	m := mustMap(t, mustParse(t, "doc.json", src))
 
-	if got, want := m.Keys(), []string{"class", fieldInputs}; !slices.Equal(got, want) {
+	if got, want := m.Keys(), []string{fieldClass, fieldInputs}; !slices.Equal(got, want) {
 		t.Errorf("Keys() = %v, want %v", got, want)
 	}
 

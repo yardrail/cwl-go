@@ -184,7 +184,7 @@ func TestShortName(t *testing.T) {
 		want string
 	}{
 		{name: "fragment with path", id: "https://w3id.org/cwl/cwl#Process/inputs", want: fieldInputs},
-		{name: "fragment without path", id: "https://w3id.org/cwl/cwl#Process", want: "Process"},
+		{name: "fragment without path", id: "https://w3id.org/cwl/cwl#Process", want: nameProcess},
 		{name: "path only", id: "https://example.org/a/b/c", want: "c"},
 		{name: "empty fragment falls back to the path", id: "https://example.org/a/b#", want: "b"},
 		{name: "bare name", id: "name", want: "name"},
@@ -206,7 +206,7 @@ func TestRecordFieldLookup(t *testing.T) {
 	t.Parallel()
 
 	inputs := &Field{Name: "https://w3id.org/cwl/cwl#Process/inputs", Type: Primitive(PrimitiveString)}
-	outputs := &Field{Name: "outputs", Type: Primitive(PrimitiveString), InheritedFrom: "Process"}
+	outputs := &Field{Name: "outputs", Type: Primitive(PrimitiveString), InheritedFrom: nameProcess}
 	rec := &RecordType{Name: "https://w3id.org/cwl/cwl#Tool", Fields: []*Field{inputs, outputs}}
 
 	if got, ok := rec.Field("https://w3id.org/cwl/cwl#Process/inputs"); !ok || got != inputs {
@@ -251,7 +251,7 @@ func TestRecordNilIsSafe(t *testing.T) {
 func TestRecordFieldsKeepOrder(t *testing.T) {
 	t.Parallel()
 
-	names := []string{"class", "id", fieldInputs, "outputs", "requirements", "hints"}
+	names := []string{fieldClass, "id", fieldInputs, "outputs", "requirements", "hints"}
 
 	fields := make([]*Field, 0, len(names))
 	for _, name := range names {

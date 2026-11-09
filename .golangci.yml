@@ -203,6 +203,10 @@ linters:
         text: "G401|G505"
         path: "pkg/cwlexec/.*_digest\\.go$"
       - linters:
+          - revive
+        text: "file-length-limit"
+        path: "_test\\.go$"
+      - linters:
           - godoclint
         text: "symbol should have a godoc"
         path: "_test\\.go$"

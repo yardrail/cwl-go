@@ -78,6 +78,7 @@ func (e subworkflowEnv) childConfig(call *StepCall) *Config {
 		EvalTimeout:         0,
 		MaxParallel:         0,
 		LenientRequirements: false,
+		JSGlobals:           nil,
 		ExecuteFunc:         nil,
 	}
 	if e.cfg != nil {

@@ -487,7 +487,7 @@ func TestSetJSGlobalsBranches(t *testing.T) {
 	t.Run("an unencodable context", func(t *testing.T) {
 		t.Parallel()
 
-		err := setJSGlobals(goja.New(), &EvalContext{Self: math.NaN()})
+		err := setJSGlobals(goja.New(), &EvalContext{Self: math.NaN()}, nil)
 		if !errors.Is(err, ErrExpressionEval) {
 			t.Errorf("setJSGlobals = %v, want ErrExpressionEval", err)
 		}
@@ -503,7 +503,7 @@ func TestSetJSGlobalsBranches(t *testing.T) {
 			t.Fatalf("RunString: %v", err)
 		}
 
-		err = setJSGlobals(sandbox, &EvalContext{})
+		err = setJSGlobals(sandbox, &EvalContext{}, nil)
 		if !errors.Is(err, ErrExpressionEval) {
 			t.Errorf("setJSGlobals = %v, want ErrExpressionEval", err)
 		}
@@ -521,7 +521,7 @@ func TestSetJSGlobalsBranches(t *testing.T) {
 			t.Fatalf("RunString: %v", err)
 		}
 
-		err = setJSGlobals(sandbox, &EvalContext{})
+		err = setJSGlobals(sandbox, &EvalContext{}, nil)
 		if !errors.Is(err, ErrExpressionEval) {
 			t.Errorf("setJSGlobals = %v, want ErrExpressionEval", err)
 		}
@@ -630,4 +630,19 @@ func TestNumberValueFallsBackToStringForUnparsableNumbers(t *testing.T) {
 	if got := numberValue(json.Number(text)); got != text {
 		t.Errorf("numberValue(%q) = %#v, want the original text", text, got)
 	}
+}
+
+func TestEvalHostGlobalFunction(t *testing.T) {
+	t.Parallel()
+
+	globals := map[string]any{
+		"yr":     map[string]any{"upper": strings.ToUpper},
+		"inputs": "ignored",
+	}
+	evaluator := NewEvaluator(WithJS(nil), WithGlobals(globals))
+
+	runEvalCases(t, evaluator, []evalCase{
+		{name: "a host function", expr: `$(yr.upper("a"))`, want: "A"},
+		{name: "a colliding name is ignored", expr: "$(inputs.s)", want: "a"},
+	})
 }

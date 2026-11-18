@@ -86,6 +86,7 @@ func execute(
 		MaxParallel:         0,
 		LenientRequirements: false,
 		JSGlobals:           nil,
+		JSTimeSource:        nil,
 		ExecuteFunc:         nil,
 	}
 	registry := cwlexec.NewRegistry()

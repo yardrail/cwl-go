@@ -156,6 +156,7 @@ func (c *config) execConfig(stderr io.Writer) (*cwlexec.Config, error) {
 		MaxParallel:         0,
 		LenientRequirements: false,
 		JSGlobals:           nil,
+		JSTimeSource:        nil,
 		ExecuteFunc:         nil,
 	}, nil
 }

@@ -47,7 +47,9 @@ type Config struct {
 	Resources         ResourceBudget // Machine capacity ceiling for resource selection.
 	EvalTimeout       time.Duration  // Per-expression timeout; zero means default.
 	// JSGlobals are host values and Go functions defined in every JavaScript expression.
-	JSGlobals           map[string]any
+	JSGlobals map[string]any
+	// JSTimeSource is the clock behind JavaScript Date. Nil means the system clock.
+	JSTimeSource        func() time.Time
 	MaxParallel         int  // Max concurrent handlers; 0 = unbounded.
 	LenientRequirements bool // Bypass unknown-requirement gate.
 	// ExecuteFunc replaces the default goroutine-based execution loop. When
@@ -106,6 +108,7 @@ func NewRunner(ctx context.Context, process cwlcore.Process, registry *Registry,
 		MaxParallel:         0,
 		LenientRequirements: false,
 		JSGlobals:           nil,
+		JSTimeSource:        nil,
 		ExecuteFunc:         nil,
 	}
 	if cfg != nil {
@@ -209,6 +212,10 @@ func (c *Config) evalOptions() []cwlcore.EvalOption {
 
 	if c.JSGlobals != nil {
 		opts = append(opts, cwlcore.WithGlobals(c.JSGlobals))
+	}
+
+	if c.JSTimeSource != nil {
+		opts = append(opts, cwlcore.WithTimeSource(c.JSTimeSource))
 	}
 
 	return opts

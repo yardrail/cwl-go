@@ -646,3 +646,14 @@ func TestEvalHostGlobalFunction(t *testing.T) {
 		{name: "a colliding name is ignored", expr: "$(inputs.s)", want: "a"},
 	})
 }
+
+func TestEvalTimeSource(t *testing.T) {
+	t.Parallel()
+
+	fixed := time.Date(2026, time.November, 18, 17, 0, 0, 0, time.UTC)
+	evaluator := NewEvaluator(WithJS(nil), WithTimeSource(func() time.Time { return fixed }))
+
+	runEvalCases(t, evaluator, []evalCase{
+		{name: "new Date", expr: "$(new Date().toISOString())", want: "2026-11-18T17:00:00.000Z"},
+	})
+}

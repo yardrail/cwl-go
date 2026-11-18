@@ -68,6 +68,9 @@ func (e *Evaluator) runJS(src string, ctx *EvalContext) (any, error) {
 	}
 
 	sandbox := goja.New()
+	if e.now != nil {
+		sandbox.SetTimeSource(e.now)
+	}
 
 	err = e.prepare(sandbox, ctx)
 	if err != nil {

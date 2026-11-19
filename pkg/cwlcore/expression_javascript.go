@@ -68,6 +68,9 @@ func (e *Evaluator) runJS(src string, ctx *EvalContext) (any, error) {
 	}
 
 	sandbox := goja.New()
+	if e.now != nil {
+		sandbox.SetTimeSource(e.now)
+	}
 
 	err = e.prepare(sandbox, ctx)
 	if err != nil {
@@ -84,7 +87,7 @@ func (e *Evaluator) runJS(src string, ctx *EvalContext) (any, error) {
 
 // prepare installs the parameter context and runs the expressionLib.
 func (e *Evaluator) prepare(sandbox *goja.Runtime, ctx *EvalContext) error {
-	err := setJSGlobals(sandbox, ctx)
+	err := setJSGlobals(sandbox, ctx, e.globals)
 	if err != nil {
 		return err
 	}
@@ -171,8 +174,8 @@ func convertJSError(err error, timeout time.Duration) error {
 	return fmt.Errorf("%w: %w", ErrExpressionEval, err)
 }
 
-// setJSGlobals defines inputs, self, and runtime in the sandbox.
-func setJSGlobals(sandbox *goja.Runtime, ctx *EvalContext) error {
+// setJSGlobals defines inputs, self, runtime and the host globals in the sandbox.
+func setJSGlobals(sandbox *goja.Runtime, ctx *EvalContext, globals map[string]any) error {
 	context := map[string]any{
 		rootInputs:  ctx.Inputs,
 		rootSelf:    ctx.Self,
@@ -191,6 +194,22 @@ func setJSGlobals(sandbox *goja.Runtime, ctx *EvalContext) error {
 
 	for _, name := range []string{rootInputs, rootSelf, rootRuntime} {
 		err := sandbox.Set(name, object.Get(name))
+		if err != nil {
+			return fmt.Errorf("%w: cannot define %s: %w", ErrExpressionEval, name, err)
+		}
+	}
+
+	return setHostGlobals(sandbox, globals)
+}
+
+// setHostGlobals defines the host-provided globals, skipping the parameter-context names.
+func setHostGlobals(sandbox *goja.Runtime, globals map[string]any) error {
+	for name, value := range globals {
+		if name == rootInputs || name == rootSelf || name == rootRuntime {
+			continue
+		}
+
+		err := sandbox.Set(name, value)
 		if err != nil {
 			return fmt.Errorf("%w: cannot define %s: %w", ErrExpressionEval, name, err)
 		}

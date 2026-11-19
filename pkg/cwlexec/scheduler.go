@@ -39,15 +39,19 @@ type Config struct {
 	// OutDir is the base for invocation output directories.
 	OutDir string
 	// TmpDirPrefix is the base for invocation scratch directories.
-	TmpDirPrefix        string
-	OnError             OnError
-	ContainerExecutor   ContainerExecutor // Nil means containers unsupported.
-	OutputResolver      OutputResolver    // Nil means local filesystem.
-	Containers          ContainerPolicy
-	Resources           ResourceBudget // Machine capacity ceiling for resource selection.
-	EvalTimeout         time.Duration  // Per-expression timeout; zero means default.
-	MaxParallel         int            // Max concurrent handlers; 0 = unbounded.
-	LenientRequirements bool           // Bypass unknown-requirement gate.
+	TmpDirPrefix      string
+	OnError           OnError
+	ContainerExecutor ContainerExecutor // Nil means containers unsupported.
+	OutputResolver    OutputResolver    // Nil means local filesystem.
+	Containers        ContainerPolicy
+	Resources         ResourceBudget // Machine capacity ceiling for resource selection.
+	EvalTimeout       time.Duration  // Per-expression timeout; zero means default.
+	// JSGlobals are host values and Go functions defined in every JavaScript expression.
+	JSGlobals map[string]any
+	// JSTimeSource is the clock behind JavaScript Date. Nil means the system clock.
+	JSTimeSource        func() time.Time
+	MaxParallel         int  // Max concurrent handlers; 0 = unbounded.
+	LenientRequirements bool // Bypass unknown-requirement gate.
 	// ExecuteFunc replaces the default goroutine-based execution loop. When
 	// nil, the runner uses goroutines and Go channels. The function must
 	// call loop.Pending() to get ready work, run each invocation, and feed
@@ -103,6 +107,8 @@ func NewRunner(ctx context.Context, process cwlcore.Process, registry *Registry,
 		EvalTimeout:         0,
 		MaxParallel:         0,
 		LenientRequirements: false,
+		JSGlobals:           nil,
+		JSTimeSource:        nil,
 		ExecuteFunc:         nil,
 	}
 	if cfg != nil {
@@ -198,11 +204,21 @@ func (c *Config) selectResources(request ResourceRequest) (Resources, error) {
 
 // evalOptions renders the configuration's expression settings as evaluator options.
 func (c *Config) evalOptions() []cwlcore.EvalOption {
-	if c.EvalTimeout <= 0 {
-		return nil
+	var opts []cwlcore.EvalOption
+
+	if c.EvalTimeout > 0 {
+		opts = append(opts, cwlcore.WithTimeout(c.EvalTimeout))
 	}
 
-	return []cwlcore.EvalOption{cwlcore.WithTimeout(c.EvalTimeout)}
+	if c.JSGlobals != nil {
+		opts = append(opts, cwlcore.WithGlobals(c.JSGlobals))
+	}
+
+	if c.JSTimeSource != nil {
+		opts = append(opts, cwlcore.WithTimeSource(c.JSTimeSource))
+	}
+
+	return opts
 }
 
 // checkOptions renders the configuration's unknown-requirement policy as check options.

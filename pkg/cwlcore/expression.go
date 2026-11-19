@@ -138,6 +138,12 @@ type Evaluator struct {
 	// timeout bounds one JavaScript evaluation.
 	timeout time.Duration
 
+	// globals are host-provided values defined in every JavaScript sandbox.
+	globals map[string]any
+
+	// now is the clock behind JavaScript Date. Nil means the system clock.
+	now func() time.Time
+
 	// jsEnabled mirrors InlineJavascriptRequirement being in scope.
 	jsEnabled bool
 }
@@ -147,6 +153,8 @@ var referencesOnly = &Evaluator{
 	libSrc:    "",
 	programs:  programCache{programs: nil, mu: sync.RWMutex{}},
 	timeout:   DefaultEvalTimeout,
+	globals:   nil,
+	now:       nil,
 	jsEnabled: false,
 }
 
@@ -159,6 +167,8 @@ func NewEvaluator(opts ...EvalOption) *Evaluator {
 		libSrc:    "",
 		programs:  programCache{programs: nil, mu: sync.RWMutex{}},
 		timeout:   DefaultEvalTimeout,
+		globals:   nil,
+		now:       nil,
 		jsEnabled: false,
 	}
 
@@ -187,6 +197,21 @@ func WithTimeout(d time.Duration) EvalOption {
 		}
 
 		e.timeout = d
+	}
+}
+
+// WithGlobals defines each entry as a global in every JavaScript expression.
+// Values may be Go functions. Names colliding with inputs, self or runtime are ignored.
+func WithGlobals(globals map[string]any) EvalOption {
+	return func(e *Evaluator) {
+		e.globals = globals
+	}
+}
+
+// WithTimeSource makes new Date() and Date.now() in expressions read now.
+func WithTimeSource(now func() time.Time) EvalOption {
+	return func(e *Evaluator) {
+		e.now = now
 	}
 }
 

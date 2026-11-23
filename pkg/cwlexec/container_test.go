@@ -343,22 +343,6 @@ func TestContainerNetworkIsOffByDefault(t *testing.T) {
 	}
 }
 
-func TestContainerSilencesTheEngineLogWhenStdoutIsCaptured(t *testing.T) {
-	t.Parallel()
-
-	ctr := ctrContainerSpec(ctrBox(), false)
-	if got := ctrArgv(ctr, ctrSpec()); slices.Contains(got, "--log-driver=none") {
-		t.Errorf("argv = %q, want no log driver argument with nothing captured", got)
-	}
-
-	ctr = ctrContainerSpec(ctrBox(), false)
-	ctr.Stdout = ctrHostOut + "/" + execOutName
-
-	if got := ctrArgv(ctr, ctrSpec()); !slices.Contains(got, "--log-driver=none") {
-		t.Errorf("argv = %q, want the engine's own log turned off", got)
-	}
-}
-
 func TestContainerDropsTheInheritedPath(t *testing.T) {
 	t.Parallel()
 

@@ -103,14 +103,17 @@ func (i *dockerCLIInvocation) StageFS() WriteFS { return i.stgfs }
 func (i *dockerCLIInvocation) OutFS() WriteFS   { return i.outfs }
 func (i *dockerCLIInvocation) TmpFS() WriteFS   { return i.tmpfs }
 
-func (i *dockerCLIInvocation) Run(ctx context.Context, spec *ProcessSpec) (int, error) {
+func (i *dockerCLIInvocation) Run(ctx context.Context, spec *ProcessSpec) (*ProcessResult, error) {
 	argv := i.executor.dockerArgv(i.ctr, spec)
 
 	wrapped := *spec
 	wrapped.Command = &CommandLine{Args: dockerPlainArgs(argv), Shell: false}
 	wrapped.Env = os.Environ()
 
-	return RunProcess(ctx, &wrapped)
+	code, err := RunProcess(ctx, &wrapped)
+
+	// Streams go to files per spec; no in-memory capture (CaptureLimit 0).
+	return &ProcessResult{ExitCode: code}, err //nolint:exhaustruct_v5 // no capture fields for docker CLI exec
 }
 
 func (i *dockerCLIInvocation) Close() error {
@@ -195,7 +198,6 @@ func (d *DockerCLIExecutor) dockerArgv(ctr *ContainerSpec, spec *ProcessSpec) []
 	argv = append(argv, "--workdir="+ctr.WorkDir)
 	argv = append(argv, dockerReadOnlyModes[ctr.ReadOnlyRoot]...)
 	argv = append(argv, dockerNetworkModes[ctr.NetworkAccess]...)
-	argv = append(argv, dockerLogArgs(ctr.Stdout)...)
 	argv = append(argv, dockerUserArgs(ctr)...)
 	argv = append(argv, dockerRemoveModes[ctr.Remove]...)
 	argv = append(argv, dockerEnvArgs(spec.Env)...)
@@ -266,15 +268,6 @@ var dockerNetworkModes = map[bool][]string{true: nil, false: {"--net=none"}}
 var dockerReadOnlyModes = map[bool][]string{true: {"--read-only=true"}, false: nil}
 
 var dockerRemoveModes = map[bool][]string{true: {"--rm"}, false: nil}
-
-// dockerLogArgs disables Docker log capture when stdout is being captured to a file.
-func dockerLogArgs(stdout string) []string {
-	if stdout == "" {
-		return nil
-	}
-
-	return []string{"--log-driver=none"}
-}
 
 // dockerUserArgs adds --user matching this process's uid:gid.
 func dockerUserArgs(ctr *ContainerSpec) []string {

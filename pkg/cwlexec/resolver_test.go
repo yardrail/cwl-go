@@ -59,9 +59,11 @@ func (m *mockRewriterInvocation) StageFS() WriteFS { return m.stageFS }
 
 func (m *mockRewriterInvocation) OutFS() WriteFS { return m.outFS }
 
-func (m *mockRewriterInvocation) TmpFS() WriteFS                                   { return m.tmpFS }
-func (*mockRewriterInvocation) Run(_ context.Context, _ *ProcessSpec) (int, error) { return 0, nil }
-func (*mockRewriterInvocation) Close() error                                       { return nil }
+func (m *mockRewriterInvocation) TmpFS() WriteFS { return m.tmpFS }
+func (*mockRewriterInvocation) Run(_ context.Context, _ *ProcessSpec) (*ProcessResult, error) {
+	return &ProcessResult{ExitCode: 0}, nil
+}
+func (*mockRewriterInvocation) Close() error { return nil }
 
 func (m *mockRewriterInvocation) RewriteOutputPaths(outputs map[string]any) map[string]any {
 	rewritten := make(map[string]any, len(outputs))

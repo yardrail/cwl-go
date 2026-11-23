@@ -104,6 +104,11 @@ type Result struct {
 	Outputs map[string]any
 	// Suspension is set iff Status is StatusSuspended.
 	Suspension *Suspension
+	// Process carries diagnostic execution detail from the tool run (exit
+	// code, captured streams, termination info) for observers. It is set for
+	// CommandLineTool steps — on success and on failure — and nil for steps
+	// that run no process. It is not persisted in run state.
+	Process *ProcessResult
 }
 
 // Suspension is a handle for a paused invocation. Token and Payload are opaque to cwlexec.
@@ -116,17 +121,17 @@ type Suspension struct {
 
 // Success returns a successful Result carrying outputs.
 func Success(outputs map[string]any) (Result, error) {
-	return Result{Status: StatusSuccess, Outputs: outputs, Suspension: nil}, nil
+	return Result{Status: StatusSuccess, Outputs: outputs, Suspension: nil, Process: nil}, nil
 }
 
 // PermanentFail returns a permanently failed Result.
 func PermanentFail(err error) (Result, error) {
-	return Result{Status: StatusPermanentFail, Outputs: nil, Suspension: nil}, err
+	return Result{Status: StatusPermanentFail, Outputs: nil, Suspension: nil, Process: nil}, err
 }
 
 // TemporaryFail returns a temporarily failed Result. cwlexec does not retry.
 func TemporaryFail(err error) (Result, error) {
-	return Result{Status: StatusTemporaryFail, Outputs: nil, Suspension: nil}, err
+	return Result{Status: StatusTemporaryFail, Outputs: nil, Suspension: nil, Process: nil}, err
 }
 
 // Suspend returns a suspended Result. Addressing fields are filled from the call.
@@ -138,7 +143,7 @@ func (c *StepCall) Suspend(token string, payload []byte) (Result, error) {
 		Payload:      payload,
 	}
 
-	return Result{Status: StatusSuspended, Outputs: nil, Suspension: suspension}, nil
+	return Result{Status: StatusSuspended, Outputs: nil, Suspension: suspension, Process: nil}, nil
 }
 
 // Evaluator returns Eval if set, otherwise derives one from Requirements via [EvaluatorFor].
@@ -196,19 +201,21 @@ func (c *StepCall) RuntimeContext() cwlcore.RuntimeContext {
 }
 
 // Outcome normalizes a handler return into what the scheduler acts on.
-// Non-nil error with non-failure status becomes PermanentFail.
+// Non-nil error with non-failure status becomes PermanentFail. Process is
+// preserved on failures so observers can surface captured output.
 func Outcome(result Result, err error) (Result, error) {
 	if err != nil {
+		status := StatusPermanentFail
 		if result.Status == StatusPermanentFail || result.Status == StatusTemporaryFail {
-			return Result{Status: result.Status, Outputs: nil, Suspension: nil}, err
+			status = result.Status
 		}
 
-		return Result{Status: StatusPermanentFail, Outputs: nil, Suspension: nil}, err
+		return Result{Status: status, Outputs: nil, Suspension: nil, Process: result.Process}, err
 	}
 
 	invalid := result.validate()
 	if invalid != nil {
-		return Result{Status: StatusPermanentFail, Outputs: nil, Suspension: nil}, invalid
+		return Result{Status: StatusPermanentFail, Outputs: nil, Suspension: nil, Process: result.Process}, invalid
 	}
 
 	return result, nil

@@ -20,9 +20,34 @@ type Invocation interface {
 	StageFS() WriteFS
 	OutFS() WriteFS
 	TmpFS() WriteFS
-	// Run executes the tool and returns its exit code. Non-zero is not an error.
-	Run(ctx context.Context, spec *ProcessSpec) (int, error)
+	// Run executes the tool. A non-zero [ProcessResult.ExitCode] is not an error.
+	// On error, Run may still return a non-nil ProcessResult carrying whatever
+	// was captured before the failure.
+	Run(ctx context.Context, spec *ProcessSpec) (*ProcessResult, error)
 	Close() error
+}
+
+// ProcessResult is everything one tool execution produced besides its collected
+// outputs. Captured streams are a bounded diagnostic copy for journaling:
+// declared stdout/stderr File outputs are written losslessly per
+// [ProcessSpec] and are unaffected by CaptureLimit.
+type ProcessResult struct {
+	ExitCode int
+	// Stdout and Stderr are captured prefixes, each at most CaptureLimit bytes.
+	Stdout []byte
+	Stderr []byte
+	// StdoutTruncated and StderrTruncated report whether the corresponding
+	// stream exceeded CaptureLimit and was cut off.
+	StdoutTruncated bool
+	StderrTruncated bool
+	// CaptureLimit is the per-stream byte cap the executor applied.
+	// Zero means the executor does not capture streams in memory.
+	CaptureLimit int
+	// TerminationReason and TerminationMessage describe how the containing
+	// runtime ended the process (e.g. a Kubernetes containerStatus reason);
+	// empty for local execution.
+	TerminationReason  string
+	TerminationMessage string
 }
 
 // ContainerSpec describes one container invocation.
@@ -35,8 +60,6 @@ type ContainerSpec struct {
 	ReadOnlyRoot  bool
 	MatchUser     bool
 	Remove        bool
-	// Stdout is the host capture path, or "" if uncaptured.
-	Stdout string
 }
 
 // Mount is one bind mount from host to container.

@@ -114,7 +114,6 @@ func (c *container) containerSpec(plan []PathMapping, network bool) *ContainerSp
 		ReadOnlyRoot:  !c.policy.NoReadOnly,
 		MatchUser:     !c.policy.NoMatchUser,
 		Remove:        !c.policy.Keep,
-		Stdout:        "",
 	}
 }
 

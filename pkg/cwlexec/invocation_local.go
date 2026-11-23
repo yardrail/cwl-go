@@ -62,8 +62,11 @@ func (l *localInvocation) StageFS() WriteFS { return l.stgfs }
 func (l *localInvocation) OutFS() WriteFS   { return l.outfs }
 func (l *localInvocation) TmpFS() WriteFS   { return l.tmpfs }
 
-func (l *localInvocation) Run(ctx context.Context, spec *ProcessSpec) (int, error) {
-	return RunProcess(ctx, spec)
+func (l *localInvocation) Run(ctx context.Context, spec *ProcessSpec) (*ProcessResult, error) {
+	code, err := RunProcess(ctx, spec)
+
+	// Streams go to files per spec; no in-memory capture (CaptureLimit 0).
+	return &ProcessResult{ExitCode: code}, err //nolint:exhaustruct_v5 // no capture fields for local exec
 }
 
 func (l *localInvocation) Close() error {

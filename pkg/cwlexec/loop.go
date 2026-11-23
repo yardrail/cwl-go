@@ -81,7 +81,7 @@ func (l *runLoop) execute(ctx context.Context) error {
 			return ctx.Err()
 		case finished := <-l.done:
 			l.running--
-			l.record(finished)
+			l.record(&finished)
 		}
 	}
 }
@@ -265,11 +265,11 @@ func (l *runLoop) launch(ctx context.Context, jobs []runJob, step *plannedStep, 
 	call, err := l.newCall(job, step)
 	if err != nil {
 		l.record(
-			jobDone{
+			&jobDone{
 				err:    err,
 				step:   step,
 				job:    job,
-				result: Result{Status: "", Outputs: nil, Suspension: nil},
+				result: Result{Status: "", Outputs: nil, Suspension: nil, Process: nil},
 				index:  index,
 			},
 		)
@@ -290,7 +290,7 @@ func (l *runLoop) launch(ctx context.Context, jobs []runJob, step *plannedStep, 
 }
 
 // record folds an invocation's result into run state via [Outcome].
-func (l *runLoop) record(finished jobDone) {
+func (l *runLoop) record(finished *jobDone) {
 	step := finished.step
 	recorded := l.state.step(step.id)
 	job := &recorded.Jobs[finished.index]

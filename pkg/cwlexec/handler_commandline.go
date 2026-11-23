@@ -364,6 +364,8 @@ func materializeEach(mapper *PathMap, values []any) error {
 }
 
 // execute builds the command line, runs the tool, and collects outputs.
+// Every return after the tool ran carries the ProcessResult on [Result.Process],
+// including failures, so observers can surface captured output.
 func (i *invocation) execute(ctx context.Context) (Result, error) {
 	spec, err := i.spec()
 	if err != nil {
@@ -372,30 +374,30 @@ func (i *invocation) execute(ctx context.Context) (Result, error) {
 
 	i.call.Log().Debug("running tool", "step", i.call.StepID, "argv", spec.argv(), "dir", spec.Dir)
 
-	code, err := i.inv.Run(ctx, spec)
+	res, err := i.inv.Run(ctx, spec)
 	if err != nil {
-		return PermanentFail(fmt.Errorf("%s: %w", describe(i.call), err))
+		return withProcess(res)(PermanentFail(fmt.Errorf("%s: %w", describe(i.call), err)))
 	}
 
 	// Restore symlinks that were bind-mounted during container execution.
 	err = i.mapper.Relink(i.inv.OutFS(), i.inv.StageFS())
 	if err != nil {
-		return PermanentFail(fmt.Errorf("%s: %w", describe(i.call), err))
+		return withProcess(res)(PermanentFail(fmt.Errorf("%s: %w", describe(i.call), err)))
 	}
 
-	status := ClassifyExit(i.tool, code)
+	status := ClassifyExit(i.tool, res.ExitCode)
 	if status != StatusSuccess {
-		return Result{Status: status, Outputs: nil, Suspension: nil}, fmt.Errorf(
+		return Result{Status: status, Outputs: nil, Suspension: nil, Process: res}, fmt.Errorf(
 			"%s: %w: %d",
 			describe(i.call),
 			ErrToolExit,
-			code,
+			res.ExitCode,
 		)
 	}
 
-	outputs, err := i.collect(code)
+	outputs, err := i.collect(res.ExitCode)
 	if err != nil {
-		return PermanentFail(fmt.Errorf("%s: %w", describe(i.call), err))
+		return withProcess(res)(PermanentFail(fmt.Errorf("%s: %w", describe(i.call), err)))
 	}
 
 	if rw, ok := i.inv.(OutputRewriter); ok {
@@ -403,11 +405,21 @@ func (i *invocation) execute(ctx context.Context) (Result, error) {
 
 		err = ValidateOutputPaths(outputs)
 		if err != nil {
-			return PermanentFail(fmt.Errorf("%s: rewritten outputs: %w", describe(i.call), err))
+			return withProcess(res)(PermanentFail(fmt.Errorf("%s: rewritten outputs: %w", describe(i.call), err)))
 		}
 	}
 
-	return Success(outputs)
+	return withProcess(res)(Success(outputs))
+}
+
+// withProcess attaches the tool's ProcessResult to a handler outcome. res may be
+// nil (e.g. the run failed before producing a result).
+func withProcess(res *ProcessResult) func(Result, error) (Result, error) {
+	return func(result Result, err error) (Result, error) {
+		result.Process = res
+
+		return result, err
+	}
 }
 
 // spec resolves the tool's argv, environment, redirections, and time limit.

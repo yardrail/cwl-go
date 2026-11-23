@@ -89,9 +89,9 @@ func (d *DispatchLoop) buildInvocation(
 ) (StepInvocation, bool) {
 	call, err := d.l.newCall(job, step)
 	if err != nil {
-		d.l.record(jobDone{
+		d.l.record(&jobDone{
 			step: step, job: job, index: index,
-			result: Result{Status: "", Outputs: nil, Suspension: nil}, err: err,
+			result: Result{Status: "", Outputs: nil, Suspension: nil, Process: nil}, err: err,
 		})
 
 		return StepInvocation{id: 0, fn: nil, complete: nil}, false
@@ -107,7 +107,7 @@ func (d *DispatchLoop) buildInvocation(
 		},
 		complete: func(result Result, err error) {
 			d.l.running--
-			d.l.record(jobDone{step: step, job: job, index: index, result: result, err: err})
+			d.l.record(&jobDone{step: step, job: job, index: index, result: result, err: err})
 		},
 	}
 

@@ -122,9 +122,9 @@ func (c *container) containerMounts(plan []PathMapping) []Mount {
 	mounts := make([]Mount, 0, len(plan)+containerWholeMounts)
 
 	mounts = append(mounts,
-		Mount{Source: c.hostOutdir, Target: c.toolOutdir, ReadOnly: false},
-		Mount{Source: c.hostTmpdir, Target: containerTmpdir, ReadOnly: false},
-		Mount{Source: c.hostStage, Target: containerStagedir, ReadOnly: false})
+		Mount{Source: c.hostOutdir, Target: c.toolOutdir, ReadOnly: false, Role: MountRoleOut},
+		Mount{Source: c.hostTmpdir, Target: containerTmpdir, ReadOnly: false, Role: MountRoleTmp},
+		Mount{Source: c.hostStage, Target: containerStagedir, ReadOnly: false, Role: MountRoleStage})
 
 	for index := range plan {
 		mapping := &plan[index]
@@ -135,7 +135,7 @@ func (c *container) containerMounts(plan []PathMapping) []Mount {
 		}
 
 		mounts = append(mounts, Mount{
-			Source: source, Target: mapping.Target, ReadOnly: !mapping.Writable,
+			Source: source, Target: mapping.Target, ReadOnly: !mapping.Writable, Role: MountRoleData,
 		})
 	}
 

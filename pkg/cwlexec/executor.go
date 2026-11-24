@@ -53,7 +53,8 @@ type ProcessResult struct {
 // ContainerSpec describes one container invocation.
 type ContainerSpec struct {
 	Image string
-	// Mounts are bind mounts. Order matters: whole-directory mounts come first.
+	// Mounts are bind mounts. The runtime directories (outdir, tmpdir,
+	// staging) are identified by [Mount.Role], not by position.
 	Mounts        []Mount
 	WorkDir       string
 	NetworkAccess bool
@@ -62,9 +63,55 @@ type ContainerSpec struct {
 	Remove        bool
 }
 
+// OutDir returns the host source of the CWL runtime output directory mount,
+// or "" if absent.
+func (c *ContainerSpec) OutDir() string { return c.roleSource(MountRoleOut) }
+
+// TmpDir returns the host source of the CWL runtime temporary directory
+// mount, or "" if absent.
+func (c *ContainerSpec) TmpDir() string { return c.roleSource(MountRoleTmp) }
+
+// StagingDir returns the host source of the input staging directory mount,
+// or "" if absent.
+func (c *ContainerSpec) StagingDir() string { return c.roleSource(MountRoleStage) }
+
+// MountByRole returns the first mount tagged with role, and whether one
+// exists. Use it when the container-side Target (or ReadOnly flag) is needed
+// rather than the host Source.
+func (c *ContainerSpec) MountByRole(role MountRole) (Mount, bool) {
+	for i := range c.Mounts {
+		if c.Mounts[i].Role == role {
+			return c.Mounts[i], true
+		}
+	}
+
+	return Mount{}, false //nolint:exhaustruct_v5 // zero Mount signals absence
+}
+
+func (c *ContainerSpec) roleSource(role MountRole) string {
+	m, _ := c.MountByRole(role)
+
+	return m.Source
+}
+
+// MountRole identifies what a mount provides to the tool container.
+type MountRole int
+
+const (
+	// MountRoleData is a per-placement input or output file/directory mount.
+	MountRoleData MountRole = iota
+	// MountRoleOut is the CWL runtime output directory (runtime.outdir).
+	MountRoleOut
+	// MountRoleTmp is the CWL runtime temporary directory (runtime.tmpdir).
+	MountRoleTmp
+	// MountRoleStage is the input staging directory.
+	MountRoleStage
+)
+
 // Mount is one bind mount from host to container.
 type Mount struct {
 	Source   string
 	Target   string
 	ReadOnly bool
+	Role     MountRole
 }

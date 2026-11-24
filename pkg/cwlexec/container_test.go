@@ -171,13 +171,14 @@ func TestContainerMountsPairHostAndToolPaths(t *testing.T) {
 	}
 
 	want := []Mount{
-		// The three directories mounted whole come first, so that a placement's own mount
-		// is applied over the one it falls inside rather than under it.
-		{Source: ctrHostOut, Target: ctrToolOut},
-		{Source: ctrHostTmp, Target: containerTmpdir},
-		{Source: ctrHostStage, Target: containerStagedir},
+		// The three role-tagged runtime directories are mounted whole and come first,
+		// so that a placement's own mount is applied over the one it falls inside
+		// rather than under it.
+		{Source: ctrHostOut, Target: ctrToolOut, Role: MountRoleOut},
+		{Source: ctrHostTmp, Target: containerTmpdir, Role: MountRoleTmp},
+		{Source: ctrHostStage, Target: containerStagedir, Role: MountRoleStage},
 		// The staged file keeps its bytes where they are, so it needs one of its own.
-		{Source: ctrSource, Target: ctrToolOut + "/reads.bam", ReadOnly: true},
+		{Source: ctrSource, Target: ctrToolOut + "/reads.bam", ReadOnly: true, Role: MountRoleData},
 		// The literal was written inside the output directory, which is already mounted.
 	}
 

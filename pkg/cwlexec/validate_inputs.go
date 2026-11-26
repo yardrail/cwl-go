@@ -30,6 +30,8 @@ func WithRejectUnknown() ValidateOption {
 
 // ValidateInputs type-checks inputs against the process's declared parameters.
 // Returns a merged map with defaults filled in, or a joined error of all violations.
+// A whole-numbered float supplied for an int or long (as encoding/json decodes every number)
+// is narrowed to an int64; one with a fractional part is a violation.
 func ValidateInputs(
 	process cwlcore.Process,
 	inputs map[string]any,
@@ -101,7 +103,7 @@ func resolveInputValue(decl *portDecl, inputs, merged map[string]any) error {
 			return fmt.Errorf("input %q: %w", decl.Name, err)
 		}
 
-		merged[decl.Name] = value
+		merged[decl.Name] = coerceIntegers(value, decl.Type)
 
 		return nil
 	}

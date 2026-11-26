@@ -191,6 +191,7 @@ func (l *runLoop) gateJobs(step *plannedStep, recorded *stepState) error {
 			return err
 		}
 
+		resolved = coerceIntegerInputs(resolved, step.pending.types)
 		jobs[index].inputs = resolved
 
 		admitted, err := EvalWhen(step.when, resolved, step.eval)

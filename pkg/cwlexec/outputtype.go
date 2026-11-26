@@ -92,7 +92,11 @@ func primitiveMatches(value any, name string) bool {
 		_, ok := value.(string)
 
 		return ok
-	case cwlcore.PrimitiveInt, cwlcore.PrimitiveLong, cwlcore.PrimitiveFloat, cwlcore.PrimitiveDouble:
+	case cwlcore.PrimitiveInt, cwlcore.PrimitiveLong:
+		_, ok := integerValue(value)
+
+		return ok
+	case cwlcore.PrimitiveFloat, cwlcore.PrimitiveDouble:
 		_, ok := asNumber(value)
 
 		return ok
